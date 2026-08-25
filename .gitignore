@@ -1,0 +1,21 @@
+# Android Studio and Gradle local state
+.gradle/
+.idea/
+*.iml
+build/
+**/build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Signing material and credentials
+*.jks
+*.keystore
+keystore.properties
+service-account*.json
+
+# Operating-system and editor files
+.DS_Store
+Thumbs.db
+*.swp

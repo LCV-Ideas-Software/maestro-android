@@ -1,0 +1,36 @@
+# This workflow is managed by gh actions-lock.
+
+name: Linear Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions: {}
+
+concurrency:
+  group: linear-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  linear_release:
+    name: Linear Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: linear-release
+    permissions:
+      contents: read # Read complete commit history for Linear issue association.
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Create Linear release with the official action
+        id: linear_release
+        uses: linear/linear-release-action@0a25abab892a91062ebf42260dbb2ce6277aa205 # v0.16.0
+        with:
+          access_key: ${{ secrets.LINEAR_ACCESS_KEY }}
+          cli_version: v0.16.0
