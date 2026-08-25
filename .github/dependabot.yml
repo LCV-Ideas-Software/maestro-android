@@ -1,0 +1,34 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "01:00"
+      timezone: "America/Los_Angeles"
+    cooldown:
+      default-days: 7
+    rebase-strategy: auto
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    open-pull-requests-limit: 10
+    groups:
+      codeql-action:
+        applies-to: version-updates
+        patterns:
+          - "github/codeql-action*"
+        update-types:
+          - "minor"
+          - "patch"
+      codeql-action-security-updates:
+        applies-to: security-updates
+        patterns:
+          - "github/codeql-action*"
+      github-actions-non-breaking:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
