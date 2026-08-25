@@ -11,7 +11,7 @@ permissions: {}
 
 concurrency:
   group: linear-release-${{ github.ref }}
-  cancel-in-progress: false
+  queue: max
 
 jobs:
   linear_release:

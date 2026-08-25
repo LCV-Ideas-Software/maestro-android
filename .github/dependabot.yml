@@ -8,8 +8,6 @@ updates:
       timezone: "America/Los_Angeles"
     cooldown:
       default-days: 7
-      exclude:
-        - "*"
     rebase-strategy: auto
     commit-message:
       prefix: "deps"

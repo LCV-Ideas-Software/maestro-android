@@ -1,9 +1,10 @@
 # Third-party inventory
 
 This repository has no Android or production-runtime dependency. The following
-GitHub Actions are the complete automation dependency inventory at bootstrap.
-Every `uses:` reference is fixed to the listed full commit SHA and mirrored
-in `.github/workflows/actions.lock`.
+table inventories every GitHub Action referenced directly by a workflow at
+bootstrap. Every direct `uses:` reference is fixed to the listed full commit
+SHA. The generated `.github/workflows/actions.lock` is the authoritative,
+machine-verifiable inventory of both direct and transitive Action revisions.
 
 | Component | Version | Commit SHA | License | Purpose |
 | --- | --- | --- | --- | --- |
@@ -29,8 +30,10 @@ and the Enterprise GitHub Code Security entitlement.
 
 The Scorecard Action is pinned to an immutable source commit, but the current
 official release delegates execution to a published runtime image whose
-provenance remains controlled upstream. `publish_results: false` avoids an
-additional publication channel while preserving the repository's SARIF result.
+provenance remains controlled upstream. Because this repository is public,
+`publish_results: true` contributes the result to the public Scorecard API.
+The job grants `id-token: write` only to authenticate that publication with
+GitHub OIDC; the SARIF result is also uploaded to GitHub code scanning.
 
 ### Linear Release installer
 
