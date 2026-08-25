@@ -26,6 +26,7 @@ jobs:
       actions: read # Inspect workflow security posture.
       checks: read # Discover configured security checks.
       contents: read # Analyze repository history and configuration.
+      id-token: write # Authenticate published Scorecard results with GitHub OIDC.
       issues: read # Inspect security-policy issue practices.
       pull-requests: read # Inspect contribution and review practices.
       security-events: write # Upload Scorecard SARIF to code scanning.
