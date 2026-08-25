@@ -1,5 +1,7 @@
 # Maestro Android
 
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14230/badge)](https://www.bestpractices.dev/projects/14230)
+
 Public repository for the future Android edition of Maestro Editorial AI. This
 repository currently contains the reviewed governance, security, release, and
 documentation baseline; it does not yet contain an Android application.
