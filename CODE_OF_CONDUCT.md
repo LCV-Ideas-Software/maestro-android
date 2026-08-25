@@ -16,7 +16,7 @@ participants represent this repository or LCV Ideas & Software.
 
 ## Reporting
 
-Report conduct concerns privately to LCV Ideas & Software at `lcv@lcv.dev`.
+Report conduct concerns privately to LCV Ideas & Software at `conductcode@lcv.dev`.
 Do not open a public Issue for private conduct, security, legal, account, or
 personal matters.
 
