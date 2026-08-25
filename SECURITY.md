@@ -13,7 +13,7 @@ Do not disclose a vulnerability, credential, signing artifact, personal datum,
 private editorial material, or unpublished operational detail in a public
 Issue, Discussion, pull request, commit, or Pages site.
 
-Report privately to `lcv@lcv.dev` with:
+Report privately to `security@lcv.dev` with:
 
 - the affected repository and revision;
 - a concise impact and exploitability description;
