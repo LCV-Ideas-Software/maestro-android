@@ -9,7 +9,7 @@ machine-verifiable inventory of both direct and transitive Action revisions.
 | Component | Version | Commit SHA | License | Purpose |
 | --- | --- | --- | --- | --- |
 | `actions/checkout` | v7.0.1 | `3d3c42e5aac5ba805825da76410c181273ba90b1` | [MIT](https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/LICENSE) | Read repository content and complete Git history |
-| `github/codeql-action` | v4.37.8 | `db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28` | [MIT](https://github.com/github/codeql-action/blob/db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28/LICENSE) | Initialize/analyze CodeQL and upload Scorecard SARIF |
+| `github/codeql-action` | v4.37.9 | `cdf488f595d80d6e07e03d4674febd5ab45fa938` | [MIT](https://github.com/github/codeql-action/blob/cdf488f595d80d6e07e03d4674febd5ab45fa938/LICENSE) | Initialize/analyze CodeQL and upload Scorecard SARIF |
 | `actions/dependency-review-action` | v5.0.0 | `a1d282b36b6f3519aa1f3fc636f609c47dddb294` | [MIT](https://github.com/actions/dependency-review-action/blob/a1d282b36b6f3519aa1f3fc636f609c47dddb294/LICENSE) | Review dependency changes in pull requests and merge groups |
 | `zizmorcore/zizmor-action` | v0.6.2 | `3dc1ecc9bcb9e94e9b2c709687979e1298497054` | [MIT](https://github.com/zizmorcore/zizmor-action/blob/3dc1ecc9bcb9e94e9b2c709687979e1298497054/LICENSE) | Audit GitHub Actions and upload SARIF |
 | `ossf/scorecard-action` | v2.4.4 | `2d1146689b8cda280b9bc96326124645441f03bc` | [Apache-2.0](https://github.com/ossf/scorecard-action/blob/2d1146689b8cda280b9bc96326124645441f03bc/LICENSE) | Assess supply-chain posture |
