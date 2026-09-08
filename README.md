@@ -65,10 +65,8 @@ runtime and does not represent Kotlin coverage.
   <https://maestro-android.lcv.dev>; search indexing remains disabled while the
   product has no public implementation.
 
-Every external GitHub Action is pinned to a full commit SHA and recorded in
-[THIRDPARTY.md](THIRDPARTY.md). The generated
-`.github/workflows/actions.lock` is the machine-verifiable dependency
-inventory.
+Every external GitHub Action is pinned to a full commit SHA directly in its
+workflow. The third-party inventory is in [THIRDPARTY.md](THIRDPARTY.md).
 
 ## Contributing and security
 

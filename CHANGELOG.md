@@ -16,3 +16,9 @@ All material changes to Maestro Android are recorded here.
 - Added repository ownership and organization sponsorship metadata.
 - Declared AGPL-3.0-or-later licensing and a complete bootstrap third-party
   automation inventory.
+
+### Fixed
+
+- Removed the obsolete Actions dependency lock and its workflow onboarding
+  markers to restore workflow startup after Dependabot updates. Direct SHA
+  pins, workflow behavior and repository security settings are unchanged.

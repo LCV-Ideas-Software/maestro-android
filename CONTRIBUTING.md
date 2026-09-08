@@ -24,8 +24,8 @@ security and release gates.
 - No workflow bypasses rulesets or performs a direct merge.
 - Set workflow-level permissions to `{}` and grant each job only the token
   capabilities it demonstrably needs.
-- Pin external GitHub Actions to immutable full commit SHAs and regenerate
-  `.github/workflows/actions.lock` after any workflow dependency change.
+- Pin external GitHub Actions to immutable full commit SHAs directly in each
+  workflow.
 - Do not commit secrets, tokens, private keys, signing material,
   `local.properties`, service-account files, user content, production
   payloads, or real infrastructure identifiers.
@@ -34,7 +34,7 @@ security and release gates.
 
 Before opening or updating a pull request:
 
-1. validate edited workflows with `gh actions-lock` and Zizmor;
+1. validate edited workflows with Zizmor;
 2. confirm that checks intended for the merge queue also run on
    `merge_group` with the same context name;
 3. run only checks that apply to the current repository state;
