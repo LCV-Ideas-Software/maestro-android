@@ -40,9 +40,9 @@ implemented.
 
 There is no Gradle project, Android source set, package, signing configuration,
 or production dependency. Do not add fake Gradle files merely to satisfy CI.
-When a real Android scaffold is introduced, add the Gradle dependency update,
-wrapper validation, lint, test, assemble, and Java/Kotlin CodeQL paths in that
-same reviewed change.
+When a real Android scaffold is introduced, add the official Gradle dependency
+updates, wrapper validation, lint, test, and assemble checks, and verify native
+CodeQL Default setup covers its Java/Kotlin source in that same reviewed change.
 
 The inert [`quality/code-quality-probe.js`](quality/code-quality-probe.js)
 exists solely to give GitHub Code Quality a deterministic supported-language
@@ -51,26 +51,37 @@ runtime and does not represent Kotlin coverage.
 
 ## Automation baseline
 
-- CodeQL analyzes GitHub Actions and the inert JavaScript probe on pull
-  requests, merge groups, `main`, and a schedule.
-- Dependency Review evaluates pull requests and synthetic merge groups.
+- GitHub CodeQL Default setup analyzes the supported content. The duplicate
+  advanced-setup workflow is not maintained in this repository.
+- Dependency Review evaluates pull requests to `main`.
 - Zizmor analyzes workflow security and publishes SARIF.
 - OpenSSF Scorecard analyzes the default branch as an observability signal, not
-  a pull-request gate.
-- Dependabot checks GitHub Actions daily. Gradle coverage is intentionally
-  absent until a real Gradle project exists.
-- the official Linear Release Action records successful `main` history in the
-  corresponding continuous Linear pipeline;
+  a pull-request gate; its SARIF stays in GitHub code scanning, without a
+  separate publication to the public Scorecard API.
+- Dependabot checks GitHub Actions on Mondays at 06:00 in `America/Sao_Paulo`,
+  with a seven-day cooldown except for official `actions/*` and `github/*`
+  updates. Minor and patch updates are grouped; major updates remain separate.
+  Gradle coverage is intentionally absent until a real Gradle project exists.
+- A repository-local workflow enables GitHub's native squash auto-merge for
+  same-repository Dependabot pull requests against `main`, subject to the
+  effective native rules and checks. Grouping does not restrict auto-merge to
+  minor and patch updates. There is no merge queue or central controller.
+- The official Linear Release Action and CLI v0.17.2 record pushed `main`
+  history in the corresponding continuous Linear pipeline. This does not
+  publish an Android application, npm package, or Windows release.
 - GitHub Pages deploys only the sanitized `site/` directory to
   <https://maestro-android.lcv.dev>; search indexing remains disabled while the
   product has no public implementation.
 
 Every external GitHub Action is pinned to a full commit SHA directly in its
-workflow. The third-party inventory is in [THIRDPARTY.md](THIRDPARTY.md).
+workflow. The third-party inventory is in [THIRDPARTY.md](THIRDPARTY.md). Native
+GitHub/Linear and GitHub/Slack integrations remain in place. No repository is
+responsible for controlling this repository's lifecycle.
 
 ## Contributing and security
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change. Report
+Read [CONTRIBUTING.md](CONTRIBUTING.md) and [INBOUND.md](INBOUND.md) before
+proposing a change. Report
 vulnerabilities and sensitive operational concerns through the private route
 in [SECURITY.md](SECURITY.md), never through a public Issue or Discussion.
 

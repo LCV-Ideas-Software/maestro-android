@@ -31,4 +31,4 @@ jobs:
         uses: linear/linear-release-action@53ad0f863963e7f8e270fba18426bbb55ef55384 # v0.17.2
         with:
           access_key: ${{ secrets.LINEAR_ACCESS_KEY }}
-          cli_version: v0.17.1
+          cli_version: v0.17.2

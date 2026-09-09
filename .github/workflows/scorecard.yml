@@ -1,9 +1,8 @@
 name: Scorecard supply-chain security
 
 on:
-  branch_protection_rule:
   schedule:
-    - cron: "47 4 * * 2"
+    - cron: "37 8 * * 1"
   push:
     branches:
       - main
@@ -17,14 +16,12 @@ concurrency:
 jobs:
   analysis:
     name: Scorecard analysis
-    if: ${{ github.event.repository.default_branch == github.ref_name || github.event_name == 'branch_protection_rule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       actions: read # Inspect workflow security posture.
       checks: read # Discover configured security checks.
       contents: read # Analyze repository history and configuration.
-      id-token: write # Authenticate published Scorecard results with GitHub OIDC.
       issues: read # Inspect security-policy issue practices.
       pull-requests: read # Inspect contribution and review practices.
       security-events: write # Upload Scorecard SARIF to code scanning.
@@ -39,7 +36,7 @@ jobs:
         with:
           results_file: results.sarif
           results_format: sarif
-          publish_results: true
+          publish_results: false
 
       - name: Upload Scorecard artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
