@@ -10,9 +10,13 @@ on:
   pull_request:
     branches:
       - main
-  merge_group:
+    # Retargeting a pull request to main must also build its Pages artifact.
     types:
-      - checks_requested
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - edited
   workflow_dispatch:
 
 permissions: {}

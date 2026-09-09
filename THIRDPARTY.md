@@ -8,8 +8,8 @@ Action dependencies remain defined by those pinned upstream actions.
 | Component | Version | Commit SHA | License | Purpose |
 | --- | --- | --- | --- | --- |
 | `actions/checkout` | v7.0.1 | `3d3c42e5aac5ba805825da76410c181273ba90b1` | [MIT](https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/LICENSE) | Read repository content and complete Git history |
-| `github/codeql-action` | v4.37.9 | `cdf488f595d80d6e07e03d4674febd5ab45fa938` | [MIT](https://github.com/github/codeql-action/blob/cdf488f595d80d6e07e03d4674febd5ab45fa938/LICENSE) | Initialize/analyze CodeQL and upload Scorecard SARIF |
-| `actions/dependency-review-action` | v5.0.0 | `a1d282b36b6f3519aa1f3fc636f609c47dddb294` | [MIT](https://github.com/actions/dependency-review-action/blob/a1d282b36b6f3519aa1f3fc636f609c47dddb294/LICENSE) | Review dependency changes in pull requests and merge groups |
+| `github/codeql-action` | v4.37.9 | `cdf488f595d80d6e07e03d4674febd5ab45fa938` | [MIT](https://github.com/github/codeql-action/blob/cdf488f595d80d6e07e03d4674febd5ab45fa938/LICENSE) | Upload Scorecard SARIF; source analysis uses GitHub-managed CodeQL Default setup |
+| `actions/dependency-review-action` | v5.0.0 | `a1d282b36b6f3519aa1f3fc636f609c47dddb294` | [MIT](https://github.com/actions/dependency-review-action/blob/a1d282b36b6f3519aa1f3fc636f609c47dddb294/LICENSE) | Review dependency changes in pull requests |
 | `zizmorcore/zizmor-action` | v0.6.3 | `70fb788f84895a7701f5643d103d587e460b5c99` | [MIT](https://github.com/zizmorcore/zizmor-action/blob/70fb788f84895a7701f5643d103d587e460b5c99/LICENSE) | Audit GitHub Actions and upload SARIF |
 | `ossf/scorecard-action` | v2.4.4 | `2d1146689b8cda280b9bc96326124645441f03bc` | [Apache-2.0](https://github.com/ossf/scorecard-action/blob/2d1146689b8cda280b9bc96326124645441f03bc/LICENSE) | Assess supply-chain posture |
 | `actions/upload-artifact` | v7.0.1 | `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | [MIT](https://github.com/actions/upload-artifact/blob/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/LICENSE) | Retain the Scorecard SARIF artifact |
@@ -18,10 +18,15 @@ Action dependencies remain defined by those pinned upstream actions.
 | `actions/deploy-pages` | v5.0.1 | `368f82528645a54fb793d4d04e342629a3f51346` | [MIT](https://github.com/actions/deploy-pages/blob/368f82528645a54fb793d4d04e342629a3f51346/LICENSE) | Deploy the trusted Pages artifact |
 | `linear/linear-release-action` | v0.17.2 | `53ad0f863963e7f8e270fba18426bbb55ef55384` | [MIT](https://github.com/linear/linear-release-action/blob/53ad0f863963e7f8e270fba18426bbb55ef55384/LICENSE) | Create a release in the corresponding Linear pipeline |
 
-`github/codeql-action` is MIT-licensed. The CodeQL CLI bundle selected by the
-pinned Action is separately governed by the immutable
+`github/codeql-action` is MIT-licensed. GitHub manages source analysis through
+CodeQL Default setup; the pinned workflow consumer only uploads Scorecard SARIF.
+The CodeQL CLI is separately governed by the immutable
 [GitHub CodeQL Terms and Conditions](https://github.com/github/codeql-cli-binaries/blob/0d65148c254764ec294892a35e644accd5677ed5/LICENSE.md)
 and the Enterprise GitHub Code Security entitlement.
+
+The official Linear action explicitly selects CLI v0.17.2 for continuous
+commit-history releases. This repository publishes no application package and
+has no runtime dependency notice bundle to generate.
 
 ## Accepted upstream constraints
 
@@ -29,10 +34,10 @@ and the Enterprise GitHub Code Security entitlement.
 
 The Scorecard Action is pinned to an immutable source commit, but the current
 official release delegates execution to a published runtime image whose
-provenance remains controlled upstream. Because this repository is public,
-`publish_results: true` contributes the result to the public Scorecard API.
-The job grants `id-token: write` only to authenticate that publication with
-GitHub OIDC; the SARIF result is also uploaded to GitHub code scanning.
+provenance remains controlled upstream. This repository uses
+`publish_results: false`: results are retained as a workflow artifact and
+uploaded directly to GitHub code scanning. The job does not request an OIDC
+token or publish results separately to the public Scorecard API.
 
 ## Repository license
 
