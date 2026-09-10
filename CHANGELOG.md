@@ -12,10 +12,11 @@ All material changes to Maestro Android are recorded here.
 - Aligned this pre-application repository with the fleet's native governance:
   GitHub CodeQL Default setup, pull-request Dependency Review and Pages checks,
   direct Scorecard SARIF, and Zizmor without retired merge-queue events.
-- Standardized GitHub Actions Dependabot updates to Monday 06:00 in
-  `America/Sao_Paulo`, with grouped minor/patch updates, separate major updates,
+- Schedule GitHub Actions Dependabot updates every day, including weekends,
+  at 05:00 in fixed UTC-03:00, with grouped minor/patch updates, separate major updates,
   and the existing selective seven-day cooldown. Added repository-local native
   auto-merge subject to the effective GitHub rules and checks.
+- Group security updates separately from version updates.
 - Aligned the official Linear CLI to v0.17.2 while preserving the continuous
   `main` commit-history pipeline rather than introducing application publishing.
 - Replaced obsolete central-controller and merge-queue contribution instructions
