@@ -58,10 +58,14 @@ runtime and does not represent Kotlin coverage.
 - OpenSSF Scorecard analyzes the default branch as an observability signal, not
   a pull-request gate; its SARIF stays in GitHub code scanning, without a
   separate publication to the public Scorecard API.
-- Dependabot checks GitHub Actions on Mondays at 06:00 in `America/Sao_Paulo`,
+- Dependabot checks GitHub Actions every day, including weekends, at 05:00
+  in fixed UTC-03:00,
   with a seven-day cooldown except for official `actions/*` and `github/*`
   updates. Minor and patch updates are grouped; major updates remain separate.
   Gradle coverage is intentionally absent until a real Gradle project exists.
+  Security updates have their own group and do not wait for the version-update
+  schedule or cooldown. If one member fails, diagnose it and adjust native
+  grouping so other fixes can proceed through the required checks.
 - A repository-local workflow enables GitHub's native squash auto-merge for
   same-repository Dependabot pull requests against `main`, subject to the
   effective native rules and checks. Grouping does not restrict auto-merge to
