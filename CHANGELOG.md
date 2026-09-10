@@ -6,6 +6,9 @@ All material changes to Maestro Android are recorded here.
 
 ### Changed
 
+- Update the official CodeQL Action to v4.38.0 and Zizmor Action to v0.6.4,
+  retaining full commit pins and aligning the current third-party inventory.
+
 - Aligned this pre-application repository with the fleet's native governance:
   GitHub CodeQL Default setup, pull-request Dependency Review and Pages checks,
   direct Scorecard SARIF, and Zizmor without retired merge-queue events.
