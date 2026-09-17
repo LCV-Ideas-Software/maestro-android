@@ -30,3 +30,49 @@ updates:
         update-types:
           - "minor"
           - "patch"
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "cron"
+      cronjob: "0 5 * * *"
+      timezone: "Etc/GMT+3"
+    cooldown:
+      default-days: 7
+    rebase-strategy: auto
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    open-pull-requests-limit: 10
+    # Dependencias transitivas do classpath de build do Android Gradle Plugin e do
+    # Kotlin Gradle Plugin. Nenhuma e declarada num manifesto deste repositorio e
+    # nenhuma entra no App Bundle. O dependency graph as detecta, mas o Dependabot
+    # nao consegue atualizar transitiva de buildscript: o job de seguranca falha com
+    # dependency_not_found a cada execucao. Elas se corrigem quando o AGP publicar
+    # versao que traga as bibliotecas atualizadas -- e o AGP permanece sob
+    # atualizacao automatica por esta mesma entrada.
+    #
+    # ATENCAO: a linha do kotlin-gradle-plugin deve ser REMOVIDA assim que o KGP
+    # for declarado explicitamente no projeto, ou seja, quando houver codigo Kotlin.
+    # A partir dai ele passa a ser dependencia direta e atualizavel.
+    ignore:
+      - dependency-name: "org.apache.commons:commons-lang3"
+      - dependency-name: "org.apache.httpcomponents:httpclient"
+      - dependency-name: "org.bitbucket.b_c:jose4j"
+      - dependency-name: "org.bouncycastle:bcpkix-jdk18on"
+      - dependency-name: "org.bouncycastle:bcprov-jdk18on"
+      - dependency-name: "org.jdom:jdom2"
+      - dependency-name: "org.jetbrains.kotlin:kotlin-gradle-plugin"
+    groups:
+      security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      minor-e-patch:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
