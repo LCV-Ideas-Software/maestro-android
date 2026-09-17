@@ -1,0 +1,204 @@
+name: Publish to Google Play
+
+# Builds the release App Bundle, uploads it to Google Play and fails if the
+# artifact Google received is not byte-for-byte the artifact this job built.
+#
+# The identity gate is the point of this workflow. Google Play reports the
+# SHA-256 of every bundle it accepts; the job compares that digest against the
+# one it computed locally and aborts the edit when they differ, so a corrupted
+# or substituted upload can never reach a track.
+#
+# Authentication uses Workload Identity Federation: the runner exchanges its
+# short-lived OIDC token for Google credentials. No service account key is
+# stored in this repository.
+#
+# Required configuration:
+#   vars.PLAY_PACKAGE_NAME       application id published from this repository
+#   vars.WIF_PROVIDER            full resource name of the workload identity provider
+#   vars.PLAY_SERVICE_ACCOUNT    service account to impersonate
+#   vars.GCP_QUOTA_PROJECT       project billed for Google Play API quota
+#   secrets.UPLOAD_KEYSTORE_B64       base64 of the upload keystore
+#   secrets.UPLOAD_KEYSTORE_PASSWORD  keystore and key password
+
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: Google Play track to release to
+        required: true
+        default: internal
+        type: choice
+        options:
+          - internal
+          - alpha
+          - beta
+          - production
+
+permissions: {}
+
+concurrency:
+  group: publish-play-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build, verify and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read # Check out the sources that are built.
+      id-token: write # Mint the OIDC token exchanged for Google credentials.
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify required configuration
+        env:
+          PLAY_PACKAGE_NAME: ${{ vars.PLAY_PACKAGE_NAME }}
+          WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
+          PLAY_SERVICE_ACCOUNT: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+          GCP_QUOTA_PROJECT: ${{ vars.GCP_QUOTA_PROJECT }}
+          KEYSTORE_B64: ${{ secrets.UPLOAD_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=""
+          for name in PLAY_PACKAGE_NAME WIF_PROVIDER PLAY_SERVICE_ACCOUNT \
+                      GCP_QUOTA_PROJECT KEYSTORE_B64 KEYSTORE_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository configuration:$missing. Variables are set" \
+                 "under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Set up JDK 17
+        # Android Gradle Plugin 9.x requires JDK 17 as both its minimum and its default.
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Validate the Gradle wrapper
+        # Rejects a wrapper JAR whose checksum is not a published Gradle release.
+        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Restore the upload keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.UPLOAD_KEYSTORE_B64 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          if [ ! -s "$RUNNER_TEMP/upload.jks" ]; then
+            echo "::error::Decoded keystore is empty. UPLOAD_KEYSTORE_B64 is not valid base64."
+            exit 1
+          fi
+
+      - name: Build the release bundle
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ./gradlew :app:bundleRelease --no-daemon \
+            -Pandroid.injected.signing.store.file="$RUNNER_TEMP/upload.jks" \
+            -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias=upload \
+            -Pandroid.injected.signing.key.password="$KEYSTORE_PASSWORD"
+
+      - name: Compute the local digest
+        id: artifact
+        run: |
+          set -euo pipefail
+          bundle=$(find app/build/outputs/bundle/release -name '*.aab' | head -1)
+          if [ -z "$bundle" ]; then
+            echo "::error::The build produced no App Bundle under app/build/outputs/bundle/release."
+            exit 1
+          fi
+          echo "path=$bundle" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum "$bundle" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          project_id: ${{ vars.GCP_QUOTA_PROJECT }}
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+
+      - name: Publish and verify artifact identity
+        env:
+          TOKEN: ${{ steps.auth.outputs.access_token }}
+          QUOTA_PROJECT: ${{ vars.GCP_QUOTA_PROJECT }}
+          PACKAGE: ${{ vars.PLAY_PACKAGE_NAME }}
+          TRACK: ${{ inputs.track }}
+          BUNDLE: ${{ steps.artifact.outputs.path }}
+          LOCAL_SHA: ${{ steps.artifact.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          api=https://androidpublisher.googleapis.com/androidpublisher/v3/applications
+          upload=https://androidpublisher.googleapis.com/upload/androidpublisher/v3/applications
+
+          edit=$(curl -sS --fail-with-body -X POST \
+                   -H "Authorization: Bearer $TOKEN" \
+                   -H "x-goog-user-project: $QUOTA_PROJECT" \
+                   -H 'Content-Type: application/json' -d '{}' \
+                   "$api/$PACKAGE/edits" | jq -r '.id')
+          if [ -z "$edit" ] || [ "$edit" = null ]; then
+            echo "::error::Google Play refused to open an edit for $PACKAGE."
+            exit 1
+          fi
+
+          # Any failure from here on leaves an open edit behind, so discard it.
+          trap 'curl -sS -X DELETE -H "Authorization: Bearer $TOKEN" \
+                  -H "x-goog-user-project: $QUOTA_PROJECT" \
+                  "$api/$PACKAGE/edits/$edit" >/dev/null || true' EXIT
+
+          response=$(curl -sS --fail-with-body -X POST \
+                       -H "Authorization: Bearer $TOKEN" \
+                       -H "x-goog-user-project: $QUOTA_PROJECT" \
+                       -H 'Content-Type: application/octet-stream' \
+                       --data-binary "@$BUNDLE" \
+                       "$upload/$PACKAGE/edits/$edit/bundles?uploadType=media")
+          remote_sha=$(echo "$response" | jq -r '.sha256')
+          version=$(echo "$response" | jq -r '.versionCode')
+
+          # The gate: if Google Play did not receive the exact bytes this job
+          # built, the upload is not this build and must not reach a track.
+          if [ "$remote_sha" != "$LOCAL_SHA" ]; then
+            echo "::error::Digest mismatch. built=$LOCAL_SHA received=$remote_sha"
+            exit 1
+          fi
+
+          curl -sS --fail-with-body -X PUT \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "x-goog-user-project: $QUOTA_PROJECT" \
+            -H 'Content-Type: application/json' \
+            -d "{\"track\":\"$TRACK\",\"releases\":[{\"versionCodes\":[\"$version\"],\"status\":\"completed\"}]}" \
+            "$api/$PACKAGE/edits/$edit/tracks/$TRACK" >/dev/null
+
+          curl -sS --fail-with-body -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "x-goog-user-project: $QUOTA_PROJECT" \
+            -H 'Content-Type: application/json' -d '{}' \
+            "$api/$PACKAGE/edits/$edit:commit" >/dev/null
+
+          # The edit is committed; there is nothing left to discard.
+          trap - EXIT
+
+          {
+            echo "### Published to the \`$TRACK\` track"
+            echo ""
+            echo "- package: \`$PACKAGE\`"
+            echo "- version code: \`$version\`"
+            echo "- SHA-256 verified against Google Play: \`$LOCAL_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
