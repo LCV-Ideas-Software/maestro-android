@@ -76,6 +76,28 @@ runtime and does not represent Kotlin coverage.
 - GitHub Pages deploys only the sanitized `site/` directory to
   <https://maestro-android.lcv.dev>; search indexing remains disabled while the
   product has no public implementation.
+- `publish-play.yml`, dispatched manually, builds the release App Bundle, sends
+  it to the chosen Google Play track and refuses to publish when the digest Play
+  received is not the artifact the job built. The release notes travel with it,
+  from `play/release-notes/pt-BR.txt`, because the API takes them in the track
+  update and a publication without them reaches the store with an empty "what's
+  new". A `release_status` input carries `completed` or `draft`: an app that has
+  never been published only accepts `draft` on the public track, and that first
+  publication is finished in the Play Console. A production publication also
+  records a GitHub Release with tag `vXX.XX.XX`, carrying the universal APK that
+  Google Play generated and signed with the app signing key — the same binary the
+  store distributes — plus `SHA256SUMS` and a provenance attestation.
+- `record-play-release.yml`, also dispatched manually, records that GitHub
+  Release for a version **already** on the store, given its `versionCode`,
+  without rebuilding or re-uploading anything. It is the path after a first
+  publication is completed in the Console, when the publishing workflow has
+  already finished and re-dispatching it would only re-upload a `versionCode`
+  Play refuses. Measured on 20/09/2026 in calculadora-android: Play makes the
+  universal APK available as soon as it processes the bundle, before any rollout.
+
+  This repository has no application yet, so `play/release-notes/pt-BR.txt` does
+  not exist and the publishing workflow stops before building, saying so. That is
+  the intended gate, not a defect: nothing here is ready to reach a store.
 
 Every external GitHub Action is pinned to a full commit SHA directly in its
 workflow. The third-party inventory is in [THIRDPARTY.md](THIRDPARTY.md). Native

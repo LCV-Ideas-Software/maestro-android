@@ -12,6 +12,19 @@ name: Publish to Google Play
 # short-lived OIDC token for Google credentials. No service account key is
 # stored in this repository.
 #
+# A publication to the `production` track also records a GitHub Release
+# (operator decision, 18/09/2026, PANDROI-40). The Release carries the
+# universal APK that Google Play generated and signed with the app signing key,
+# its SHA-256, and a build provenance attestation. That APK is the same binary
+# Play distributes, so an installation from the Release and one from the store
+# update each other. An APK signed here with the upload key would not: Android
+# compares certificates and treats a mismatch as a different app. Internal,
+# alpha and beta publications stay in Google Play alone.
+#
+# The release notes are not typed into the Console: they live in
+# `play/release-notes/<BCP-47>.txt` and go up with the track update, so what the
+# store shows is the same text the repository reviewed and merged.
+#
 # Required configuration:
 #   vars.PLAY_PACKAGE_NAME       application id published from this repository
 #   vars.WIF_PROVIDER            full resource name of the workload identity provider
@@ -33,6 +46,16 @@ on:
           - alpha
           - beta
           - production
+      release_status:
+        description: >-
+          Release status. A draft app — one never published — only accepts
+          `draft` on production; the first publication is finished in the Console.
+        required: true
+        default: completed
+        type: choice
+        options:
+          - completed
+          - draft
 
 permissions: {}
 
@@ -45,6 +68,11 @@ jobs:
     name: Build, verify and publish
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      released: ${{ steps.play.outputs.released }}
+      version_code: ${{ steps.play.outputs.version_code }}
+      certificate_sha256: ${{ steps.play.outputs.certificate_sha256 }}
+      tag: ${{ steps.version.outputs.tag }}
     permissions:
       contents: read # Check out the sources that are built.
       id-token: write # Mint the OIDC token exchanged for Google credentials.
@@ -77,6 +105,26 @@ jobs:
             exit 1
           fi
 
+      - name: Verify the release notes
+        # O Google Play recebe as notas na atualização da trilha. A ajuda do
+        # Console fixa o teto em 500 caracteres Unicode por idioma, então ele é
+        # conferido aqui, e não descoberto por uma edição recusada depois de um
+        # build inteiro.
+        env:
+          NOTES_FILE: play/release-notes/pt-BR.txt
+        run: |
+          set -euo pipefail
+          if [ ! -s "$NOTES_FILE" ]; then
+            echo "::error::$NOTES_FILE está ausente ou vazio; o Google Play precisa das notas desta publicação."
+            exit 1
+          fi
+          chars=$(printf '%s' "$(cat "$NOTES_FILE")" | wc -m)
+          if [ "$chars" -gt 500 ]; then
+            echo "::error::As notas têm $chars caracteres; o Google Play aceita no máximo 500 por idioma."
+            exit 1
+          fi
+          echo "Notas da versão: $chars/500 caracteres."
+
       - name: Set up JDK 17
         # Android Gradle Plugin 9.x requires JDK 17 as both its minimum and its default.
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
@@ -101,6 +149,23 @@ jobs:
             echo "::error::Decoded keystore is empty. UPLOAD_KEYSTORE_B64 is not valid base64."
             exit 1
           fi
+
+      - name: Derive the release tag from the version name
+        id: version
+        # The organization displays versions as vXX.XX.XX. The tag is derived
+        # from `versionName` so the Release and the app agree on what shipped;
+        # a name that is not MAJOR.MINOR.PATCH stops the job before any build.
+        run: |
+          set -euo pipefail
+          name=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          if ! [[ "$name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::versionName must be MAJOR.MINOR.PATCH; found '$name'."
+            exit 1
+          fi
+          IFS=. read -r major minor patch <<< "$name"
+          tag=$(printf 'v%02d.%02d.%02d' "$major" "$minor" "$patch")
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Build the release bundle
         env:
@@ -136,19 +201,52 @@ jobs:
           access_token_scopes: https://www.googleapis.com/auth/androidpublisher
 
       - name: Publish and verify artifact identity
+        id: play
         env:
+          VERSION_NAME: ${{ steps.version.outputs.name }}
           TOKEN: ${{ steps.auth.outputs.access_token }}
           QUOTA_PROJECT: ${{ vars.GCP_QUOTA_PROJECT }}
           PACKAGE: ${{ vars.PLAY_PACKAGE_NAME }}
           TRACK: ${{ inputs.track }}
           BUNDLE: ${{ steps.artifact.outputs.path }}
           LOCAL_SHA: ${{ steps.artifact.outputs.sha256 }}
+          NOTES_FILE: play/release-notes/pt-BR.txt
+          NOTES_LANGUAGE: pt-BR
+          RELEASE_STATUS: ${{ inputs.release_status }}
         run: |
           set -euo pipefail
+          # `--fail-with-body` escreve o corpo do erro na saída padrão e sai 22.
+          # Quando essa saída ia para uma variável ou para /dev/null, a mensagem
+          # do Google Play — que é quem diz o que está errado — se perdia, e um
+          # HTTP 400 chegava ao log como "curl: (22)" e nada mais. Esta função
+          # guarda corpo e status, devolve o corpo em caso de sucesso e o imprime
+          # em caso de falha. Diagnóstico sai por stderr de propósito: algumas
+          # chamadas são escritas com `>/dev/null`, que engoliria a mensagem se
+          # ela saísse pela saída padrão junto com o corpo de sucesso.
+          play() {
+            local rotulo=$1; shift
+            local corpo status
+            corpo=$(mktemp)
+            status=$(curl -sS -o "$corpo" -w '%{http_code}' "$@") || {
+              echo "::error::$rotulo: curl falhou. Resposta do Google Play:" >&2
+              sed 's/^/  /' "$corpo" >&2
+              rm -f "$corpo"
+              return 1
+            }
+            if [ "$status" -ge 400 ]; then
+              echo "::error::$rotulo: o Google Play respondeu HTTP $status." >&2
+              sed 's/^/  /' "$corpo" >&2
+              rm -f "$corpo"
+              return 1
+            fi
+            cat "$corpo"
+            rm -f "$corpo"
+          }
+
           api=https://androidpublisher.googleapis.com/androidpublisher/v3/applications
           upload=https://androidpublisher.googleapis.com/upload/androidpublisher/v3/applications
 
-          edit=$(curl -sS --fail-with-body -X POST \
+          edit=$(play "abrir a edição" -X POST \
                    -H "Authorization: Bearer $TOKEN" \
                    -H "x-goog-user-project: $QUOTA_PROJECT" \
                    -H 'Content-Type: application/json' -d '{}' \
@@ -163,7 +261,7 @@ jobs:
                   -H "x-goog-user-project: $QUOTA_PROJECT" \
                   "$api/$PACKAGE/edits/$edit" >/dev/null || true' EXIT
 
-          response=$(curl -sS --fail-with-body -X POST \
+          response=$(play "subir o App Bundle" -X POST \
                        -H "Authorization: Bearer $TOKEN" \
                        -H "x-goog-user-project: $QUOTA_PROJECT" \
                        -H 'Content-Type: application/octet-stream' \
@@ -179,14 +277,37 @@ jobs:
             exit 1
           fi
 
-          curl -sS --fail-with-body -X PUT \
+          # As notas da versão viajam na atualização da trilha, que é onde a API
+          # Android Publisher as recebe: `releases[].releaseNotes[]`, do tipo
+          # `LocalizedText {language, text}`, com `language` em BCP-47. O corpo é
+          # montado por jq porque o texto é prosa em português, com acento, aspas
+          # e quebra de linha, e interpolação de shell o corromperia. `name` fica
+          # de fora de propósito: a API o deriva do `versionName`, então a release
+          # se chama pelo número do próprio aplicativo, sem uma segunda cópia da
+          # versão para manter em dia.
+          payload=$(jq -n \
+            --arg track "$TRACK" \
+            --arg code "$version" \
+            --arg language "$NOTES_LANGUAGE" \
+            --arg status "$RELEASE_STATUS" \
+            --rawfile notes "$NOTES_FILE" \
+            '{
+               track: $track,
+               releases: [{
+                 versionCodes: [$code],
+                 status: $status,
+                 releaseNotes: [{ language: $language, text: ($notes | sub("\n+$"; "")) }]
+               }]
+             }')
+
+          play "atualizar a trilha $TRACK" -X PUT \
             -H "Authorization: Bearer $TOKEN" \
             -H "x-goog-user-project: $QUOTA_PROJECT" \
             -H 'Content-Type: application/json' \
-            -d "{\"track\":\"$TRACK\",\"releases\":[{\"versionCodes\":[\"$version\"],\"status\":\"completed\"}]}" \
+            -d "$payload" \
             "$api/$PACKAGE/edits/$edit/tracks/$TRACK" >/dev/null
 
-          curl -sS --fail-with-body -X POST \
+          play "confirmar a edição" -X POST \
             -H "Authorization: Bearer $TOKEN" \
             -H "x-goog-user-project: $QUOTA_PROJECT" \
             -H 'Content-Type: application/json' -d '{}' \
@@ -201,4 +322,152 @@ jobs:
             echo "- package: \`$PACKAGE\`"
             echo "- version code: \`$version\`"
             echo "- SHA-256 verified against Google Play: \`$LOCAL_SHA\`"
+            echo "- release notes sent for \`$NOTES_LANGUAGE\`, from \`$NOTES_FILE\`"
           } >> "$GITHUB_STEP_SUMMARY"
+          echo "version_code=$version" >> "$GITHUB_OUTPUT"
+
+          if [ "$TRACK" != production ]; then
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Um release em rascunho não está sendo distribuído: ninguém o recebe
+          # até alguém apertar "Release" no Console. Gravar uma GitHub Release
+          # agora afirmaria que a loja entrega este binário, o que seria falso.
+          if [ "$RELEASE_STATUS" = draft ]; then
+            {
+              echo ""
+              echo "O release ficou como **rascunho** na trilha \`production\`."
+              echo ""
+              echo "Este aplicativo ainda é um *draft app* — nunca foi publicado —, e a API"
+              echo "recusa \`completed\` nesse estado: *\"Only releases with status draft may be"
+              echo "created on draft app\"*. A documentação oficial descreve o caminho: a"
+              echo "primeira publicação se conclui no Play Console, e o botão **Release** publica"
+              echo "o aplicativo junto."
+              echo ""
+              echo "A GitHub Release **não** foi gravada, porque a loja ainda não entrega este"
+              echo "binário. Depois que o aplicativo estiver publicado, as próximas publicações"
+              echo "usam \`completed\` e gravam a Release normalmente."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Production only: fetch the universal APK Google Play generated and
+          # signed with the app signing key. Play processes the bundle
+          # asynchronously and answers 404 or 409 until it is done, so poll.
+          # Ten minutes is far beyond the usual seconds; exceeding it is an
+          # error worth a human's eyes, not a reason to publish a Release
+          # without its artifact.
+          gen="$api/$PACKAGE/generatedApks/$version"
+          listing=""
+          download_id=""
+          for _ in $(seq 1 30); do
+            listing=$(curl -sS -H "Authorization: Bearer $TOKEN" \
+                        -H "x-goog-user-project: $QUOTA_PROJECT" "$gen" || true)
+            download_id=$(printf '%s' "$listing" | jq -r \
+              '[.generatedApks[]? | select(.generatedUniversalApk != null)][0].generatedUniversalApk.downloadId // empty' \
+              2>/dev/null || true)
+            if [ -n "$download_id" ]; then break; fi
+            sleep 20
+          done
+          if [ -z "$download_id" ]; then
+            echo "::error::Google Play produced no universal APK for version code $version within ten minutes."
+            exit 1
+          fi
+          cert=$(printf '%s' "$listing" | jq -r \
+            '[.generatedApks[]? | select(.generatedUniversalApk != null)][0].certificateSha256Hash // "unknown"')
+
+          mkdir -p "$RUNNER_TEMP/release"
+          apk="$RUNNER_TEMP/release/$PACKAGE-$VERSION_NAME.apk"
+          play "baixar o APK universal" -H "Authorization: Bearer $TOKEN" \
+            -H "x-goog-user-project: $QUOTA_PROJECT" \
+            -o "$apk" "$gen/downloads/$download_id:download?alt=media"
+          if [ ! -s "$apk" ]; then
+            echo "::error::The universal APK download for version code $version is empty."
+            exit 1
+          fi
+          (cd "$RUNNER_TEMP/release" && sha256sum "$(basename "$apk")" > SHA256SUMS)
+
+          echo "released=true" >> "$GITHUB_OUTPUT"
+          echo "certificate_sha256=$cert" >> "$GITHUB_OUTPUT"
+          {
+            echo "- universal APK from Google Play: \`$(basename "$apk")\`"
+            echo "- signed by app signing certificate: \`$cert\`"
+            echo "- APK SHA-256: \`$(cut -d' ' -f1 "$RUNNER_TEMP/release/SHA256SUMS")\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the Play-signed APK for the release job
+        if: steps.play.outputs.released == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: play-universal-apk
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+          retention-days: 1
+
+  # Records the GitHub Release for a production publication. Only `production`
+  # reaches this job. It checks nothing out and builds nothing: its only inputs
+  # are the APK Google Play signed and its digest, carried over as a run
+  # artifact and re-verified on arrival. The Release is created as a draft, the
+  # assets attached, and only then published, which is the order immutable
+  # releases require, because nothing can be added to a published one. A tag
+  # that already exists fails the job on purpose: a second production
+  # publication must carry a new versionName.
+  release:
+    name: Record the Release
+    needs: publish
+    if: needs.publish.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # Create the tag and the Release, and upload its assets.
+      id-token: write # Sign the provenance attestation through Sigstore.
+      attestations: write # Store the attestation on this repository.
+    steps:
+      - name: Download the Play-signed APK
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: play-universal-apk
+          path: release
+
+      - name: Verify the digest survived the transfer
+        run: |
+          set -euo pipefail
+          cd release
+          sha256sum --check --strict SHA256SUMS
+
+      - name: Attest the APK provenance
+        # Public repository: the signature goes to the Sigstore public-good
+        # instance. Anyone verifies it with
+        # `gh attestation verify <apk> --repo <owner>/<repo>`.
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release/*.apk
+
+      - name: Create the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.publish.outputs.tag }}
+          VERSION_CODE: ${{ needs.publish.outputs.version_code }}
+          CERT: ${{ needs.publish.outputs.certificate_sha256 }}
+        run: |
+          set -euo pipefail
+          apk=$(find release -name '*.apk' | head -1)
+          {
+            echo "Published to the Google Play \`production\` track as version code \`$VERSION_CODE\`."
+            echo ""
+            echo "The APK below is the universal APK Google Play generated and signed with"
+            echo "the app signing key (certificate SHA-256 \`$CERT\`): the same binary the"
+            echo "store distributes, so it installs alongside and updates a Play installation."
+            echo ""
+            echo "Verify the digest against \`SHA256SUMS\`, and the build provenance with:"
+            echo ""
+            echo '```'
+            echo "gh attestation verify $(basename "$apk") --repo $GITHUB_REPOSITORY"
+            echo '```'
+          } > "$RUNNER_TEMP/notes.md"
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --draft --generate-notes --notes-file "$RUNNER_TEMP/notes.md" \
+            "$apk" release/SHA256SUMS
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
