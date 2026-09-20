@@ -1,0 +1,193 @@
+name: Record a Play release on GitHub
+
+# Grava a GitHub Release de uma versão que JÁ está no Google Play, sem
+# reconstruir e sem reenviar nada.
+#
+# Existe porque a primeira publicação de um aplicativo não é automatizável ponta
+# a ponta: um aplicativo nunca publicado é um *draft app*, a API só aceita
+# `status: draft` dele na trilha pública, e quem conclui é uma pessoa no Play
+# Console. Quando isso acontece o `publish-play.yml` já terminou, e redisparar
+# não serve — ele reconstruiria e reenviaria o mesmo `versionCode`, que a Play
+# recusa. Também serve a qualquer versão promovida pelo Console.
+#
+# Medido em 20/09/2026: a Play disponibiliza o APK universal assim que processa
+# o bundle, antes do rollout. O artefato nunca é o que atrasa; o que decide
+# quando gravar é a política de só gravar Release do que a loja entrega.
+#
+# Usa a mesma configuração do `publish-play.yml`: WIF, sem chave guardada.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: versionCode já publicado no Google Play
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  record:
+    name: Fetch the Play-signed APK and record the Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write # Criar a tag, a Release e anexar os assets.
+      id-token: write # Token OIDC: credenciais do Google e assinatura Sigstore.
+      attestations: write # Guardar a attestation neste repositório.
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Verify required configuration
+        env:
+          PLAY_PACKAGE_NAME: ${{ vars.PLAY_PACKAGE_NAME }}
+          WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
+          PLAY_SERVICE_ACCOUNT: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+          GCP_QUOTA_PROJECT: ${{ vars.GCP_QUOTA_PROJECT }}
+        run: |
+          set -euo pipefail
+          missing=""
+          for name in PLAY_PACKAGE_NAME WIF_PROVIDER PLAY_SERVICE_ACCOUNT GCP_QUOTA_PROJECT; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository configuration:$missing."
+            exit 1
+          fi
+
+      - name: Derive the tag and check it against the sources
+        id: version
+        # A tag vem do `versionName` do repositório, como no `publish-play.yml`.
+        # O `versionCode` do repositório tem de bater com o informado: gravar a
+        # Release de uma versão com o nome de outra seria pior que não gravar.
+        env:
+          VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          set -euo pipefail
+          name=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          code=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts)
+          if ! [[ "$name" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::versionName must be MAJOR.MINOR.PATCH; found '$name'."
+            exit 1
+          fi
+          if [ "$code" != "$VERSION_CODE" ]; then
+            echo "::error::O repositório está no versionCode $code e foi pedido o $VERSION_CODE. Faça checkout do commit da versão publicada."
+            exit 1
+          fi
+          IFS=. read -r major minor patch <<< "$name"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "tag=$(printf 'v%02d.%02d.%02d' "$major" "$minor" "$patch")" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          project_id: ${{ vars.GCP_QUOTA_PROJECT }}
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.PLAY_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/androidpublisher
+
+      - name: Download the Play-signed universal APK
+        id: apk
+        env:
+          TOKEN: ${{ steps.auth.outputs.access_token }}
+          QUOTA_PROJECT: ${{ vars.GCP_QUOTA_PROJECT }}
+          PACKAGE: ${{ vars.PLAY_PACKAGE_NAME }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+        run: |
+          set -euo pipefail
+          api=https://androidpublisher.googleapis.com/androidpublisher/v3/applications
+
+          # Guardar corpo e status: um diagnóstico na saída padrão morre onde a
+          # chamada a redireciona, e um HTTP 400 vira "curl: (22)" e nada mais.
+          play() {
+            local rotulo=$1; shift
+            local corpo status
+            corpo=$(mktemp)
+            status=$(curl -sS -o "$corpo" -w '%{http_code}' "$@") || {
+              echo "::error::$rotulo: curl falhou." >&2
+              sed 's/^/  /' "$corpo" >&2; rm -f "$corpo"; return 1
+            }
+            if [ "$status" -ge 400 ]; then
+              echo "::error::$rotulo: o Google Play respondeu HTTP $status." >&2
+              sed 's/^/  /' "$corpo" >&2; rm -f "$corpo"; return 1
+            fi
+            cat "$corpo"; rm -f "$corpo"
+          }
+
+          auth=(-H "Authorization: Bearer $TOKEN" -H "x-goog-user-project: $QUOTA_PROJECT")
+          gen="$api/$PACKAGE/generatedApks/$VERSION_CODE"
+
+          listing=$(play "listar os APKs gerados" "${auth[@]}" "$gen")
+          universal='[.generatedApks[]? | select(.generatedUniversalApk != null)][0]'
+          download_id=$(printf '%s' "$listing" | jq -r "$universal.generatedUniversalApk.downloadId // empty")
+          if [ -z "$download_id" ]; then
+            echo "::error::O Google Play não tem APK universal para o versionCode $VERSION_CODE."
+            exit 1
+          fi
+          cert=$(printf '%s' "$listing" | jq -r "$universal.certificateSha256Hash // \"unknown\"")
+
+          mkdir -p release
+          apk="release/$PACKAGE-$VERSION_NAME.apk"
+          play "baixar o APK universal" "${auth[@]}" "$gen/downloads/$download_id:download?alt=media" > "$apk"
+          if [ ! -s "$apk" ]; then
+            echo "::error::O APK universal do versionCode $VERSION_CODE veio vazio."
+            exit 1
+          fi
+          (cd release && sha256sum "$(basename "$apk")" > SHA256SUMS)
+
+          echo "path=$apk" >> "$GITHUB_OUTPUT"
+          echo "certificate=$cert" >> "$GITHUB_OUTPUT"
+
+      - name: Attest the APK provenance
+        # Só `subject-path`, como no `publish-play.yml`: a action monta a
+        # provenance de build sozinha. Declarar `predicate-type` de SLSA com um
+        # `predicate` vazio faz o GitHub recusar com *"build definition is nil"*,
+        # porque a provenance exige um `buildDefinition` — medido no run
+        # 35522306341.
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.apk.outputs.path }}
+
+      - name: Create the Release
+        # Rascunho primeiro, assets depois, publicar por último: é a ordem que
+        # releases imutáveis exigem, porque nada se acrescenta a uma publicada.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          CERT: ${{ steps.apk.outputs.certificate }}
+          PACKAGE: ${{ vars.PLAY_PACKAGE_NAME }}
+        run: |
+          set -euo pipefail
+          {
+            cat play/release-notes/pt-BR.txt
+            echo ""
+            echo "---"
+            echo ""
+            echo "Binário distribuído pelo Google Play. O APK universal anexado é o que a"
+            echo "própria Play gerou e assinou com a chave de assinatura do aplicativo, então"
+            echo "instala ao lado de uma instalação da loja e se atualiza com ela."
+            echo ""
+            echo "- pacote: \`$PACKAGE\`"
+            echo "- versionName: \`$VERSION_NAME\` — versionCode: \`$VERSION_CODE\`"
+            echo "- certificado de assinatura (SHA-256): \`$CERT\`"
+            echo ""
+            echo "Proveniência verificável com \`gh attestation verify\`."
+          } > corpo.md
+
+          gh release create "$TAG" --draft --title "$VERSION_NAME" --notes-file corpo.md
+          gh release upload "$TAG" release/*.apk release/SHA256SUMS
+          gh release edit "$TAG" --draft=false
+          {
+            echo "### Release \`$TAG\` gravada"
+            echo ""
+            echo "- APK universal assinado pela Play, certificado \`$CERT\`"
+            echo "- \`SHA256SUMS\` e attestation de proveniência"
+          } >> "$GITHUB_STEP_SUMMARY"
