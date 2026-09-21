@@ -165,9 +165,11 @@ A primeira entrega de código traz, na mesma mudança:
 ```
 :core:protocolo   Kotlin puro, sem Android — content-lock, leitura de relatório,
                   auditoria de release, montagem de prompts, custo
-:core:provedores  os seis provedores sobre Retrofit/OkHttp, retry e uso
-:core:sessao      Room, orquestração da deliberação, retomada
-:app              Compose, WorkManager, Keystore
+:core:provedores  Kotlin puro — os seis provedores sobre Retrofit/OkHttp, retry
+                  e uso; lê a chave por uma interface, não pelo Keystore
+:core:seguranca   Android library — a implementação da chave sobre o Keystore
+:core:sessao      Android library — Room, orquestração da deliberação, retomada
+:app              Compose, WorkManager, injeção que amarra os módulos
 ```
 
 `:core:protocolo` **não depende de Android**, pela mesma razão que fez
@@ -175,6 +177,18 @@ A primeira entrega de código traz, na mesma mudança:
 turno é válido — 621 linhas de leitura de relatório mais as 526 do
 *content-lock* —, e essa parte tem de poder ser executada na JVM, em
 milissegundos, a cada mudança. É onde os testes rendem mais por linha.
+
+**`:core:provedores` também é Kotlin puro, e isso exige um cuidado.** O Android
+Keystore é API de plataforma; um módulo que o chamasse deixaria de rodar na JVM,
+e os seis clientes HTTP cairiam junto — precisariam de Robolectric ou de
+execução instrumentada para um teste que só quer conferir o corpo de uma
+requisição. Por isso os clientes **não** conhecem o Keystore: eles pedem o
+segredo a uma interface (`FonteDeChave`, um método por provedor), e quem a
+implementa sobre o Keystore é `:core:seguranca`, que `:app` injeta. Em teste,
+a mesma interface é satisfeita por um valor em memória.
+
+A fronteira não é enfeite: é o que mantém na JVM o módulo que fala com dinheiro
+alheio e com seis contratos externos.
 
 ### 4.1 A orquestração roda no aparelho, e isso precisa de mecanismo nomeado
 
@@ -246,7 +260,7 @@ providing API services for DeepSeek V4 Pro after September 14, 2026."*
 | --- | --- | --- | --- |
 | `claude` | `claude-fable-5-1` | `POST https://api.anthropic.com/v1/messages` | `thinking: {type: "adaptive"}` + `output_config.effort` |
 | `codex` | `gpt-6-astra` | `POST https://api.openai.com/v1/responses` | `reasoning.effort`: `low`…`max` |
-| `gemini` | `gemini-3.1-pro-preview` | `POST https://generativelanguage.googleapis.com/v1beta2/interactions` | `generation_config.thinking_level` |
+| `gemini` | `gemini-3.1-pro-preview` | `POST https://generativelanguage.googleapis.com/v1beta2/interactions` | `generation_config.thinking_level`: `low`, `medium`, `high` (padrão `high`) |
 | `deepseek` | `deepseek-v4-pro` | `POST https://api.deepseek.com/chat/completions` | — |
 | `grok` | `grok-4.7` | `POST https://api.x.ai/v1/responses` | `reasoning.effort` |
 | `perplexity` | `perplexity/sonar-reasoning-pro` | `POST https://api.perplexity.ai/v1/agent` | `reasoning.effort`: `minimal`…`max` |
@@ -346,26 +360,51 @@ consegue **usar** a chave, não **levar** a chave. Essa distinção é o que se 
 prometer ao usuário com honestidade, e é o que a tela de configurações vai
 dizer — sem a palavra "seguro" solta.
 
-### 6.2 Duas decisões que dependem do operador
+### 6.2 Duas decisões do operador, tomadas em 21/09/2026
 
-Ambas têm custo real e nenhuma tem resposta na documentação; estão na seção 11
-como pendências abertas.
+Ambas têm custo real e nenhuma tinha resposta na documentação — eram escolha de
+produto, e o operador as fez. Ficam aqui escritas para não serem relitigadas.
 
-1. **StrongBox** (`setIsStrongBoxBacked`), disponível desde a API 28 e portanto
-   em todo aparelho que o `minSdk` 34 alcança. A documentação é explícita sobre
-   o preço: *"Appropriate for applications requiring the highest level of
-   security... However, it is slower, more resource-constrained, and supports
-   fewer concurrent operations."* Nem todo aparelho tem o hardware, então exige
-   caminho de degradação.
-2. **Vínculo com autenticação do usuário**
-   (`setUserAuthenticationParameters()`), em dois modos: autorizar por um tempo
-   após a autenticação, ou autorizar cada operação. O segundo é biometria a cada
-   chamada de provedor — proteção real e atrito real numa sessão com dezenas de
-   chamadas.
+**1. StrongBox: sim** (`setIsStrongBoxBacked(true)`), disponível desde a API 28
+e portanto em todo aparelho que o `minSdk` 34 alcança. A documentação é
+explícita sobre o preço, e o preço está aceito: *"Appropriate for applications
+requiring the highest level of security... However, it is slower, more
+resource-constrained, and supports fewer concurrent operations."*
+
+Ser mais lento não incomoda aqui. A chave do Keystore é usada para decifrar o
+segredo **uma vez por chamada de provedor**, e cada chamada de provedor leva
+segundos ou dezenas de segundos de rede e raciocínio; a operação de cifra não é
+o que se sente. "Menos operações simultâneas" é o ponto que exige cuidado, e o
+desenho já o resolve: o segredo é decifrado no momento de montar a requisição,
+não mantido em uso.
+
+**Nem todo aparelho tem o hardware**, e isso não é hipótese remota — é a maior
+parte dos aparelhos baratos. A criação da chave com StrongBox falha nesses, e a
+falha é tratada, não engolida: o aplicativo recria a chave sem StrongBox e
+**registra qual dos dois caminhos está em uso**, para que a tela de
+configurações possa dizer a verdade sobre este aparelho em vez de uma promessa
+genérica. Degradar em silêncio seria prometer a todos o que só alguns têm.
+
+**2. Vínculo com autenticação do usuário: por tempo, até a entrega do texto
+final** (`setUserAuthenticationParameters()`). O usuário se autentica uma vez, e
+a janela cobre a sessão de deliberação até o texto final sair. O outro modo —
+autorizar cada operação — significaria biometria a cada chamada de provedor,
+dezenas por sessão, o que é atrito sem ganho proporcional num aplicativo que o
+próprio usuário deixou rodando.
+
+Isso deixa um detalhe de implementação, que **não** é nova pergunta ao operador:
+`setUserAuthenticationParameters()` recebe um número fixo de segundos, e "até a
+entrega do texto final" é a duração de uma sessão, que varia com o teto
+configurado. Duas formas atendem à decisão — janela dimensionada pelo
+`max_runtime_minutes` daquela sessão, ou reautenticação quando a janela expira
+com a sessão viva —, e a escolha entre elas se resolve por medição na entrega de
+`:core:seguranca`, não por gosto. O que está decidido e não se revisita é o
+modo: **por tempo, não por operação.**
 
 A v1 assume `minSdk` 34, herdando a decisão do operador de 19/09/2026 na
 calculadora. Isso torna as duas APIs acima universalmente disponíveis e dispensa
-caminho por nível de API.
+caminho por nível de API — o que sobra é o hardware de StrongBox, que é questão
+de aparelho, não de versão do sistema.
 
 ### 6.3 O que se declara na Play
 
@@ -431,10 +470,20 @@ de teste, porque compra confiança sem entregá-la.
   Cada regra de validação ganha um par — uma entrada que passa e uma que falha.
   O `validateRevisionContentLock` em particular tem de ter caso em que a revisão
   mexe em bloco não declarado, e o teste **exige** a recusa.
-- **`:core:provedores`, com servidor HTTP de mentira.** Um `MockWebServer` por
-  provedor cobre: corpo montado conforme o contrato da seção 5.1, `store: false`
-  presente, 429 com e sem `Retry-After`, timeout, e resposta sem `usage`.
-  Nenhum teste fala com provedor real.
+- **`:core:provedores`, na JVM, com servidor HTTP de mentira.** Roda sem
+  emulador e sem Robolectric porque o módulo é Kotlin puro e a chave chega por
+  `FonteDeChave` (seção 4), satisfeita em teste por um valor em memória. Um
+  `MockWebServer` por provedor cobre: corpo montado conforme o contrato da seção
+  5.1, `store: false` presente, 429 com e sem `Retry-After`, timeout, e resposta
+  sem `usage`. Nenhum teste fala com provedor real.
+- **`:core:seguranca`, instrumentado.** O Keystore só existe em aparelho ou
+  emulador, então o teste da cifra é instrumentado — e é pequeno justamente
+  porque a fronteira manteve tudo o mais fora dele. Dois casos não podem faltar,
+  porque nascem das decisões de 21/09/2026 (seção 6.2): que o segredo cifrado
+  com StrongBox volta em claro, e que **a falta do hardware de StrongBox cai no
+  caminho sem ele e o registra**, em vez de estourar. O segundo exige encenar a
+  ausência do hardware; teste que só passa no emulador que tem StrongBox não
+  prova nada sobre o aparelho que não tem.
 - **`:core:sessao`, com Room em memória.** Retomada depois de morte de processo
   é o caso que mais importa, e o teste o encena: grava estado no meio da rodada,
   destrói o *worker*, reabre, e verifica que a deliberação continua do ponto
@@ -492,19 +541,6 @@ antes do build.
 Cada uma com estado e evidência. Lista que envelhece sem estado foi a falha
 apontada na calculadora, e não se repete.
 
-### Abertas, dependem de decisão do operador
-
-1. **StrongBox: liga ou não?** Custo declarado pela documentação: mais lento,
-   mais restrito em operações simultâneas, e nem todo aparelho tem o hardware —
-   exige caminho de degradação. Seção 6.2.
-2. **Vínculo com autenticação do usuário: por tempo ou por operação?** Por
-   operação é biometria a cada chamada de provedor, dezenas por sessão. Por
-   tempo é uma autenticação que autoriza uma janela. Seção 6.2.
-3. **Quantos módulos por entrega?** A calculadora foi em três PRs (`:core:calc`,
-   `:core:data`, `:app`). Aqui são ~6.700 linhas de origem e quatro módulos.
-   Proposta: quatro entregas, na ordem `:core:protocolo` → `:core:provedores` →
-   `:core:sessao` → `:app`, cada uma com seus testes e portão verde.
-
 ### Abertas, dependem de medição no aparelho
 
 1. **Teto real do serviço em primeiro plano `dataSync`.** A página oficial de
@@ -519,6 +555,17 @@ apontada na calculadora, e não se repete.
 
 ### Resolvidas nesta especificação
 
+- **StrongBox: liga ou não?** Resolvida pelo operador em 21/09/2026: **liga**,
+  com caminho de degradação registrado para aparelho sem o hardware. Seção 6.2.
+- **Vínculo com autenticação do usuário: por tempo ou por operação?** Resolvida
+  pelo operador em 21/09/2026: **por tempo, até a entrega do texto final**.
+  Seção 6.2.
+- **Quantos módulos por entrega?** Resolvida pelo operador em 21/09/2026:
+  **quatro entregas**, na ordem `:core:protocolo` → `:core:provedores` →
+  `:core:sessao` → `:app`, cada uma com seus testes e portão verde.
+  `:core:seguranca` é pequeno e viaja junto com `:core:provedores`, que é quem
+  precisa dele. A calculadora foi em três PRs para ~1.300 linhas; aqui são
+  ~6.700 e cinco módulos.
 - **Gemini por Vertex ou pela API geral?** Resolvida pelo operador em
   21/09/2026: API geral. Vertex exige cadastro no GCP e não serve a produto de
   consumo.
@@ -534,7 +581,9 @@ apontada na calculadora, e não se repete.
   `admin-motor/src/handlers/routes/maestro-ai/sessions.ts` em 21/09/2026 — o
   endpoint que a Perplexity desliga em **27/09/2026**. Não é escopo desta
   especificação nem deste repositório, mas é achado com data e está registrado
-  no rastreador do `admin-app`. Aqui fica só a referência cruzada.
+  no rastreador do `admin-app`: Linear ADMIAPP-28 e a gêmea
+  `LCV-Ideas-Software/admin-app#646`, com prioridade Alta e prazo 27/09/2026.
+  Aqui fica só a referência cruzada.
 
 ---
 

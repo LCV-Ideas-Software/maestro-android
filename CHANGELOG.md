@@ -9,8 +9,11 @@ All material changes to Maestro Android are recorded here.
 - Specify the native port, in `docs/especificacao-v1.md`, before any Kotlin —
   the same order `calculadora-android` followed. The document fixes the scope
   unit by unit against the web module it ports (6.674 lines, five times the
-  calculadora), the `:core:protocolo` + `:core:provedores` + `:core:sessao` +
-  `:app` split, and where the deliberation loop runs now that there is no
+  calculadora), the `:core:protocolo` + `:core:provedores` + `:core:seguranca` +
+  `:core:sessao` + `:app` split — where the two modules that carry the protocol
+  and the six provider contracts stay pure Kotlin, reading the API key through
+  an interface so the Keystore implementation can live apart and they remain
+  testable on the JVM — and where the deliberation loop runs now that there is no
   Worker: a WorkManager `CoroutineWorker` with `setForeground()` and a `dataSync`
   foreground service, with app start reconciling any session left `running` by a
   killed process.
@@ -24,6 +27,16 @@ All material changes to Maestro Android are recorded here.
   of the Agent API. One transport serves all six providers — Retrofit/OkHttp over
   the documented REST contracts — because no provider publishes an Android SDK,
   a fact measured rather than assumed.
+
+  Three questions the specification could not answer for itself were decided by
+  the operator on 21/09/2026 and are written into it as settled: the Keystore key
+  is **StrongBox-backed**, with a degradation path that records which of the two
+  it ended up on, because most inexpensive devices lack the hardware and
+  degrading silently would promise everyone what only some have; user
+  authentication gates the key **by time, until the final text is delivered**,
+  not per operation, which would mean biometrics on every provider call, dozens
+  per session; and the work ships in **four deliveries**, `:core:protocolo` →
+  `:core:provedores` → `:core:sessao` → `:app`.
 
   Two decisions carry consequences worth naming. The user's API keys live on the
   device, by the operator's decision, encrypted by a non-exportable Android
