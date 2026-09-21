@@ -38,11 +38,22 @@ implemented.
 
 ## Current state
 
-There is no Gradle project, Android source set, package, signing configuration,
-or production dependency. Do not add fake Gradle files merely to satisfy CI.
-When a real Android scaffold is introduced, add the official Gradle dependency
-updates, wrapper validation, lint, test, and assemble checks, and verify native
-CodeQL Default setup covers its Java/Kotlin source in that same reviewed change.
+The Gradle project exists since 17/09/2026 (MAEANDR-9): package name
+`dev.lcv.maestro`, `compileSdk` and `targetSdk` 36, `minSdk` 24, module `:app`
+only. There is still **no Android source set and no production dependency** —
+the repository holds zero `.kt` files. No signing material lives here; it is
+injected at build time by the publishing workflow.
+
+The native port is specified in
+[`docs/especificacao-v1.md`](docs/especificacao-v1.md) (in Portuguese), written
+before any Kotlin, as `calculadora-android` did. It fixes the scope unit by
+unit, the `:core:*` + `:app` module split, the six AI providers with the model
+and API contract each one documents today, on-device key storage through the
+Android Keystore, the accepted risks, and the pendencies that remain open. That
+specification also records the Gradle baseline this repository must reach in its
+first code change: `compileSdk`/`targetSdk` 37, `minSdk` 34, a version catalog,
+the Kotlin Gradle Plugin declared, and a `ci.yml` with wrapper validation, lint,
+tests, and assemble. Do not add fake Gradle files merely to satisfy CI.
 
 The inert [`quality/code-quality-probe.js`](quality/code-quality-probe.js)
 exists solely to give GitHub Code Quality a deterministic supported-language
@@ -62,7 +73,10 @@ runtime and does not represent Kotlin coverage.
   in fixed UTC-03:00,
   with a seven-day cooldown except for official `actions/*` and `github/*`
   updates. Minor and patch updates are grouped; major updates remain separate.
-  Gradle coverage is intentionally absent until a real Gradle project exists.
+  The Gradle ecosystem was declared on 17/09/2026 (PANDROI-38), alongside the
+  real Gradle project. Its `ignore` list carries the build-classpath transitives
+  the Dependabot security job cannot update, and an inline instruction to drop
+  the `kotlin-gradle-plugin` line as soon as the plugin is declared explicitly.
   Security updates have their own group and do not wait for the version-update
   schedule or cooldown. If one member fails, diagnose it and adjust native
   grouping so other fixes can proceed through the required checks.
