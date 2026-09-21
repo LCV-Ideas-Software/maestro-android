@@ -6,6 +6,32 @@ All material changes to Maestro Android are recorded here.
 
 ### Added
 
+- Specify the native port, in `docs/especificacao-v1.md`, before any Kotlin —
+  the same order `calculadora-android` followed. The document fixes the scope
+  unit by unit against the web module it ports (6.674 lines, five times the
+  calculadora), the `:core:protocolo` + `:core:provedores` + `:core:sessao` +
+  `:app` split, and where the deliberation loop runs now that there is no
+  Worker: a WorkManager `CoroutineWorker` with `setForeground()` and a `dataSync`
+  foreground service, with app start reconciling any session left `running` by a
+  killed process.
+
+  It also records three provider-API changes that each invalidate the old way of
+  calling, verified in official documentation on 21/09/2026: Anthropic's
+  `budget_tokens` is now rejected with HTTP 400 in favour of adaptive thinking;
+  Google's Interactions API supersedes `generateContent`, with `thinking_level`
+  replacing `thinking_budget` and the two together returning 400; and
+  Perplexity's Sonar Chat Completions is switched off on **27/09/2026** in favour
+  of the Agent API. One transport serves all six providers — Retrofit/OkHttp over
+  the documented REST contracts — because no provider publishes an Android SDK,
+  a fact measured rather than assumed.
+
+  Two decisions carry consequences worth naming. The user's API keys live on the
+  device, by the operator's decision, encrypted by a non-exportable Android
+  Keystore key, which is what makes the on-device orchestration mandatory rather
+  than merely convenient. And `store: false` is explicit in every request,
+  because OpenAI defaults to retaining responses for 30 days and Gemini for 55
+  on the paid tier — a default that would contradict the product's own premise.
+
 - Bring the Google Play publication pipeline to the fleet baseline, PANDROI-40,
   by copying it verbatim from calculadora-android, where it was exercised end to
   end on a real publication on 20/09/2026. Both workflow files are byte-identical
