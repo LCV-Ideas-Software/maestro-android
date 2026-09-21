@@ -165,9 +165,11 @@ A primeira entrega de código traz, na mesma mudança:
 ```
 :core:protocolo   Kotlin puro, sem Android — content-lock, leitura de relatório,
                   auditoria de release, montagem de prompts, custo
-:core:provedores  os seis provedores sobre Retrofit/OkHttp, retry e uso
-:core:sessao      Room, orquestração da deliberação, retomada
-:app              Compose, WorkManager, Keystore
+:core:provedores  Kotlin puro — os seis provedores sobre Retrofit/OkHttp, retry
+                  e uso; lê a chave por uma interface, não pelo Keystore
+:core:seguranca   Android library — a implementação da chave sobre o Keystore
+:core:sessao      Android library — Room, orquestração da deliberação, retomada
+:app              Compose, WorkManager, injeção que amarra os módulos
 ```
 
 `:core:protocolo` **não depende de Android**, pela mesma razão que fez
@@ -175,6 +177,18 @@ A primeira entrega de código traz, na mesma mudança:
 turno é válido — 621 linhas de leitura de relatório mais as 526 do
 *content-lock* —, e essa parte tem de poder ser executada na JVM, em
 milissegundos, a cada mudança. É onde os testes rendem mais por linha.
+
+**`:core:provedores` também é Kotlin puro, e isso exige um cuidado.** O Android
+Keystore é API de plataforma; um módulo que o chamasse deixaria de rodar na JVM,
+e os seis clientes HTTP cairiam junto — precisariam de Robolectric ou de
+execução instrumentada para um teste que só quer conferir o corpo de uma
+requisição. Por isso os clientes **não** conhecem o Keystore: eles pedem o
+segredo a uma interface (`FonteDeChave`, um método por provedor), e quem a
+implementa sobre o Keystore é `:core:seguranca`, que `:app` injeta. Em teste,
+a mesma interface é satisfeita por um valor em memória.
+
+A fronteira não é enfeite: é o que mantém na JVM o módulo que fala com dinheiro
+alheio e com seis contratos externos.
 
 ### 4.1 A orquestração roda no aparelho, e isso precisa de mecanismo nomeado
 
@@ -246,7 +260,7 @@ providing API services for DeepSeek V4 Pro after September 14, 2026."*
 | --- | --- | --- | --- |
 | `claude` | `claude-fable-5-1` | `POST https://api.anthropic.com/v1/messages` | `thinking: {type: "adaptive"}` + `output_config.effort` |
 | `codex` | `gpt-6-astra` | `POST https://api.openai.com/v1/responses` | `reasoning.effort`: `low`…`max` |
-| `gemini` | `gemini-3.1-pro-preview` | `POST https://generativelanguage.googleapis.com/v1beta2/interactions` | `generation_config.thinking_level` |
+| `gemini` | `gemini-3.1-pro-preview` | `POST https://generativelanguage.googleapis.com/v1beta2/interactions` | `generation_config.thinking_level`: `low`, `medium`, `high` (padrão `high`) |
 | `deepseek` | `deepseek-v4-pro` | `POST https://api.deepseek.com/chat/completions` | — |
 | `grok` | `grok-4.7` | `POST https://api.x.ai/v1/responses` | `reasoning.effort` |
 | `perplexity` | `perplexity/sonar-reasoning-pro` | `POST https://api.perplexity.ai/v1/agent` | `reasoning.effort`: `minimal`…`max` |
@@ -431,10 +445,15 @@ de teste, porque compra confiança sem entregá-la.
   Cada regra de validação ganha um par — uma entrada que passa e uma que falha.
   O `validateRevisionContentLock` em particular tem de ter caso em que a revisão
   mexe em bloco não declarado, e o teste **exige** a recusa.
-- **`:core:provedores`, com servidor HTTP de mentira.** Um `MockWebServer` por
-  provedor cobre: corpo montado conforme o contrato da seção 5.1, `store: false`
-  presente, 429 com e sem `Retry-After`, timeout, e resposta sem `usage`.
-  Nenhum teste fala com provedor real.
+- **`:core:provedores`, na JVM, com servidor HTTP de mentira.** Roda sem
+  emulador e sem Robolectric porque o módulo é Kotlin puro e a chave chega por
+  `FonteDeChave` (seção 4), satisfeita em teste por um valor em memória. Um
+  `MockWebServer` por provedor cobre: corpo montado conforme o contrato da seção
+  5.1, `store: false` presente, 429 com e sem `Retry-After`, timeout, e resposta
+  sem `usage`. Nenhum teste fala com provedor real.
+- **`:core:seguranca`, instrumentado.** O Keystore só existe em aparelho ou
+  emulador, então o teste da cifra é instrumentado — e é pequeno justamente
+  porque a fronteira manteve tudo o mais fora dele.
 - **`:core:sessao`, com Room em memória.** Retomada depois de morte de processo
   é o caso que mais importa, e o teste o encena: grava estado no meio da rodada,
   destrói o *worker*, reabre, e verifica que a deliberação continua do ponto
@@ -501,9 +520,11 @@ apontada na calculadora, e não se repete.
    operação é biometria a cada chamada de provedor, dezenas por sessão. Por
    tempo é uma autenticação que autoriza uma janela. Seção 6.2.
 3. **Quantos módulos por entrega?** A calculadora foi em três PRs (`:core:calc`,
-   `:core:data`, `:app`). Aqui são ~6.700 linhas de origem e quatro módulos.
+   `:core:data`, `:app`). Aqui são ~6.700 linhas de origem e cinco módulos.
    Proposta: quatro entregas, na ordem `:core:protocolo` → `:core:provedores` →
    `:core:sessao` → `:app`, cada uma com seus testes e portão verde.
+   `:core:seguranca` é pequeno e viaja junto com `:core:provedores`, que é quem
+   precisa dele.
 
 ### Abertas, dependem de medição no aparelho
 
@@ -534,7 +555,9 @@ apontada na calculadora, e não se repete.
   `admin-motor/src/handlers/routes/maestro-ai/sessions.ts` em 21/09/2026 — o
   endpoint que a Perplexity desliga em **27/09/2026**. Não é escopo desta
   especificação nem deste repositório, mas é achado com data e está registrado
-  no rastreador do `admin-app`. Aqui fica só a referência cruzada.
+  no rastreador do `admin-app`: Linear ADMIAPP-28 e a gêmea
+  `LCV-Ideas-Software/admin-app#646`, com prioridade Urgente. Aqui fica só a
+  referência cruzada.
 
 ---
 

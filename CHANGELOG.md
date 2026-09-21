@@ -9,8 +9,11 @@ All material changes to Maestro Android are recorded here.
 - Specify the native port, in `docs/especificacao-v1.md`, before any Kotlin —
   the same order `calculadora-android` followed. The document fixes the scope
   unit by unit against the web module it ports (6.674 lines, five times the
-  calculadora), the `:core:protocolo` + `:core:provedores` + `:core:sessao` +
-  `:app` split, and where the deliberation loop runs now that there is no
+  calculadora), the `:core:protocolo` + `:core:provedores` + `:core:seguranca` +
+  `:core:sessao` + `:app` split — where the two modules that carry the protocol
+  and the six provider contracts stay pure Kotlin, reading the API key through
+  an interface so the Keystore implementation can live apart and they remain
+  testable on the JVM — and where the deliberation loop runs now that there is no
   Worker: a WorkManager `CoroutineWorker` with `setForeground()` and a `dataSync`
   foreground service, with app start reconciling any session left `running` by a
   killed process.
