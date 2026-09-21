@@ -6,6 +6,48 @@ All material changes to Maestro Android are recorded here.
 
 ### Added
 
+- Close the eleven review threads the Codex bot opened on the specification's two
+  pull requests, both of which were merged with the threads still open. Every
+  claim was checked against official documentation before being accepted; all
+  eleven held.
+
+  Two of them contradicted things the document asserted as verified. Android
+  grants `dataSync` foreground services *"a total of 6 hours in a 24-hour
+  period"*, calls `Service.onTimeout()` at the cap and throws
+  `RemoteServiceException` if the service does not stop — the specification had
+  said the documentation declared no limit and sent the question to on-device
+  measurement, because two pages that omitted the fact were read as its absence.
+  And a Keystore key's authorization policy is fixed when it is created —
+  *"Once a key is generated or imported, its authorizations can't be changed"* —
+  so the offered option of sizing the authentication window per session was not
+  a choice to measure but an impossibility; the window is now one fixed value,
+  and an expiry mid-session pauses the session for foreground reauthentication,
+  since `BiometricPrompt` needs a visible screen and a background worker cannot
+  satisfy it alone.
+
+  Two were promises the product could not keep. `android:allowBackup` defaults
+  to true and Auto Backup carries `getDatabasePath()` and internal storage, so
+  the sessions database and the encrypted secret would have travelled to the
+  user's cloud backup; they are now excluded through `dataExtractionRules` in
+  both the cloud-backup and device-transfer domains, and a restored ciphertext —
+  undecryptable, because the Keystore key does not travel — is treated as "no
+  key configured" rather than a crash. And "your key never leaves the device"
+  was simply false, since every provider call sends that provider its key as
+  authentication; the honest boundary is now written out and is what the
+  settings screen will say.
+
+  The rest were gaps in the test plan and one unreliable control surface. The
+  plan demanded `store: false` from all six providers although only three expose
+  the field, which would have sent Anthropic's `/v1/messages` a parameter it does
+  not declare; the process-death test used an in-memory Room database, which
+  cannot survive process death and would have passed while proving nothing; the
+  cost and runtime ceilings the document calls the only barrier against an
+  unexpected bill had no test at all; and the user-authentication gate had none
+  either. Finally, denying `POST_NOTIFICATIONS` leaves a foreground service
+  running while its notification shows only in Task Manager, so live cost and
+  cancellation now belong to the session screen, which the notification mirrors
+  rather than replaces.
+
 - Specify the native port, in `docs/especificacao-v1.md`, before any Kotlin —
   the same order `calculadora-android` followed. The document fixes the scope
   unit by unit against the web module it ports (6.674 lines, five times the
