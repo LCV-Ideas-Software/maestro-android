@@ -228,13 +228,47 @@ Três consequências, todas vinculantes:
 1. **`max_runtime_minutes` tem teto de produto abaixo de seis horas.** Um valor
    que o usuário configure acima disso não é atendível e não deve ser aceito
    pela tela.
-2. **`onTimeout()` é caminho previsto, não falha.** O *worker* grava o ponto da
-   deliberação, para o serviço e deixa a sessão em estado retomável — o mesmo
-   caminho da seção 4.3. Sessão morta pelo teto do sistema com
-   `RemoteServiceException` seria defeito nosso, não limitação da plataforma.
+2. **O ponto de retomada é gravado a cada turno, e não no fim.** Ver a
+   subseção seguinte: o `Service.onTimeout()` **não chega ao nosso código**, e
+   por isso a proteção não pode depender de reagir a ele.
 3. **O orçamento é agregado.** Duas sessões longas no mesmo dia dividem as seis
    horas. A tela tem de dizer isso quando o saldo estiver baixo, em vez de
    deixar a segunda sessão morrer sem explicação.
+
+#### Quem recebe o `onTimeout()` não é o nosso *worker*
+
+Uma versão anterior deste documento prescrevia que, ao chegar o teto, *"o worker
+grava o ponto da deliberação, para o serviço e deixa a sessão em estado
+retomável"*. **O *worker* não consegue fazer isso.** Com o WorkManager, o
+serviço em primeiro plano é a classe interna
+`androidx.work.impl.foreground.SystemForegroundService`: é a ela que o sistema
+entrega `Service.onTimeout()`, e é ela que chama `stopSelf()`. Um
+`CoroutineWorker` não implementa `onTimeout()` nem para o serviço. A prescrição
+era uma sequência impossível.
+
+O que resolve não é um retorno de chamada melhor, é **não precisar de nenhum**:
+
+1. **Checkpoint por turno, obrigatório.** A deliberação grava o ponto retomável
+   ao fim de **cada turno de agente**, dentro da mesma transação que grava o
+   artefato e o evento do jornal. Assim o pior caso — seja teto de seis horas,
+   cota do Android 16, morte de processo ou o usuário forçando a parada — perde
+   **no máximo o turno em voo**, nunca a sessão. Gravar só no fim seria confiar
+   num aviso que pode não vir.
+2. **`onStopped()` é aproveitado, mas como rótulo, não como salvaguarda.** O
+   WorkManager *"invokes `ListenableWorker.onStopped()` as soon as your Worker
+   has been stopped"*, e o motivo é legível pelo próprio *worker* e pelo
+   `WorkInfo`, por `getStopReason()`. `STOP_REASON_TIMEOUT` e
+   `STOP_REASON_QUOTA` são exatamente os dois limites desta seção. Usar isso
+   para dizer ao usuário **por que** a sessão pausou é melhora real de produto;
+   usar como o lugar onde o estado é salvo seria repetir o erro, porque o
+   retorno de chamada é *best-effort* e o processo pode nem chegar lá.
+3. **A saída, se a medição mostrar que não basta**, é serviço em primeiro plano
+   **do próprio aplicativo**, em que `onTimeout()` chega ao nosso código e o
+   `stopSelf()` é nosso. Isso troca o agendamento, não o resto do desenho, e
+   está registrado como pendência na seção 11 junto com a da cota.
+
+A versão do WorkManager que o catálogo fixar tem de expor `getStopReason()`;
+conferir na entrega, e não presumir pela versão mais recente do dia.
 
 #### A cota de *jobs* do Android 16, que atinge a v1 sim
 
@@ -306,10 +340,30 @@ aplicativo: preferência de interface pode ser restaurada sem problema.
 
 **E o cifrado restaurado não decifra.** A chave do Keystore não é exportável e
 não viaja com o backup, então texto cifrado que chegasse a outro aparelho seria
-lixo indecifrável. Excluí-lo do backup já evita o caso; para o resto, a leitura
-do segredo trata falha de decifra como **"não há chave configurada"**, pedindo-a
-de novo em vez de estourar. Um aplicativo que quebra depois de trocar de
-aparelho é um aplicativo que perdeu o usuário no primeiro minuto.
+lixo indecifrável. Excluí-lo do backup já evita o caso.
+
+Para o resto, **"falhou a decifra" não é um caso só**, e tratar como se fosse
+custaria ao usuário exatamente o que se quer evitar: digitar de novo uma chave
+de API que está intacta. São três causas, com três respostas:
+
+| Causa | O que é | Resposta |
+| --- | --- | --- |
+| `UserNotAuthenticatedException` | a janela de autenticação expirou — *"the key's validity timed out"*. **A chave está intacta.** | `pausada_aguardando_autenticacao` (seção 6.2): pedir **autenticação**, nunca a chave de API |
+| `KeyPermanentlyInvalidatedException` | a chave do Keystore foi invalidada em definitivo, tipicamente por mudança de biometria ou da trava de tela | o segredo é irrecuperável: dizer isso em texto claro e **pedir a chave de API de novo** |
+| Decifra falha sem exceção de autenticação, ou o alias não existe | cifrado órfão — o caso do backup restaurado | tratar como **"não há chave configurada"** e pedir a chave de novo |
+
+Só a terceira linha era o que este documento dizia, como regra geral; as duas
+primeiras entraram depois de a revisão apontar que a regra geral engolia a
+primeira e mandava o usuário redigitar chave boa.
+
+A segunda causa tem mitigação própria e a v1 a usa:
+`setInvalidatedByBiometricEnrollment(false)` mantém a chave válida quando uma
+biometria nova é cadastrada. Cadastrar um dedo novo não é motivo para alguém
+perder as seis chaves.
+
+Um aplicativo que quebra depois de trocar de aparelho perdeu o usuário no
+primeiro minuto; um que pede a chave de volta toda vez que o relógio virou é
+pior, porque parece estar funcionando.
 
 O diário da sessão (`events_json`) porta como está — lista serializada com
 leitura estrita. O web já trata jornal corrompido como falha explícita
@@ -585,10 +639,34 @@ teto de saída, depois substituída pelo custo observado quando o provedor devol
 contagem de tokens. As taxas são três por provedor: dólares por milhão de tokens
 de entrada, por milhão de saída e, na Perplexity, por mil requisições de busca.
 
-No Android tudo isso é `BigDecimal`, com escala e arredondamento declarados no
-ponto de comparação com `max_cost_usd`. O teto de custo é a única barreira entre
-uma sessão mal configurada e a fatura do usuário; ela não pode depender de
+No Android tudo isso é `BigDecimal`. O teto de custo é a única barreira entre uma
+sessão mal configurada e a fatura do usuário, e não pode depender de
 arredondamento implícito.
+
+### 7.1 A regra do teto, declarada — não "a declarar"
+
+Uma versão anterior desta seção prometia "escala e arredondamento declarados no
+ponto de comparação" e não os declarava, e o plano de testes mandava testar "o
+comportamento no limite exato" sem que nada dissesse qual é. Duas implementações
+poderiam obedecer ao documento com `<` e `<=`, mudando o número de chamadas e a
+conta do usuário. Fica declarado:
+
+- **Escala interna: 8 casas decimais**, folgada para taxas cobradas por milhão
+  de tokens, onde um turno pequeno custa frações de centavo.
+- **A estimativa da próxima chamada arredonda para cima**, com
+  `RoundingMode.CEILING`. O sentido é deliberado: arredondamento nunca deixa
+  passar uma chamada que o teto não comportava. Errar para o lado do usuário é
+  o único erro aceitável quando o outro lado é a fatura dele.
+- **O custo observado, para exibir e para somar, arredonda a meio para cima**
+  (`HALF_UP`), na escala de exibição de 2 casas. Exibição nunca alimenta
+  comparação; a comparação usa sempre a escala interna.
+- **A comparação é `custo_acumulado + estimativa <= max_cost_usd`.** Igualdade
+  **permite** a chamada. "Teto" é o valor máximo que se pode gastar, não o
+  primeiro valor proibido — e gastar exatamente o que se autorizou é o que o
+  usuário pediu ao escrever aquele número.
+- Quando a chamada não cabe, a sessão **para antes de fazê-la** e o jornal
+  registra o valor que a reprovou. Parar sem dizer quanto faltava é obrigar o
+  usuário a adivinhar o próprio teto.
 
 A contagem de tokens vem do provedor quando ele a devolve. Quando não devolve —
 a Perplexity registra `usage: null` em resposta `incomplete` —, o custo cai para
@@ -649,8 +727,10 @@ de teste, porque compra confiança sem entregá-la.
   1. com saldo insuficiente para a próxima chamada **pela estimativa**, a sessão
      para **antes** de fazê-la — o teste conta as requisições que chegaram ao
      `MockWebServer` e exige que a última não tenha acontecido;
-  2. no limite exato, o comportamento é o declarado, e não depende de
-     arredondamento — é o caso que justifica o `BigDecimal` da seção 7;
+  2. **no limite exato, a chamada acontece** — `custo_acumulado + estimativa`
+     igual a `max_cost_usd` permite, pela regra da seção 7.1, e o teste fixa
+     isso para que ninguém troque `<=` por `<` sem que um teste caia. O par
+     desse caso é o centavo seguinte, que tem de reprovar;
   3. resposta sem `usage` cai para a estimativa **e o jornal registra que o
      custo daquele turno é estimado**, não observado;
   4. o teto de tempo para a sessão do mesmo jeito, com o relógio injetado, e não
@@ -717,12 +797,17 @@ apontada na calculadora, e não se repete.
 
 ### Abertas, dependem de medição no aparelho
 
-1. **A cota de *jobs* do Android 16 interrompe sessões normais?** O
-   comportamento está documentado (seção 4.1) e o desenho já o trata como
-   interrupção retomável. O que falta medir é a frequência: se sessões de uso
-   normal forem cortadas, a troca é subir o serviço em primeiro plano
-   diretamente, sem WorkManager — saída já nomeada pela documentação oficial,
-   e que muda o agendamento, não o resto do desenho.
+1. **O WorkManager basta, ou o serviço em primeiro plano tem de ser nosso?**
+   Duas medições que levam à mesma decisão, e por isso viram uma pendência só.
+   A primeira é a frequência com que a cota de *jobs* do Android 16 corta
+   sessões de uso normal. A segunda é quanto se perde quando o teto de seis
+   horas chega: o `Service.onTimeout()` vai para o serviço interno do
+   WorkManager e não para o nosso código (seção 4.1), então o que protege é o
+   *checkpoint* por turno — falta medir se `onStopped()` chega a tempo de
+   rotular a pausa, ou se o processo morre antes. Se qualquer das duas
+   decepcionar, a troca é **serviço em primeiro plano do próprio aplicativo**,
+   em que `onTimeout()` e `stopSelf()` são nossos. Isso muda o agendamento, não
+   o resto do desenho.
 2. **Timeout por chamada na Perplexity com `store: false`.** Com `store: false`
    não há modo assíncrono, e a medição de 17/09/2026 registrou o caminho
    síncrono passando de 40 s sem responder. O teto por chamada precisa ser

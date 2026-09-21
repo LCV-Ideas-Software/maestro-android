@@ -6,6 +6,48 @@ All material changes to Maestro Android are recorded here.
 
 ### Added
 
+- Close four further review findings, this time on the correction itself, which
+  is the right place for them: three of the four exist only because the previous
+  round introduced the text they fault.
+
+  The worst was a handler that collapsed three different failures into one.
+  Saying that any failed decryption means "no key configured" would have made an
+  expired authentication window — `UserNotAuthenticatedException`, where *"the
+  key's validity timed out"* and the key is intact — ask the user to re-enter a
+  provider API key that was never lost. The three causes now have three answers:
+  expired authentication pauses for authentication,
+  `KeyPermanentlyInvalidatedException` admits the secret is gone and asks for the
+  key, and an orphaned ciphertext from a restored backup is the only one treated
+  as "not configured". `setInvalidatedByBiometricEnrollment(false)` keeps
+  enrolling a new fingerprint from costing the user all six keys.
+
+  The second was a sequence the worker cannot execute. Android delivers
+  `Service.onTimeout()` to WorkManager's internal
+  `androidx.work.impl.foreground.SystemForegroundService`, not to a
+  `CoroutineWorker`, so "the worker saves the point and stops the service" was
+  impossible as written. What protects the session is not a better callback but
+  needing none: the resume point is now written **after every agent turn**, in
+  the same transaction as the artifact and the journal entry, so a six-hour cap,
+  a job quota, process death or a forced stop each cost at most the turn in
+  flight. `onStopped()` and `getStopReason()` — `STOP_REASON_TIMEOUT`,
+  `STOP_REASON_QUOTA` — are used to tell the user why it paused, never as the
+  place state is saved.
+
+  The third was a test with no declared expectation: the plan required a case at
+  the exact cost ceiling while nothing said what equality means, so `<` and `<=`
+  would both have satisfied the document and produced different bills. Section
+  7.1 now declares the arithmetic it had only promised — scale 8 internally, the
+  next-call estimate rounded `CEILING` so rounding never admits a call the
+  ceiling could not hold, `HALF_UP` at 2 places for display only, and
+  `accumulated + estimate <= max_cost_usd`, equality permitting the call, because
+  a ceiling is the most one may spend rather than the first forbidden value.
+
+  The fourth was a contradiction this changelog carried against itself: an
+  earlier paragraph still demanded `store: false` in every request while the new
+  one correctly said only three providers accept the field. The older sentence is
+  now qualified, so no later implementation is directed to reintroduce a field
+  three serializers must omit.
+
 - Close the eleven review threads the Codex bot opened on the specification's two
   pull requests, both of which were merged with the threads still open. Every
   claim was checked against official documentation before being accepted; all
@@ -83,9 +125,13 @@ All material changes to Maestro Android are recorded here.
   Two decisions carry consequences worth naming. The user's API keys live on the
   device, by the operator's decision, encrypted by a non-exportable Android
   Keystore key, which is what makes the on-device orchestration mandatory rather
-  than merely convenient. And `store: false` is explicit in every request,
-  because OpenAI defaults to retaining responses for 30 days and Gemini for 55
-  on the paid tier — a default that would contradict the product's own premise.
+  than merely convenient. And `store: false` is explicit in every request **to
+  the three providers whose APIs expose the field**, and the field is absent from
+  the other three, because OpenAI defaults to retaining responses for 30 days and
+  Gemini for 55 on the paid tier — a default that would contradict the product's
+  own premise — while Anthropic's `/v1/messages` does not declare `store` at all.
+  Serialization is per provider; there is no single retention flag stitched
+  across all six.
 
 - Bring the Google Play publication pipeline to the fleet baseline, PANDROI-40,
   by copying it verbatim from calculadora-android, where it was exercised end to
