@@ -28,6 +28,16 @@ All material changes to Maestro Android are recorded here.
   the documented REST contracts — because no provider publishes an Android SDK,
   a fact measured rather than assumed.
 
+  Three questions the specification could not answer for itself were decided by
+  the operator on 21/09/2026 and are written into it as settled: the Keystore key
+  is **StrongBox-backed**, with a degradation path that records which of the two
+  it ended up on, because most inexpensive devices lack the hardware and
+  degrading silently would promise everyone what only some have; user
+  authentication gates the key **by time, until the final text is delivered**,
+  not per operation, which would mean biometrics on every provider call, dozens
+  per session; and the work ships in **four deliveries**, `:core:protocolo` →
+  `:core:provedores` → `:core:sessao` → `:app`.
+
   Two decisions carry consequences worth naming. The user's API keys live on the
   device, by the operator's decision, encrypted by a non-exportable Android
   Keystore key, which is what makes the on-device orchestration mandatory rather
