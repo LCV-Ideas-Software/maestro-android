@@ -211,16 +211,111 @@ data between a device and the cloud over a network"*, que é exatamente o que um
 deliberação entre seis provedores faz. `shortService` está descartado: tem
 timeout de três minutos, e uma sessão do Maestro dura muito mais.
 
-Duas restrições documentadas entram como limite conhecido, não como surpresa:
-aplicativo que mira o Android 15 ou superior não pode subir serviço `dataSync` a
-partir de um receptor de `BOOT_COMPLETED`; e, a partir do Android 16, *worker*
-longo com serviço em primeiro plano pode esgotar a cota de *jobs* do aplicativo.
-Nenhuma das duas atinge a v1, porque a sessão é sempre iniciada por toque do
-usuário com o aplicativo aberto.
+#### O teto de seis horas, que é documentado e governa `max_runtime_minutes`
 
-A notificação em primeiro plano é obrigação técnica, mas também é a superfície
-honesta do produto: mostra a rodada atual, o agente da vez, o custo acumulado e
-uma ação de cancelar.
+Para quem mira o Android 15 ou superior — e a v1 mira o 37 —, o `dataSync` tem
+teto: *"The system permits an app's `dataSync` services to run for a total of 6
+hours in a 24-hour period, after which the system calls the running service's
+`Service.onTimeout(int, int)` method."* Ao ser chamado, *"the service has a few
+seconds to call `Service.stopSelf()`"*, e se não chamar o sistema lança
+`RemoteServiceException` com a mensagem *"A foreground service of type dataSync
+did not stop within its timeout"*. O relógio **não** é por sessão: é agregado em
+24 horas, e só *"if the user brings the app to the foreground, the timer resets
+and the app has 6 hours available."*
+
+Três consequências, todas vinculantes:
+
+1. **`max_runtime_minutes` tem teto de produto abaixo de seis horas.** Um valor
+   que o usuário configure acima disso não é atendível e não deve ser aceito
+   pela tela.
+2. **O ponto de retomada é gravado a cada turno, e não no fim.** Ver a
+   subseção seguinte: o `Service.onTimeout()` **não chega ao nosso código**, e
+   por isso a proteção não pode depender de reagir a ele.
+3. **O orçamento é agregado.** Duas sessões longas no mesmo dia dividem as seis
+   horas. A tela tem de dizer isso quando o saldo estiver baixo, em vez de
+   deixar a segunda sessão morrer sem explicação.
+
+#### Quem recebe o `onTimeout()` não é o nosso *worker*
+
+Uma versão anterior deste documento prescrevia que, ao chegar o teto, *"o worker
+grava o ponto da deliberação, para o serviço e deixa a sessão em estado
+retomável"*. **O *worker* não consegue fazer isso.** Com o WorkManager, o
+serviço em primeiro plano é a classe interna
+`androidx.work.impl.foreground.SystemForegroundService`: é a ela que o sistema
+entrega `Service.onTimeout()`, e é ela que chama `stopSelf()`. Um
+`CoroutineWorker` não implementa `onTimeout()` nem para o serviço. A prescrição
+era uma sequência impossível.
+
+O que resolve não é um retorno de chamada melhor, é **não precisar de nenhum**:
+
+1. **Checkpoint por turno, obrigatório.** A deliberação grava o ponto retomável
+   ao fim de **cada turno de agente**, dentro da mesma transação que grava o
+   artefato e o evento do jornal. Assim o pior caso — seja teto de seis horas,
+   cota do Android 16, morte de processo ou o usuário forçando a parada — perde
+   **no máximo o turno em voo**, nunca a sessão. Gravar só no fim seria confiar
+   num aviso que pode não vir.
+2. **`onStopped()` é aproveitado, mas como rótulo, não como salvaguarda.** O
+   WorkManager *"invokes `ListenableWorker.onStopped()` as soon as your Worker
+   has been stopped"*, e o motivo é legível pelo próprio *worker* e pelo
+   `WorkInfo`, por `getStopReason()`. `STOP_REASON_TIMEOUT` e
+   `STOP_REASON_QUOTA` são exatamente os dois limites desta seção. Usar isso
+   para dizer ao usuário **por que** a sessão pausou é melhora real de produto;
+   usar como o lugar onde o estado é salvo seria repetir o erro, porque o
+   retorno de chamada é *best-effort* e o processo pode nem chegar lá.
+3. **A saída, se a medição mostrar que não basta**, é serviço em primeiro plano
+   **do próprio aplicativo**, em que `onTimeout()` chega ao nosso código e o
+   `stopSelf()` é nosso. Isso troca o agendamento, não o resto do desenho, e
+   está registrado como pendência na seção 11 junto com a da cota.
+
+A versão do WorkManager que o catálogo fixar tem de expor `getStopReason()`;
+conferir na entrega, e não presumir pela versão mais recente do dia.
+
+#### A cota de *jobs* do Android 16, que atinge a v1 sim
+
+A documentação do WorkManager é explícita: a partir do Android 16, *worker*
+longo que usa serviço em primeiro plano **pode esgotar a cota de jobs do
+aplicativo**, e as saídas oficiais são subir o serviço em primeiro plano
+diretamente, sem WorkManager, ou usar *user-initiated data transfer jobs*, que
+são isentos de cota.
+
+Uma versão anterior deste documento dizia que isso não atingia a v1 "porque a
+sessão é sempre iniciada por toque do usuário com o aplicativo aberto". **Isso
+estava errado**, e o erro é de leitura: a isenção que a documentação descreve é
+a dos *user-initiated data transfer jobs*, um mecanismo específico — não o fato
+de o usuário ter tocado num botão. Fica registrado porque a frase errada já
+esteve publicada.
+
+A v1 mantém o WorkManager, pelo agendamento e pela persistência que ele dá de
+graça, e trata o esgotamento de cota como **mais uma forma de interrupção**,
+idêntica em efeito à morte de processo: a sessão fica retomável e a abertura do
+aplicativo reconcilia (seção 4.3). Se a medição em aparelho mostrar que a cota
+interrompe sessões normais, a troca é subir o serviço em primeiro plano
+diretamente — decisão que fica registrada como pendência na seção 11, com a
+saída já nomeada.
+
+Uma terceira restrição documentada não atinge a v1: aplicativo que mira o
+Android 15 ou superior não pode subir serviço `dataSync` a partir de um receptor
+de `BOOT_COMPLETED`. A v1 não tem receptor de `BOOT_COMPLETED`.
+
+#### A notificação não é superfície confiável, e o controle não pode morar só nela
+
+A notificação em primeiro plano é obrigação técnica e mostra a rodada atual, o
+agente da vez, o custo acumulado e uma ação de cancelar. Mas ela **pode não ser
+vista**: no Android 13 e acima, negada a permissão `POST_NOTIFICATIONS`, *"they
+still see notices related to foreground services in the Task Manager but don't
+see them in the notification drawer"*. O serviço roda; o aviso some da gaveta.
+
+Numa configuração que o sistema permite, portanto, o custo ao vivo e o botão de
+cancelar desapareceriam enquanto a sessão segue gastando a chave do usuário.
+Isso é inaceitável para o único produto da frota que gasta dinheiro do usuário
+sozinho. Duas obrigações decorrem:
+
+1. **O aplicativo pede `POST_NOTIFICATIONS` antes da primeira sessão**, com a
+   razão dita em texto — não no arranque, não sem explicação.
+2. **A tela de sessão é a superfície canônica de status e de cancelamento**, com
+   custo acumulado ao vivo e cancelar, e a notificação é conveniência que
+   espelha. Negada a permissão, nada de essencial se perde; ganha-se um aviso a
+   menos.
 
 ### 4.2 Room no lugar do D1
 
@@ -228,6 +323,47 @@ O esquema do D1 (166 linhas de `ensureSchema`) vira entidades do Room: sessão,
 artefato e configurações. O que no web é `GET /sessions/{id}` em *polling* vira
 `Flow` observado pela interface; o *worker* escreve, a tela lê, e não há
 serialização de eventos indo e voltando por HTTP.
+
+**O backup do Android tem de ser recortado, e por omissão ele não é.**
+`android:allowBackup` vale `true` quando não declarado, e aplicativo que mira a
+API 23 ou superior *"automatically participate in Auto Backup"*. O que o Auto
+Backup leva por padrão inclui, citado, *"files in the directory returned by
+`getDatabasePath(String)`"* e os arquivos do armazenamento interno — isto é,
+exatamente o banco do Room com o texto das sessões e o DataStore com o segredo
+cifrado. Sem recorte, o conteúdo do usuário sobe para o serviço de backup
+configurado no aparelho, o que contradiz a promessa da seção 6.
+
+O aplicativo declara `android:dataExtractionRules` (API 31+) **excluindo o banco
+do Room e o DataStore do segredo**, nos dois domínios que a regra separa —
+`cloud-backup` e `device-transfer`. A exclusão é do conteúdo, não do
+aplicativo: preferência de interface pode ser restaurada sem problema.
+
+**E o cifrado restaurado não decifra.** A chave do Keystore não é exportável e
+não viaja com o backup, então texto cifrado que chegasse a outro aparelho seria
+lixo indecifrável. Excluí-lo do backup já evita o caso.
+
+Para o resto, **"falhou a decifra" não é um caso só**, e tratar como se fosse
+custaria ao usuário exatamente o que se quer evitar: digitar de novo uma chave
+de API que está intacta. São três causas, com três respostas:
+
+| Causa | O que é | Resposta |
+| --- | --- | --- |
+| `UserNotAuthenticatedException` | a janela de autenticação expirou — *"the key's validity timed out"*. **A chave está intacta.** | `pausada_aguardando_autenticacao` (seção 6.2): pedir **autenticação**, nunca a chave de API |
+| `KeyPermanentlyInvalidatedException` | a chave do Keystore foi invalidada em definitivo, tipicamente por mudança de biometria ou da trava de tela | o segredo é irrecuperável: dizer isso em texto claro e **pedir a chave de API de novo** |
+| Decifra falha sem exceção de autenticação, ou o alias não existe | cifrado órfão — o caso do backup restaurado | tratar como **"não há chave configurada"** e pedir a chave de novo |
+
+Só a terceira linha era o que este documento dizia, como regra geral; as duas
+primeiras entraram depois de a revisão apontar que a regra geral engolia a
+primeira e mandava o usuário redigitar chave boa.
+
+A segunda causa tem mitigação própria e a v1 a usa:
+`setInvalidatedByBiometricEnrollment(false)` mantém a chave válida quando uma
+biometria nova é cadastrada. Cadastrar um dedo novo não é motivo para alguém
+perder as seis chaves.
+
+Um aplicativo que quebra depois de trocar de aparelho perdeu o usuário no
+primeiro minuto; um que pede a chave de volta toda vez que o relógio virou é
+pior, porque parece estar funcionando.
 
 O diário da sessão (`events_json`) porta como está — lista serializada com
 leitura estrita. O web já trata jornal corrompido como falha explícita
@@ -360,6 +496,32 @@ consegue **usar** a chave, não **levar** a chave. Essa distinção é o que se 
 prometer ao usuário com honestidade, e é o que a tela de configurações vai
 dizer — sem a palavra "seguro" solta.
 
+Atenção: o que o Keystore protege é a **chave AES que cifra o segredo**, e não a
+chave de API em si. A chave de API existe em claro, em memória, no instante de
+montar a requisição, e é isso que permite a distinção correta da subseção
+seguinte.
+
+#### A frase honesta, e a que não se usa
+
+**Não se diz "sua chave de API nunca sai do aparelho".** É falso: toda chamada a
+um provedor manda a chave dele, como credencial de autenticação, para o próprio
+provedor. Não haveria como funcionar de outro jeito.
+
+O que é verdade, e é o que a tela de configurações dirá com estas palavras:
+
+- a chave é **guardada apenas neste aparelho**, cifrada por chave do Keystore
+  que não é exportável;
+- ela é **enviada, por TLS, apenas ao provedor a que pertence**, e só quando o
+  usuário roda uma sessão com aquele provedor ativo;
+- **nenhum servidor da LCV Ideas & Software** a recebe, vê ou guarda — não há
+  servidor nosso no caminho;
+- ela **nunca é exibida de volta** depois de gravada: a tela mostra
+  "configurada" ou "não configurada", nunca o valor.
+
+A diferença entre as duas formulações é a diferença entre uma promessa que se
+cumpre e uma que o primeiro usuário atento desmente. Este documento usou a
+formulação errada antes desta revisão, e ela chegou a ser publicada.
+
 ### 6.2 Duas decisões do operador, tomadas em 21/09/2026
 
 Ambas têm custo real e nenhuma tinha resposta na documentação — eram escolha de
@@ -392,14 +554,36 @@ autorizar cada operação — significaria biometria a cada chamada de provedor,
 dezenas por sessão, o que é atrito sem ganho proporcional num aplicativo que o
 próprio usuário deixou rodando.
 
-Isso deixa um detalhe de implementação, que **não** é nova pergunta ao operador:
-`setUserAuthenticationParameters()` recebe um número fixo de segundos, e "até a
-entrega do texto final" é a duração de uma sessão, que varia com o teto
-configurado. Duas formas atendem à decisão — janela dimensionada pelo
-`max_runtime_minutes` daquela sessão, ou reautenticação quando a janela expira
-com a sessão viva —, e a escolha entre elas se resolve por medição na entrega de
-`:core:seguranca`, não por gosto. O que está decidido e não se revisita é o
-modo: **por tempo, não por operação.**
+**A janela é fixa, e não podia ser de outro jeito.** Uma versão anterior deste
+documento oferecia, como alternativa a decidir por medição, "janela dimensionada
+pelo `max_runtime_minutes` daquela sessão". **Isso é impossível**, e não por
+dificuldade: a política de autorização é gravada na chave quando ela nasce —
+*"Once a key is generated or imported, its authorizations can't be changed.
+Authorizations are then enforced by the Android Keystore whenever the key is
+used."* Redimensionar por sessão exigiria gerar chave nova a cada sessão, o que
+tornaria indecifrável o segredo já cifrado com a anterior. Fica registrado
+porque a frase errada já esteve publicada.
+
+O desenho que atende à decisão do operador é, então:
+
+1. **Uma janela só, escolhida uma vez**, dimensionada pelo teto máximo de sessão
+   que o produto aceita — que a seção 4.1 já limita, porque o `dataSync` não
+   passa de seis horas num período de 24.
+2. **Se a janela expirar com a sessão viva, a sessão pausa e pede
+   reautenticação**, em vez de falhar decifra atrás de decifra. Isso não é
+   detalhe: `BiometricPrompt` exige tela visível, então **o *worker* em segundo
+   plano não consegue reautenticar sozinho**. A sessão vai para um estado
+   `pausada_aguardando_autenticacao`, a notificação e a tela dizem por quê, e o
+   usuário retoma com um toque. Como trazer o aplicativo para primeiro plano
+   também reinicia o relógio de seis horas do `dataSync`, o mesmo gesto resolve
+   os dois limites.
+3. **Trocar o teto de sessão troca a chave.** Se o produto um dia aumentar o
+   teto, a chave precisa ser regerada, e regerar exige **decifrar com a antiga e
+   recifrar com a nova, na mesma operação autenticada** — nunca apagar a antiga
+   antes. Está escrito aqui para que não seja descoberto com o segredo do
+   usuário na mão.
+
+O que está decidido e não se revisita é o modo: **por tempo, não por operação.**
 
 A v1 assume `minSdk` 34, herdando a decisão do operador de 19/09/2026 na
 calculadora. Isso torna as duas APIs acima universalmente disponíveis e dispensa
@@ -428,9 +612,15 @@ omissão:
   no *tier* pago e 1 dia no gratuito.
 - **Perplexity Agent API:** expõe `store`.
 
-Um produto cuja premissa é "sua chave nunca sai do seu aparelho" não pode deixar
-o texto do usuário retido por padrão em três provedores. **`store: false` é
-explícito em todo pedido**, e não implícito.
+E os outros **três não têm o campo**. Em particular, o `POST /v1/messages` da
+Anthropic não aceita `store`: a lista de parâmetros de corpo publicada não o
+inclui. Mandar campo que a API não conhece é pedir recusa, não privacidade.
+
+Um produto que promete guardar o texto do usuário só onde ele escolheu não pode
+deixá-lo retido por padrão em três provedores. **`store: false` é explícito em
+todo pedido dos três provedores que expõem o campo, e ausente nos outros três.**
+A serialização é por provedor, não uma chave costurada em todos — e a seção 8
+testa exatamente isso, inclusive que os três sem o campo não o recebem.
 
 Isso cobra dois preços, ambos aceitos. No Gemini, `store=false` é incompatível
 com execução em segundo plano e impede `previous_interaction_id` — o que apenas
@@ -449,10 +639,34 @@ teto de saída, depois substituída pelo custo observado quando o provedor devol
 contagem de tokens. As taxas são três por provedor: dólares por milhão de tokens
 de entrada, por milhão de saída e, na Perplexity, por mil requisições de busca.
 
-No Android tudo isso é `BigDecimal`, com escala e arredondamento declarados no
-ponto de comparação com `max_cost_usd`. O teto de custo é a única barreira entre
-uma sessão mal configurada e a fatura do usuário; ela não pode depender de
+No Android tudo isso é `BigDecimal`. O teto de custo é a única barreira entre uma
+sessão mal configurada e a fatura do usuário, e não pode depender de
 arredondamento implícito.
+
+### 7.1 A regra do teto, declarada — não "a declarar"
+
+Uma versão anterior desta seção prometia "escala e arredondamento declarados no
+ponto de comparação" e não os declarava, e o plano de testes mandava testar "o
+comportamento no limite exato" sem que nada dissesse qual é. Duas implementações
+poderiam obedecer ao documento com `<` e `<=`, mudando o número de chamadas e a
+conta do usuário. Fica declarado:
+
+- **Escala interna: 8 casas decimais**, folgada para taxas cobradas por milhão
+  de tokens, onde um turno pequeno custa frações de centavo.
+- **A estimativa da próxima chamada arredonda para cima**, com
+  `RoundingMode.CEILING`. O sentido é deliberado: arredondamento nunca deixa
+  passar uma chamada que o teto não comportava. Errar para o lado do usuário é
+  o único erro aceitável quando o outro lado é a fatura dele.
+- **O custo observado, para exibir e para somar, arredonda a meio para cima**
+  (`HALF_UP`), na escala de exibição de 2 casas. Exibição nunca alimenta
+  comparação; a comparação usa sempre a escala interna.
+- **A comparação é `custo_acumulado + estimativa <= max_cost_usd`.** Igualdade
+  **permite** a chamada. "Teto" é o valor máximo que se pode gastar, não o
+  primeiro valor proibido — e gastar exatamente o que se autorizou é o que o
+  usuário pediu ao escrever aquele número.
+- Quando a chamada não cabe, a sessão **para antes de fazê-la** e o jornal
+  registra o valor que a reprovou. Parar sem dizer quanto faltava é obrigar o
+  usuário a adivinhar o próprio teto.
 
 A contagem de tokens vem do provedor quando ele a devolve. Quando não devolve —
 a Perplexity registra `usage: null` em resposta `incomplete` —, o custo cai para
@@ -474,20 +688,53 @@ de teste, porque compra confiança sem entregá-la.
   emulador e sem Robolectric porque o módulo é Kotlin puro e a chave chega por
   `FonteDeChave` (seção 4), satisfeita em teste por um valor em memória. Um
   `MockWebServer` por provedor cobre: corpo montado conforme o contrato da seção
-  5.1, `store: false` presente, 429 com e sem `Retry-After`, timeout, e resposta
-  sem `usage`. Nenhum teste fala com provedor real.
+  5.1, 429 com e sem `Retry-After`, timeout, e resposta sem `usage`. Sobre
+  retenção, o caso é **em dois sentidos**, porque a regra tem dois lados: nos
+  três provedores que expõem `store`, o corpo enviado **tem** `store: false`;
+  nos três que não expõem — Anthropic, xAI e DeepSeek —, o corpo **não tem** o
+  campo. Exigir `store: false` nos seis, como uma versão anterior deste
+  documento exigia, mandaria à Anthropic um parâmetro que o `/v1/messages` não
+  declara. Nenhum teste fala com provedor real.
 - **`:core:seguranca`, instrumentado.** O Keystore só existe em aparelho ou
-  emulador, então o teste da cifra é instrumentado — e é pequeno justamente
-  porque a fronteira manteve tudo o mais fora dele. Dois casos não podem faltar,
-  porque nascem das decisões de 21/09/2026 (seção 6.2): que o segredo cifrado
-  com StrongBox volta em claro, e que **a falta do hardware de StrongBox cai no
-  caminho sem ele e o registra**, em vez de estourar. O segundo exige encenar a
-  ausência do hardware; teste que só passa no emulador que tem StrongBox não
-  prova nada sobre o aparelho que não tem.
-- **`:core:sessao`, com Room em memória.** Retomada depois de morte de processo
-  é o caso que mais importa, e o teste o encena: grava estado no meio da rodada,
-  destrói o *worker*, reabre, e verifica que a deliberação continua do ponto
-  certo — não do começo, e não de um ponto adiante.
+  emulador, então estes testes são instrumentados — e são poucos justamente
+  porque a fronteira manteve tudo o mais fora deles. Cinco casos não podem
+  faltar, e todos nascem das decisões da seção 6.2:
+  1. o segredo cifrado com StrongBox volta em claro;
+  2. **a falta do hardware de StrongBox cai no caminho sem ele e o registra**,
+     em vez de estourar — exige encenar a ausência do hardware, porque teste que
+     só passa no emulador que tem StrongBox não prova nada sobre o aparelho que
+     não tem;
+  3. **antes de autenticar, a decifra é recusada.** Sem este caso, uma
+     implementação que esquecesse `setUserAuthenticationRequired(true)` passaria
+     em todos os outros;
+  4. **dentro da janela, decifra repetida funciona sem nova autenticação** — é o
+     que distingue o modo por tempo do modo por operação, e sem ele a escolha do
+     operador não está provada;
+  5. **depois de a janela expirar, a decifra é recusada** e o estado observável
+     é `pausada_aguardando_autenticacao`, não uma exceção crua.
+- **`:core:sessao`, com Room em arquivo temporário.** Retomada depois de morte
+  de processo é o caso que mais importa, e ele **não** pode usar banco em
+  memória: banco em memória morre com o processo, então o teste estaria
+  encenando apenas a recriação do *worker* e passaria sem tocar no que importa.
+  O caso grava estado no meio da rodada num banco em arquivo, **descarta e
+  reconstrói Room, WorkManager e o grafo de dependências**, e só então verifica
+  que a deliberação continua do ponto certo — não do começo, e não de um ponto
+  adiante.
+- **`:core:sessao`, os tetos que protegem a fatura do usuário.** A seção 7 chama
+  `max_cost_usd` de única barreira entre uma sessão mal configurada e a fatura
+  do usuário; barreira sem teste é promessa. Quatro casos, cada um capaz de
+  falhar:
+  1. com saldo insuficiente para a próxima chamada **pela estimativa**, a sessão
+     para **antes** de fazê-la — o teste conta as requisições que chegaram ao
+     `MockWebServer` e exige que a última não tenha acontecido;
+  2. **no limite exato, a chamada acontece** — `custo_acumulado + estimativa`
+     igual a `max_cost_usd` permite, pela regra da seção 7.1, e o teste fixa
+     isso para que ninguém troque `<=` por `<` sem que um teste caia. O par
+     desse caso é o centavo seguinte, que tem de reprovar;
+  3. resposta sem `usage` cai para a estimativa **e o jornal registra que o
+     custo daquele turno é estimado**, não observado;
+  4. o teto de tempo para a sessão do mesmo jeito, com o relógio injetado, e não
+     com espera real.
 - **`:app`, instrumentado.** As telas com `testTag`, no padrão que a CALANDR-16
   provou: o teste digita, toca e lê, com ViewModel montado sobre falsos em
   memória, sem Hilt e sem rede.
@@ -503,10 +750,15 @@ Decisões de produto vigentes, no mesmo espírito das da calculadora:
 - zero analytics, *fingerprinting* ou identificador persistente próprio;
 - nenhum servidor da LCV no caminho de dados do usuário;
 - nenhuma telemetria do produto web migra;
-- a chave de API é do usuário, fica no aparelho e nunca é exibida depois de
-  gravada — a tela mostra "configurada" ou "não configurada", nunca o valor;
+- a chave de API é do usuário, é guardada apenas neste aparelho, cifrada por
+  chave do Keystore não exportável, e é enviada por TLS **apenas ao provedor a
+  que pertence** — a formulação exata está na seção 6.1, e "nunca sai do
+  aparelho" não é usada porque é falsa;
+- a chave nunca é exibida depois de gravada — a tela mostra "configurada" ou
+  "não configurada", nunca o valor;
 - o texto do usuário vai aos provedores que ele mesmo escolheu ativar, e a nada
-  mais.
+  mais; o banco local e o segredo cifrado ficam **fora do backup do Android**,
+  por `dataExtractionRules` (seção 4.2).
 
 A publicação segue a esteira já em paridade (seção 3), com notas de versão em
 `play/release-notes/pt-BR.txt` e o teto de 500 caracteres por idioma verificado
@@ -521,9 +773,11 @@ antes do build.
    defeito do Android.
 2. **O custo é do usuário e o aplicativo o gasta sozinho.** Uma sessão aciona
    seis provedores em rodadas. O teto de custo e o de tempo são as únicas
-   barreiras, e ambos dependem de contagem que o provedor devolve. Mitigação: a
-   notificação em primeiro plano mostra o custo acumulado ao vivo, e o
-   cancelamento é uma ação nela.
+   barreiras, e ambos dependem de contagem que o provedor devolve. Mitigação em
+   três camadas, porque uma só não basta: os tetos têm testes de fronteira
+   próprios (seção 8); a **tela de sessão** é a superfície canônica de custo ao
+   vivo e de cancelamento; e a notificação em primeiro plano espelha as duas —
+   nunca as substitui, porque pode estar oculta (seção 4.1).
 3. **Chave no aparelho é superfície nova.** O Keystore impede extração do
    material da chave, não o uso dela por processo comprometido (seção 6.1). Em
    aparelho com *root* a garantia é menor. Aceito: a alternativa é custódia pela
@@ -543,15 +797,32 @@ apontada na calculadora, e não se repete.
 
 ### Abertas, dependem de medição no aparelho
 
-1. **Teto real do serviço em primeiro plano `dataSync`.** A página oficial de
-   tipos de serviço não declara limite de tempo para `dataSync` — declara para
-   `shortService` (3 min) e `mediaProcessing` (~6 h). Se existe limite adicional
-   imposto pelo sistema, ele tem de ser medido em aparelho antes de a v1 sair,
-   porque governa o valor máximo aceitável de `max_runtime_minutes`.
+1. **O WorkManager basta, ou o serviço em primeiro plano tem de ser nosso?**
+   Duas medições que levam à mesma decisão, e por isso viram uma pendência só.
+   A primeira é a frequência com que a cota de *jobs* do Android 16 corta
+   sessões de uso normal. A segunda é quanto se perde quando o teto de seis
+   horas chega: o `Service.onTimeout()` vai para o serviço interno do
+   WorkManager e não para o nosso código (seção 4.1), então o que protege é o
+   *checkpoint* por turno — falta medir se `onStopped()` chega a tempo de
+   rotular a pausa, ou se o processo morre antes. Se qualquer das duas
+   decepcionar, a troca é **serviço em primeiro plano do próprio aplicativo**,
+   em que `onTimeout()` e `stopSelf()` são nossos. Isso muda o agendamento, não
+   o resto do desenho.
 2. **Timeout por chamada na Perplexity com `store: false`.** Com `store: false`
    não há modo assíncrono, e a medição de 17/09/2026 registrou o caminho
    síncrono passando de 40 s sem responder. O teto por chamada precisa ser
    calibrado com medição, não arbitrado.
+3. **O valor da janela de autenticação e o teto de sessão.** A janela é fixa na
+   geração da chave (seção 6.2) e o `dataSync` não passa de seis horas em 24
+   (seção 4.1). O número que o produto adota tem de sair de sessões reais, e
+   trocá-lo depois exige recifrar o segredo — então não é escolha para ser
+   revista sem custo.
+
+Uma pendência de medição **saiu daqui por estar documentada, não por ter sido
+medida**: o teto do `dataSync`. Uma versão anterior afirmava que a documentação
+não o declarava e mandava medir em aparelho. Declara, na página de mudanças de
+comportamento do Android 15, e agora está na seção 4.1. Ausência de um fato em
+duas páginas não é ausência do fato.
 
 ### Resolvidas nesta especificação
 
