@@ -6,6 +6,50 @@ All material changes to Maestro Android are recorded here.
 
 ### Added
 
+- Raise the Gradle baseline and land `:core:protocolo`, the first module of the
+  native port (MAEANDR-14). The project moves to `compileSdk`/`targetSdk` 37 and
+  `minSdk` 34 from 36/36/24, gains a `gradle/libs.versions.toml` catalog holding
+  only what this change compiles, declares the Kotlin Gradle Plugin — dropping
+  the `kotlin-gradle-plugin` line from the Dependabot `ignore` list in the same
+  change, as that file itself instructed — and gains a `CI` workflow that runs
+  wrapper validation, `assembleDebug`, `lintDebug` and unit tests on every pull
+  request. Until now no pull request in this repository was ever compiled.
+
+  `:core:protocolo` is pure Kotlin with no Android dependency, and carries the
+  approved-content lock: text segmented into blocks, and a revision allowed to
+  change, reorder or add only the blocks it declared in its report's
+  `changed_blocks` section, with `protocol_basis`.
+
+  **It is ported from the Rust, not from the web.** `content-lock.ts` declares
+  itself in its first line a *"byte-exact port of maestro-app (canonical)
+  src-tauri/src/editorial_content_lock.rs"*, and declares a deviation from it —
+  keying block equality by normalized text rather than SHA-256. Porting the
+  TypeScript would have meant porting a port, inheriting that deviation and
+  inventing from scratch a test suite that already exists. The operator decided
+  on 21/09/2026 to port from the canonical Rust; its 352 lines of tests come
+  along as the module's suite, and the specification's claim that every unit
+  comes from the web is corrected where it does not hold.
+
+  One trap justified the whole exercise, and it would have failed silently.
+  There are **three** different definitions of whitespace in play, measured on
+  this project's JDK 17: Java's `Character.isWhitespace` excludes NBSP and NEL;
+  Kotlin's `Char.isWhitespace` includes NBSP but still excludes NEL, and adds
+  `U+001C`–`U+001F`, which are not whitespace at all in Unicode; and the
+  canonical Rust uses Unicode White_Space, which has both NBSP and NEL and not
+  the separators. The lock decides whether a revision touched only the blocks it
+  declared by comparing whitespace-normalized text, so a different ruler makes
+  blocks that the canonical sees as equal look distinct — and the gate would
+  approve a revision it should refuse, with nothing on screen. The module
+  therefore defines its own Unicode White_Space class and forbids
+  `Char.isWhitespace()`, `String.trim()`, `String.isBlank()` and regex `\s`; six
+  tests fail if anyone swaps it back, which was proven by swapping it back.
+
+  The same class of trap appears twice more and is handled: block character
+  counts use code points rather than UTF-16 units, because the count is shown to
+  the agents in the manifest; and every regex carries the `U` flag, without which
+  Java's `\s` is ASCII-only and `\d` misses Unicode digits, where the Rust regex
+  crate has both.
+
 - Close four further review findings, this time on the correction itself, which
   is the right place for them: three of the four exist only because the previous
   round introduced the text they fault.

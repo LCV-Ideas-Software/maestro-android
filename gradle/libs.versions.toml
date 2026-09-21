@@ -1,0 +1,20 @@
+# Catálogo de versões (mecanismo oficial do Gradle). O Dependabot lê este
+# arquivo e mantém cada entrada atualizada pelo ecossistema `gradle` já
+# declarado em `.github/dependabot.yml`.
+#
+# O catálogo nasce com o mínimo que a entrega do `:core:protocolo` usa. As
+# bibliotecas de rede, persistência e interface entram nas entregas que
+# precisarem delas — declarar hoje o que só será usado em `:core:provedores`
+# criaria inventário de terceiros para dependência que ninguém compila.
+[versions]
+agp = "9.4.1"
+kotlin = "2.4.20"
+junit = "6.1.3"
+
+[libraries]
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junit" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

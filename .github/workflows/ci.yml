@@ -1,0 +1,83 @@
+name: CI
+
+# Compila, analisa e testa o projeto Android em cada pull request e em cada
+# push para `main`.
+#
+# Por que este workflow existe (MAEANDR-14): o `README.md` exige que a
+# introducao do scaffold Android traga, na mesma mudanca revisada, validacao do
+# Gradle Wrapper, lint, testes, build e analise adequada a Java/Kotlin. O
+# projeto Gradle entrou em 17/09/2026 pela MAEANDR-9 e trouxe apenas duas dessas
+# pecas -- validacao do wrapper e build --, e ainda assim dentro do
+# `publish-play.yml`, que roda por `workflow_dispatch`. Na pratica, nenhum pull
+# request deste repositorio era compilado.
+#
+# O momento importa: isto precisa existir ANTES do primeiro Kotlin, porque o
+# primeiro Kotlin e a trava de conteudo aprovado -- a parte que decide se uma
+# revisao mexeu so nos blocos que declarou ter mexido, e que nao pode entrar sem
+# nada que a compile e a teste automaticamente.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - "**"
+    # Inclui pull requests reapontados e marcados como prontos, para que este
+    # check exigido também corra nesses casos.
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - edited
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build, lint and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read # Check out the repository.
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the JDK
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          # Mesma versão usada pelo `publish-play.yml`. Compilar aqui com um JDK
+          # diferente do que publica tornaria este check uma prova sobre outro
+          # ambiente que não o de release.
+          java-version: "17"
+
+      - name: Validate the Gradle wrapper
+        # Recusa um wrapper cujo checksum não corresponda a uma distribuição
+        # publicada do Gradle. Já existe no fluxo de publicação; aqui passa a
+        # valer para todo pull request, que é onde um wrapper adulterado
+        # entraria.
+        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Build
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Lint
+        # Executado em passo próprio, e não como parte de `build`, para que a
+        # falha diga qual portão reprovou sem exigir leitura do log inteiro.
+        run: ./gradlew :app:lintDebug --no-daemon --stacktrace
+
+      - name: Unit tests
+        run: ./gradlew test --no-daemon --stacktrace

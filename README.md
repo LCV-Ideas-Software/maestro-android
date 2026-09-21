@@ -2,9 +2,10 @@
 
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14230/badge)](https://www.bestpractices.dev/projects/14230)
 
-Public repository for the future Android edition of Maestro Editorial AI. This
-repository currently contains the reviewed governance, security, release, and
-documentation baseline; it does not yet contain an Android application.
+Public repository for the Android edition of Maestro Editorial AI. It carries
+the reviewed governance, security, release and documentation baseline, and —
+since 21/09/2026 — the first module of the native port. There is no shippable
+application yet: no user interface, no provider client, and no release.
 
 ## Canonical tracking
 
@@ -38,11 +39,18 @@ implemented.
 
 ## Current state
 
-The Gradle project exists since 17/09/2026 (MAEANDR-9): package name
-`dev.lcv.maestro`, `compileSdk` and `targetSdk` 36, `minSdk` 24, module `:app`
-only. There is still **no Android source set and no production dependency** —
-the repository holds zero `.kt` files. No signing material lives here; it is
-injected at build time by the publishing workflow.
+The Gradle project has been on the fleet baseline since 21/09/2026
+(MAEANDR-14): package name `dev.lcv.maestro`, `compileSdk` and `targetSdk` 37,
+`minSdk` 34, a `gradle/libs.versions.toml` version catalog, and the Kotlin
+Gradle Plugin declared. No signing material lives here; it is injected at build
+time by the publishing workflow.
+
+The first module of the port is `:core:protocolo` — pure Kotlin, no Android
+dependency, tested on the JVM. It carries the approved-content lock: text is
+segmented into blocks, and a revision may only change, reorder or add blocks it
+declared in the `changed_blocks` section of its report. That unit is ported from
+`maestro-app/src-tauri/src/editorial_content_lock.rs`, which the web module
+itself names as canonical, together with the canonical Rust test suite.
 
 The native port is specified in
 [`docs/especificacao-v1.md`](docs/especificacao-v1.md) (in Portuguese), written
@@ -50,18 +58,22 @@ before any Kotlin, as `calculadora-android` did. It fixes the scope unit by
 unit, the `:core:*` + `:app` module split, the six AI providers with the model
 and API contract each one documents today, on-device key storage through the
 Android Keystore, the accepted risks, and the pendencies that remain open. That
-specification also records the Gradle baseline this repository must reach in its
-first code change: `compileSdk`/`targetSdk` 37, `minSdk` 34, a version catalog,
-the Kotlin Gradle Plugin declared, and a `ci.yml` with wrapper validation, lint,
-tests, and assemble. Do not add fake Gradle files merely to satisfy CI.
+specification also recorded the Gradle baseline this repository had to reach in
+its first code change, and MAEANDR-14 reached it.
 
 The inert [`quality/code-quality-probe.js`](quality/code-quality-probe.js)
 exists solely to give GitHub Code Quality a deterministic supported-language
-target before real application source exists. It is not loaded by Pages or any
-runtime and does not represent Kotlin coverage.
+target. It is not loaded by Pages or any runtime and does not represent Kotlin
+coverage — and it still cannot be removed, because CodeQL does not support the
+Kotlin 2.4.20 this project is pinned to, so `java-kotlin` stays out of the
+analysis for now.
 
 ## Automation baseline
 
+- The `CI` workflow compiles, analyzes and tests the project on every pull
+  request and every push to `main`: Gradle wrapper validation, `assembleDebug`,
+  `lintDebug` and unit tests — including those of `:core:protocolo`, which run
+  on the JVM — with the same JDK the publishing workflow uses.
 - GitHub CodeQL Default setup analyzes the supported content. The duplicate
   advanced-setup workflow is not maintained in this repository.
 - Dependency Review evaluates pull requests to `main`.
@@ -74,9 +86,10 @@ runtime and does not represent Kotlin coverage.
   with a seven-day cooldown except for official `actions/*` and `github/*`
   updates. Minor and patch updates are grouped; major updates remain separate.
   The Gradle ecosystem was declared on 17/09/2026 (PANDROI-38), alongside the
-  real Gradle project. Its `ignore` list carries the build-classpath transitives
-  the Dependabot security job cannot update, and an inline instruction to drop
-  the `kotlin-gradle-plugin` line as soon as the plugin is declared explicitly.
+  real Gradle project, and its `ignore` list carries the build-classpath
+  transitives the Dependabot security job cannot update. The
+  `kotlin-gradle-plugin` line left that list on 21/09/2026, when the plugin
+  became a declared direct dependency in the version catalog.
   Security updates have their own group and do not wait for the version-update
   schedule or cooldown. If one member fails, diagnose it and adjust native
   grouping so other fixes can proceed through the required checks.

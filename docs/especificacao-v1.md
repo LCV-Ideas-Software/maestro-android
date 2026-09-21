@@ -93,6 +93,24 @@ alterou os blocos que declarou ter alterado. É lógica de texto pura, sem
 Android e sem rede — e por isso é o primeiro candidato a viver num módulo
 testável na JVM.
 
+**Só que a fonte canônica desta unidade não é o web, e a frase da seção 1 não
+vale aqui.** O `content-lock.ts` se declara, na primeira linha, *"byte-exact
+port of maestro-app (canonical) src-tauri/src/editorial_content_lock.rs"* — o
+web é ele próprio um porte, e aponta o Rust como canônico. O arquivo Rust tem
+**959 linhas: 607 de implementação e 352 de testes**, contra 526 do porte web,
+e este declara um desvio: chaveia igualdade de bloco pelo texto normalizado em
+vez do SHA-256.
+
+Portar o TypeScript seria portar um porte, herdando o desvio e inventando do
+zero uma suíte que já existe. **Decisão do operador em 21/09/2026: o Kotlin
+porta do Rust**, com o TypeScript como conferência cruzada, e a suíte canônica
+vem junto. Isso não contradiz a regra de que o produto vem do web — contradiz
+apenas a suposição de que *toda* unidade vem de lá, que este caso desmente.
+
+A mesma pergunta deve ser feita a cada unidade antes de portá-la: **de onde ela
+é canônica?** Uma unidade que o web tenha escrito primeiro vem do web; esta não
+é uma delas.
+
 ### 2.3 O cliente web
 
 `MaestroAiModule.tsx` (1.443 linhas) tem 31 unidades de estado, 5 efeitos e 20
