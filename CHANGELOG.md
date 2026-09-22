@@ -168,6 +168,14 @@ All material changes to Maestro Android are recorded here.
 
 ### Changed
 
+- Reconfirm `grok-4.7` against xAI's official documentation on 22/09/2026, when
+  the operator announced its release, and record in the specification the
+  reasoning-effort values the table was missing for it: `low`, `medium`, `high`
+  (the default) and `xhigh`. The model itself does not change — the
+  specification already named `grok-4.7` on 21/09. xAI's release notes group
+  entries by month only, so they cannot show whether it was already published on
+  that date; the specification says so rather than claiming it.
+
 - Complete the third-party inventory for the Actions the workflows actually use.
   `actions/attest` and `actions/download-artifact` arrive with this change;
   `actions/setup-java`, `gradle/actions` and `google-github-actions/auth` were
