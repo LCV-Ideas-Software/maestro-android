@@ -87,20 +87,34 @@ internal object LeituraDoRelatorio {
     }
 
     fun ler(relatorio: String): Leitura {
+        // Duas seções candidatas é ambiguidade, não uma escolha de ordem. Sem
+        // isto, `{"metadata":{"changed_blocks":[...]},"changed_blocks":[]}`
+        // autorizava pela ocorrência aninhada e ignorava a seção real, vazia —
+        // e quem decide passaria a ser a posição no texto.
+        if (contarSecoesCandidatas(relatorio) > 1) {
+            return Leitura.Ambigua(
+                "maestro_revision_report declares more than one changed_blocks section",
+            )
+        }
         val secao = extrairSecaoChangedBlocks(relatorio) ?: return Leitura.SemSecao
         val porBloco = linkedMapOf<String, Entrada>()
         for (fragmento in fragmentosDeEntrada(secao)) {
             val campos = CamposDaEntrada.ler(fragmento)
-            val ids = campos.valoresDe("block_id").mapNotNull { idDeBloco(it) }.distinct()
-            when {
-                ids.isEmpty() -> continue
-
-                ids.size > 1 -> return Leitura.Ambigua(
+            // Contar os campos CRUS antes de validar. Mapear inválido para nulo
+            // e aplicar `distinct()` aceitava uma entrada com dois `block_id`
+            // sempre que só um sobrasse válido — e um leitor de JSON comum
+            // escolheria o último, que era o inválido. Dois campos iguais
+            // também sumiam no `distinct()`. Num portão de integridade, entrada
+            // com mais de um `block_id` é ambígua, qualquer que seja o valor.
+            val brutos = campos.valoresDe("block_id")
+            if (brutos.isEmpty()) continue
+            if (brutos.size > 1) {
+                return Leitura.Ambigua(
                     "changed_blocks entry declares more than one block_id " +
-                        "(${ids.joinToString(", ")})",
+                        "(${brutos.joinToString(", ") { EspacoUnicode.aparar(it) }})",
                 )
             }
-            val id = ids.single()
+            val id = idDeBloco(brutos.single()) ?: continue
             if (porBloco.containsKey(id)) {
                 return Leitura.Ambigua(
                     "changed_blocks declares $id more than once",
@@ -171,15 +185,24 @@ internal object LeituraDoRelatorio {
         return rebaixado !in setOf("null", "none", "n/a", "na", "-", "[]", "{}", "\"\"", "''")
     }
 
+    /** Quantas chaves de seção o relatório declara, em posição de campo. */
+    private fun contarSecoesCandidatas(relatorio: String): Int {
+        val rebaixado = EspacoUnicode.caixaBaixaAscii(relatorio)
+        var quantas = 0
+        var de = 0
+        while (true) {
+            val achada = acharChave(rebaixado, CHAVES_DE_INICIO, de) ?: return quantas
+            quantas++
+            if (quantas > 1) return quantas
+            de = fimDaChave(rebaixado, achada, CHAVES_DE_INICIO)
+        }
+    }
+
     /**
-     * A fatia do relatório que vai do começo da seção de blocos alterados até o
-     * próximo campo conhecido — ou até o fim, se não houver próximo.
+     * A seção é o **valor** do campo `changed_blocks`, delimitado por estrutura.
      *
      * O texto rebaixado só troca A–Z, então as posições achadas nele valem no
      * texto original.
-     */
-    /**
-     * A seção é o **valor** do campo `changed_blocks`, delimitado por estrutura.
      *
      * A versão anterior ia da chave até o próximo terminador de uma **lista
      * fechada** de campos conhecidos. Um campo que o agente inventasse não

@@ -293,11 +293,14 @@ public object TravaDeConteudo {
             .filter { (hash, quantas) ->
                 val sobreviventes = contagemDepois.getOrDefault(hash, 0)
                 // Ambíguo é quando ALGUMAS das cópias sobrevivem e não dá para
-                // saber quais. Se NENHUMA sobrevive, todas mudaram e cada id é
-                // atribuível sem dúvida — fechar aí recusaria uma revisão que
-                // declarou tudo certo. A versão anterior fechava nos dois casos,
-                // e o preço de errar para o lado fechado também é alto.
-                quantas > 1 && sobreviventes > 0 && sobreviventes != quantas
+                // saber quais — daí o `1 until quantas`. Nenhuma sobrevivente
+                // significa que todas mudaram, e cada id é atribuível sem
+                // dúvida. Mais sobreviventes que o original significa que uma
+                // cópia foi acrescentada, e também não há dúvida sobre as que
+                // vieram de antes. A versão anterior fechava nos três casos, e
+                // o preço de errar para o lado fechado também é alto: recusava
+                // revisão que tinha declarado tudo certo.
+                quantas > 1 && sobreviventes in 1 until quantas
             }
             .keys
     }
@@ -363,16 +366,13 @@ public object TravaDeConteudo {
     }
 
     /**
-     * Blocos que sobreviveram mas trocaram de lugar entre si. Só faz sentido
-     * com dois ou mais blocos em comum: com um só, não há ordem a violar.
-     */
-    /**
-     * Blocos que trocaram de lugar entre si.
+     * Blocos que trocaram de lugar entre si. Só faz sentido com dois ou mais
+     * blocos em comum: com um só, não há ordem a violar.
      *
      * A comparação usa os blocos que sobreviveram **mais** os que foram
-     * substituídos quando a correspondência é determinável — isto é, quando
-     * sobra a mesma quantidade de blocos sem par dos dois lados, e então o
-     * i-ésimo sem par de `antes` corresponde ao i-ésimo sem par de `depois`.
+     * substituídos até onde as duas pontas alcançam: o i-ésimo bloco sem par
+     * de `antes` corresponde ao i-ésimo sem par de `depois`, e o excedente de
+     * um dos lados — acréscimo ou remoção — fica de fora.
      *
      * Sem isso, um bloco **editado e movido** desaparecia da conta: em
      * `A / B / C` → `B / A editado / C`, a sequência comum é `B, C` nos dois
@@ -384,17 +384,20 @@ public object TravaDeConteudo {
         val sequenciaAntes = sequenciaDeIdsComuns(antes, antes, comuns).toMutableList()
         val sequenciaDepois = sequenciaDeIdsComuns(antes, depois, comuns).toMutableList()
 
-        // Pareia os substituídos pela ordem, quando as duas pontas têm a mesma
-        // quantidade. Quantidades diferentes significam acréscimo ou remoção, e
-        // aí não há correspondência a inferir.
+        // Pareia os substituídos pela ordem, até onde as duas pontas alcançam.
+        // Exigir quantidades IGUAIS, como a versão anterior fazia, desligava o
+        // pareamento inteiro sempre que houvesse acréscimo ou remoção junto:
+        // em `A / B / C` → `B / A editado / C / D` sobra um sem par de um lado
+        // e dois do outro, e o movimento de A voltava a ficar invisível.
         val semParAntes = blocosSemPar(antes, depois)
         val semParDepois = blocosSemPar(depois, antes)
-        if (semParAntes.size == semParDepois.size && semParAntes.isNotEmpty()) {
-            val porPosicaoDepois = semParDepois.withIndex().associate { (i, b) -> b.id to i }
-            val idPorSubstituto = semParAntes.withIndex()
-                .associate { (i, b) -> semParDepois[i].id to b.id }
-            inserirNaOrdem(sequenciaAntes, antes, semParAntes.map { it.id }.toSet()) { it }
-            inserirNaOrdem(sequenciaDepois, depois, porPosicaoDepois.keys) { idPorSubstituto[it]!! }
+        val pareados = minOf(semParAntes.size, semParDepois.size)
+        if (pareados > 0) {
+            val idPorSubstituto = (0 until pareados)
+                .associate { semParDepois[it].id to semParAntes[it].id }
+            val aIncluirAntes = semParAntes.take(pareados).map { it.id }.toSet()
+            inserirNaOrdem(sequenciaAntes, antes, aIncluirAntes) { it }
+            inserirNaOrdem(sequenciaDepois, depois, idPorSubstituto.keys) { idPorSubstituto[it]!! }
         }
 
         if (sequenciaAntes.size <= 1) return emptyList()

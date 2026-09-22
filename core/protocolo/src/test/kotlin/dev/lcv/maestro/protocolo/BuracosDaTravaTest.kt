@@ -487,4 +487,97 @@ class BuracosDaTravaTest {
 
         exigirAprovacao(antes, depois, relatorio)
     }
+
+    // -- Achados do Codex sobre os proprios consertos ----------------------
+
+    @Test
+    fun `movimento e detectado mesmo quando ha acrescimo na mesma revisao`() {
+        val q = "${'\n'}${'\n'}"
+        val antes = "Bloco A aprovado.${q}Bloco B aprovado.${q}Bloco C aprovado."
+        val depois = "Bloco B aprovado.${q}Bloco A editado.${q}Bloco C aprovado.${q}Bloco D novo."
+        val relatorio = """
+            {
+              "changed_blocks": [
+                {"block_id": "B0001", "change_type": "edit", "protocol_basis": "editorial"},
+                {"block_id": "B0002", "change_type": "addition", "protocol_basis": "contexto"}
+              ]
+            }
+        """.trimIndent()
+
+        exigirViolacao(antes, depois, relatorio, "reorder")
+    }
+
+    @Test
+    fun `indicador de escalar de bloco vazio nao conta como base`() {
+        val antes = "Alpha aprovado."
+        val depois = "Alpha reescrito."
+        val relatorio = """
+            changed_blocks:
+            - block_id: B0001
+              protocol_basis: |
+            custody: revised
+        """.trimIndent()
+
+        exigirViolacao(antes, depois, relatorio, "must include protocol_basis")
+    }
+
+    @Test
+    fun `escalar de bloco com conteudo conta como base`() {
+        val antes = "Alpha aprovado."
+        val depois = "Alpha reescrito."
+        val relatorio = """
+            changed_blocks:
+            - block_id: B0001
+              protocol_basis: |
+                precisao editorial exigida pelo protocolo
+            custody: revised
+        """.trimIndent()
+
+        exigirAprovacao(antes, depois, relatorio)
+    }
+
+    @Test
+    fun `copia identica acrescentada nao e ambiguidade`() {
+        val q = "${'\n'}${'\n'}"
+        val antes = "Alpha aprovado.${q}Alpha aprovado."
+        val depois = "Alpha aprovado.${q}Alpha aprovado.${q}Alpha aprovado."
+        val relatorio = """
+            {
+              "changed_blocks": [
+                {"block_id": "B0001", "change_type": "addition", "protocol_basis": "repeticao pedida"}
+              ]
+            }
+        """.trimIndent()
+
+        exigirAprovacao(antes, depois, relatorio)
+    }
+
+    @Test
+    fun `duas secoes changed_blocks sao recusadas`() {
+        val antes = "Alpha aprovado."
+        val depois = "Alpha reescrito."
+        val relatorio = """
+            {
+              "metadata": {"changed_blocks": [{"block_id": "B0001", "protocol_basis": "x"}]},
+              "changed_blocks": []
+            }
+        """.trimIndent()
+
+        exigirViolacao(antes, depois, relatorio, "more than one changed_blocks")
+    }
+
+    @Test
+    fun `dois campos block_id sao recusados mesmo com um invalido`() {
+        val antes = "Alpha aprovado."
+        val depois = "Alpha reescrito."
+        val relatorio = """
+            {
+              "changed_blocks": [
+                {"block_id": "B0001", "block_id": "invalido", "protocol_basis": "x"}
+              ]
+            }
+        """.trimIndent()
+
+        exigirViolacao(antes, depois, relatorio, "more than one block_id")
+    }
 }

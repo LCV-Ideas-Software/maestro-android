@@ -161,8 +161,40 @@ internal class CamposDaEntrada private constructor(
                 '"', '\'' -> leCitado(texto, indice + 1, primeiro)
                 '[' -> leEquilibrado(texto, indice, '[', ']')
                 '{' -> leEquilibrado(texto, indice, '{', '}')
+                '|', '>' -> leEscalarDeBloco(texto, indice)
                 else -> leNu(texto, indice)
             }
+        }
+
+        /**
+         * Escalar de bloco do YAML: `protocol_basis: |` ou `: >`, com o
+         * conteúdo nas linhas indentadas seguintes.
+         *
+         * O indicador **não é o conteúdo**. Devolvê-lo como valor fazia um
+         * `protocol_basis: |` sem nada embaixo contar como base preenchida.
+         * Mas recusar o indicador de saída seria pior no outro sentido: um
+         * escalar de bloco com conteúdo de verdade passaria a ser recusado.
+         * Então lê-se o conteúdo — que é o que o YAML manda —, e fica vazio só
+         * quando vazio de fato.
+         */
+        private fun leEscalarDeBloco(texto: String, de: Int): Pair<String, Int> {
+            var indice = de
+            while (indice < texto.length && texto[indice] != '\n') indice++
+            val corpo = StringBuilder()
+            var fim = indice
+            while (indice < texto.length) {
+                val fimDaLinha = texto.indexOf('\n', indice + 1).let {
+                    if (it < 0) texto.length else it
+                }
+                val linha = texto.substring(indice + 1, fimDaLinha)
+                val indentada = linha.isNotEmpty() && EspacoUnicode.ehEspacoAscii(linha[0])
+                if (!indentada && !EspacoUnicode.soEspaco(linha)) break
+                if (!EspacoUnicode.soEspaco(linha)) corpo.append(EspacoUnicode.aparar(linha))
+                indice = fimDaLinha
+                fim = fimDaLinha
+                if (fimDaLinha >= texto.length) break
+            }
+            return corpo.toString() to fim
         }
 
         private fun leCitado(texto: String, de: Int, aspa: Char): Pair<String, Int> {
