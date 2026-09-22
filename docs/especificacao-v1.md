@@ -7,6 +7,9 @@ escolha precise ser redescoberta ou relitigada.
 
 Toda verificação de documentação de provedor citada aqui foi feita em
 **21/09/2026**, na documentação oficial do próprio provedor, e não de memória.
+A única exceção é a linha do `grok` na seção 5.1, reconfirmada na documentação
+oficial da xAI em **22/09/2026**; as dos outros cinco provedores continuam com a
+data de 21/09.
 
 ## 1. Do que se trata
 
@@ -390,7 +393,7 @@ revogada no mesmo dia, depois que o changelog oficial mostrou que o V4 Pro não
 foi descontinuado: *"In response to user demand, we have decided to continue
 providing API services for DeepSeek V4 Pro after September 14, 2026."*
 
-### 5.1 O quadro, verificado em 21/09/2026 e reconfirmado em 22/09/2026
+### 5.1 O quadro, verificado em 21/09/2026 (a linha do `grok`, reconfirmada em 22/09/2026)
 
 | Agente | Modelo | Transporte | Controle de raciocínio |
 | --- | --- | --- | --- |
