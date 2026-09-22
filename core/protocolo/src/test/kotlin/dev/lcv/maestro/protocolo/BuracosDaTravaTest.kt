@@ -388,4 +388,103 @@ class BuracosDaTravaTest {
 
         exigirAprovacao(antes, depois, relatorio)
     }
+
+    // -- Achados do Codex sobre a reescrita --------------------------------
+
+    @Test
+    fun `campo desconhecido nao entrega autorizacao pelo valor aninhado`() {
+        val antes = "Alpha aprovado."
+        val depois = "Alpha reescrito."
+        val relatorio = """
+            {
+              "changed_blocks": [
+                {
+                  "block_id": "B0001",
+                  "metadata": {"protocol_basis": "nao fornecida"}
+                }
+              ]
+            }
+        """.trimIndent()
+
+        exigirViolacao(antes, depois, relatorio, "must include protocol_basis")
+    }
+
+    @Test
+    fun `comentario YAML nao conta como base de protocolo`() {
+        val antes = "Alpha aprovado."
+        val depois = "Alpha reescrito."
+        val relatorio = """
+            changed_blocks:
+            - block_id: B0001
+              protocol_basis: # ainda nao fornecida
+            custody: revised
+        """.trimIndent()
+
+        exigirViolacao(antes, depois, relatorio, "must include protocol_basis")
+    }
+
+    @Test
+    fun `id de bloco inexistente nao autoriza acrescimo`() {
+        val antes = "Alpha aprovado."
+        val depois = "Alpha aprovado.${'\n'}${'\n'}Bloco novo indevido."
+        val relatorio = """
+            {
+              "changed_blocks": [
+                {"block_id": "B9999", "change_type": "addition", "protocol_basis": "x"}
+              ]
+            }
+        """.trimIndent()
+
+        exigirViolacao(antes, depois, relatorio, "added new blocks")
+    }
+
+    @Test
+    fun `bloco editado que se moveu exige declaracao de reordenacao`() {
+        val quebra = "${'\n'}${'\n'}"
+        val antes = "Bloco A aprovado.${quebra}Bloco B aprovado.${quebra}Bloco C aprovado."
+        val depois = "Bloco B aprovado.${quebra}Bloco A editado.${quebra}Bloco C aprovado."
+        val relatorio = """
+            {
+              "changed_blocks": [
+                {"block_id": "B0001", "change_type": "edit", "protocol_basis": "editorial"}
+              ]
+            }
+        """.trimIndent()
+
+        exigirViolacao(antes, depois, relatorio, "reorder")
+    }
+
+    @Test
+    fun `change_type em lista JSON e aceito com as aspas dos itens`() {
+        val antes = "Alpha aprovado."
+        val depois = "Alpha aprovado.${'\n'}${'\n'}Bloco novo declarado."
+        val relatorio = """
+            {
+              "changed_blocks": [
+                {"block_id": "B0001", "change_type": ["addition"], "protocol_basis": "contexto"}
+              ]
+            }
+        """.trimIndent()
+
+        exigirAprovacao(antes, depois, relatorio)
+    }
+
+    @Test
+    fun `blocos identicos todos reescritos nao sao ambiguos`() {
+        // Se NENHUMA copia sobrevive, cada id e atribuivel sem duvida. Fechar
+        // aqui recusaria uma revisao que declarou tudo certo.
+        val quebra = "${'\n'}${'\n'}"
+        val antes = "Alpha aprovado.${quebra}Alpha aprovado."
+        val depois = "Primeiro reescrito.${quebra}Segundo reescrito."
+        val relatorio = """
+            {
+              "changed_blocks": [
+                {"block_id": "B0001", "protocol_basis": "reescrita aprovada"},
+                {"block_id": "B0002", "protocol_basis": "reescrita aprovada"}
+              ]
+            }
+        """.trimIndent()
+
+        exigirAprovacao(antes, depois, relatorio)
+    }
 }

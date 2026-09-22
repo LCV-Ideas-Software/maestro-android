@@ -70,20 +70,47 @@ internal class CamposDaEntrada private constructor(
                     if (fechamento < 0) return null
                     val nome = texto.substring(indice + 1, fechamento)
                     if (ehNomeDeCampo(nome)) return nome to fechamento + 1
-                    // Não é nome de campo: é um valor citado. Pular inteiro,
-                    // para que o que estiver dentro dele nunca seja lido como
-                    // estrutura.
-                    indice = fechamento + 1
+                    // Não é nome de campo conhecido. Duas possibilidades, e as
+                    // duas exigem pular o VALOR também, não só o que está entre
+                    // aspas: ou isto é um valor citado, e o que está dentro dele
+                    // é texto; ou é um campo que a trava não conhece, e o valor
+                    // dele é território alheio. Pular só até a aspa de
+                    // fechamento fazia o varredor entrar no valor, e
+                    //     {"block_id":"B0002",
+                    //      "metadata":{"protocol_basis":"not supplied"}}
+                    // devolvia a autorização pela porta dos fundos.
+                    val separadorCitado = posicaoDaAtribuicao(texto, fechamento + 1)
+                    indice = if (separadorCitado != null) {
+                        leValor(texto, separadorCitado + 1).second
+                    } else {
+                        fechamento + 1
+                    }
                     continue
                 }
                 if (ehInicioDeNome(caractere)) {
                     var fim = indice
                     while (fim < texto.length && ehCorpoDeNome(texto[fim])) fim++
                     val nome = texto.substring(indice, fim)
-                    if (ehNomeDeCampo(nome) && posicaoDaAtribuicao(texto, fim) != null) {
+                    val separador = posicaoDaAtribuicao(texto, fim)
+                    if (ehNomeDeCampo(nome) && separador != null) {
                         return nome to fim
                     }
-                    indice = if (fim > indice) fim else indice + 1
+                    // Campo que a trava não conhece: pular o NOME e o VALOR
+                    // inteiro. Pular só o nome fazia o varredor entrar dentro
+                    // do valor, e um objeto aninhado devolvia a autorização
+                    // pela porta dos fundos:
+                    //     {"block_id":"B0002",
+                    //      "metadata":{"protocol_basis":"not supplied"}}
+                    // O `protocol_basis` de dentro do `metadata` contava como
+                    // campo da entrada, e a mudança era aprovada sem base
+                    // nenhuma no nível certo.
+                    indice = if (separador != null) {
+                        leValor(texto, separador + 1).second
+                    } else if (fim > indice) {
+                        fim
+                    } else {
+                        indice + 1
+                    }
                     continue
                 }
                 indice++
@@ -197,8 +224,22 @@ internal class CamposDaEntrada private constructor(
             return texto.substring(de) to indice
         }
 
+        /**
+         * Valor nu: termina na vírgula, no fechamento, na quebra de linha — ou
+         * num **comentário YAML**.
+         *
+         * `protocol_basis: # ainda não fornecida` tem valor YAML **vazio**: o
+         * `#` abre comentário. Sem tratar isso, o texto do comentário voltava
+         * como valor e contava como base de protocolo preenchida — um bloco
+         * declarado com aquele marcador de "falta fazer" era autorizado.
+         *
+         * A regra é a do YAML: `#` abre comentário quando está no começo do
+         * valor ou precedido de espaço. Em `see #42` o `#` também abre
+         * comentário, e o valor é `see`.
+         */
         private fun leNu(texto: String, de: Int): Pair<String, Int> {
             var indice = de
+            var fimDoValor = -1
             while (indice < texto.length) {
                 val caractere = texto[indice]
                 if (caractere == ',' || caractere == '}' || caractere == ']' ||
@@ -206,9 +247,15 @@ internal class CamposDaEntrada private constructor(
                 ) {
                     break
                 }
+                if (fimDoValor < 0 && caractere == '#' &&
+                    (indice == de || EspacoUnicode.ehEspacoAscii(texto[indice - 1]))
+                ) {
+                    fimDoValor = indice
+                }
                 indice++
             }
-            return EspacoUnicode.aparar(texto.substring(de, indice)) to indice
+            val corte = if (fimDoValor >= 0) fimDoValor else indice
+            return EspacoUnicode.aparar(texto.substring(de, corte)) to indice
         }
     }
 }

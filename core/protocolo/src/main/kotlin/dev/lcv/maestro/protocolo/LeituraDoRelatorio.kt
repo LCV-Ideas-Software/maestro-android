@@ -138,8 +138,26 @@ internal object LeituraDoRelatorio {
      */
     private fun autoriza(valor: String, termos: Set<String>): Boolean =
         valor.split(',', ';', '|', '/')
-            .map { EspacoUnicode.caixaBaixaAscii(EspacoUnicode.aparar(it)) }
+            .map { EspacoUnicode.caixaBaixaAscii(semAspas(EspacoUnicode.aparar(it))) }
             .any { it in termos }
+
+    /**
+     * Tira as aspas de um item de lista.
+     *
+     * `"change_type": ["addition"]` é JSON perfeitamente normal, e o leitor
+     * devolve o interior do colchete com as aspas dos itens ainda lá. Comparar
+     * `"addition"` — com aspas — contra o conjunto fechado dava falso, e uma
+     * adição corretamente declarada era **recusada**. Portão que barra trabalho
+     * bom é desligado pelo usuário.
+     */
+    private fun semAspas(valor: String): String {
+        if (valor.length < 2) return valor
+        val primeiro = valor.first()
+        if ((primeiro == '"' || primeiro == '\'') && valor.last() == primeiro) {
+            return EspacoUnicode.aparar(valor.substring(1, valor.length - 1))
+        }
+        return valor
+    }
 
     /**
      * Um valor conta como preenchido quando tem conteúdo de verdade. `null`,

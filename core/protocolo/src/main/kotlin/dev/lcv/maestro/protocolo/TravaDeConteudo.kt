@@ -201,7 +201,13 @@ public object TravaDeConteudo {
         // bloco acrescentado consome uma autorização, e toda autorização de
         // crescimento precisa da própria base de protocolo.
         if (blocosNovos > 0) {
-            val autorizamCrescimento = entradas.values.filter { it.permiteCrescimento }
+            // A autorização tem de nomear um bloco que EXISTE. Sem isto,
+            // `{"block_id":"B9999","change_type":"addition","protocol_basis":"x"}`
+            // — um identificador que nunca foi gerado em custódia nenhuma —
+            // contava para a soma e liberava o acréscimo sem nomear bloco real.
+            val idsReais = (blocosAntes.map { it.id } + blocosDepois.map { it.id }).toSet()
+            val autorizamCrescimento = entradas.values
+                .filter { it.permiteCrescimento && it.id in idsReais }
             val semBase = autorizamCrescimento.filter { !it.temBaseDeProtocolo }
             if (semBase.isNotEmpty()) {
                 return Veredito.Violada(
@@ -285,7 +291,13 @@ public object TravaDeConteudo {
         val contagemDepois = depois.groupingBy { it.hashNormalizado }.eachCount()
         return contagemAntes
             .filter { (hash, quantas) ->
-                quantas > 1 && contagemDepois.getOrDefault(hash, 0) != quantas
+                val sobreviventes = contagemDepois.getOrDefault(hash, 0)
+                // Ambíguo é quando ALGUMAS das cópias sobrevivem e não dá para
+                // saber quais. Se NENHUMA sobrevive, todas mudaram e cada id é
+                // atribuível sem dúvida — fechar aí recusaria uma revisão que
+                // declarou tudo certo. A versão anterior fechava nos dois casos,
+                // e o preço de errar para o lado fechado também é alto.
+                quantas > 1 && sobreviventes > 0 && sobreviventes != quantas
             }
             .keys
     }
@@ -354,17 +366,78 @@ public object TravaDeConteudo {
      * Blocos que sobreviveram mas trocaram de lugar entre si. Só faz sentido
      * com dois ou mais blocos em comum: com um só, não há ordem a violar.
      */
+    /**
+     * Blocos que trocaram de lugar entre si.
+     *
+     * A comparação usa os blocos que sobreviveram **mais** os que foram
+     * substituídos quando a correspondência é determinável — isto é, quando
+     * sobra a mesma quantidade de blocos sem par dos dois lados, e então o
+     * i-ésimo sem par de `antes` corresponde ao i-ésimo sem par de `depois`.
+     *
+     * Sem isso, um bloco **editado e movido** desaparecia da conta: em
+     * `A / B / C` → `B / A editado / C`, a sequência comum é `B, C` nos dois
+     * lados, nenhuma reordenação era detectada, e um relatório que declarasse
+     * só a edição de A era aprovado sem declarar o movimento.
+     */
     internal fun idsDeBlocosReordenados(antes: List<Bloco>, depois: List<Bloco>): List<String> {
         val comuns = contagensComuns(antes, depois)
-        if (comuns.values.sum() <= 1) return emptyList()
+        val sequenciaAntes = sequenciaDeIdsComuns(antes, antes, comuns).toMutableList()
+        val sequenciaDepois = sequenciaDeIdsComuns(antes, depois, comuns).toMutableList()
 
-        val sequenciaAntes = sequenciaDeIdsComuns(antes, antes, comuns)
-        val sequenciaDepois = sequenciaDeIdsComuns(antes, depois, comuns)
+        // Pareia os substituídos pela ordem, quando as duas pontas têm a mesma
+        // quantidade. Quantidades diferentes significam acréscimo ou remoção, e
+        // aí não há correspondência a inferir.
+        val semParAntes = blocosSemPar(antes, depois)
+        val semParDepois = blocosSemPar(depois, antes)
+        if (semParAntes.size == semParDepois.size && semParAntes.isNotEmpty()) {
+            val porPosicaoDepois = semParDepois.withIndex().associate { (i, b) -> b.id to i }
+            val idPorSubstituto = semParAntes.withIndex()
+                .associate { (i, b) -> semParDepois[i].id to b.id }
+            inserirNaOrdem(sequenciaAntes, antes, semParAntes.map { it.id }.toSet()) { it }
+            inserirNaOrdem(sequenciaDepois, depois, porPosicaoDepois.keys) { idPorSubstituto[it]!! }
+        }
+
+        if (sequenciaAntes.size <= 1) return emptyList()
         if (sequenciaAntes == sequenciaDepois) return emptyList()
 
         val posicoesAntes = sequenciaAntes.withIndex().associate { (i, id) -> id to i }
         val posicoesDepois = sequenciaDepois.withIndex().associate { (i, id) -> id to i }
         return sequenciaAntes.filter { posicoesAntes[it] != posicoesDepois[it] }
+    }
+
+    /** Blocos de [lado] cujo conteúdo não tem par do [outro] lado. */
+    private fun blocosSemPar(lado: List<Bloco>, outro: List<Bloco>): List<Bloco> {
+        val restantes = outro.groupingBy { it.hashNormalizado }.eachCount().toMutableMap()
+        val semPar = mutableListOf<Bloco>()
+        for (bloco in lado) {
+            val quantas = restantes.getOrDefault(bloco.hashNormalizado, 0)
+            if (quantas > 0) restantes[bloco.hashNormalizado] = quantas - 1 else semPar += bloco
+        }
+        return semPar
+    }
+
+    /**
+     * Refaz [sequencia] percorrendo [blocos] na ordem do lado e acrescentando
+     * os que estiverem em [aIncluir], traduzidos por [traduzirId] para o
+     * identificador do lado `antes`.
+     */
+    private fun inserirNaOrdem(
+        sequencia: MutableList<String>,
+        blocos: List<Bloco>,
+        aIncluir: Set<String>,
+        traduzirId: (String) -> String,
+    ) {
+        val comuns = sequencia.toMutableList()
+        sequencia.clear()
+        val idsComuns = comuns.toSet()
+        for (bloco in blocos) {
+            when {
+                bloco.id in aIncluir -> sequencia += traduzirId(bloco.id)
+                bloco.id in idsComuns && comuns.isNotEmpty() -> sequencia += comuns.removeAt(0)
+                comuns.isNotEmpty() -> sequencia += comuns.removeAt(0)
+            }
+        }
+        sequencia += comuns
     }
 
     private fun contagensComuns(antes: List<Bloco>, depois: List<Bloco>): Map<String, Int> {
