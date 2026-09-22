@@ -160,16 +160,93 @@ internal object LeituraDoRelatorio {
      * O texto rebaixado só troca A–Z, então as posições achadas nele valem no
      * texto original.
      */
+    /**
+     * A seção é o **valor** do campo `changed_blocks`, delimitado por estrutura.
+     *
+     * A versão anterior ia da chave até o próximo terminador de uma **lista
+     * fechada** de campos conhecidos. Um campo que o agente inventasse não
+     * estava na lista, então a seção o engolia e a trava lia declaração de
+     * dentro dele:
+     *
+     * ```json
+     * {"changed_blocks": [], "notes": {"block_id": "B0001", "protocol_basis": "x"}}
+     * ```
+     *
+     * `changed_blocks` está vazio, mas o `notes` entrava na seção e autorizava
+     * uma mudança que ninguém declarou. Lista fechada de terminadores é a mesma
+     * doença da decisão por substring: depende de enumerar o que o modelo pode
+     * escrever, e ele sempre escreve mais.
+     *
+     * Agora o valor é lido pela própria estrutura — `[...]` ou `{...}`
+     * equilibrado, ciente de aspas —, e só se cai na lista de terminadores
+     * quando o valor não abre delimitador nenhum (relatório em YAML solto).
+     */
     internal fun extrairSecaoChangedBlocks(relatorio: String): String? {
         val rebaixado = EspacoUnicode.caixaBaixaAscii(relatorio)
         val inicio = acharChave(rebaixado, CHAVES_DE_INICIO, 0) ?: return null
         // Retomar DEPOIS da chave inteira, e não em inicio+1, que cairia dentro
         // dela: o varredor trataria a aspa de fechamento da chave como aspa de
-        // abertura, perderia os terminadores citados e esticaria a seção até o
-        // fim do relatório.
+        // abertura e perderia a estrutura seguinte.
         val depoisDaChave = fimDaChave(rebaixado, inicio, CHAVES_DE_INICIO)
-        val fim = acharChave(rebaixado, CHAVES_DE_FIM, depoisDaChave) ?: relatorio.length
+        val depoisDoSeparador = pularSeparador(rebaixado, depoisDaChave)
+
+        delimitadorDoValor(rebaixado, depoisDoSeparador)?.let { fim ->
+            return relatorio.substring(depoisDoSeparador, fim)
+        }
+
+        // Valor sem delimitador: vale a lista de terminadores conhecidos, que é
+        // o melhor que se consegue num YAML solto — e por isso a leitura de
+        // entradas exige `block_id` em posição de campo para contar qualquer
+        // coisa.
+        val fim = acharChave(rebaixado, CHAVES_DE_FIM, depoisDoSeparador) ?: relatorio.length
         return relatorio.substring(inicio, fim)
+    }
+
+    private fun pularSeparador(palheiro: String, de: Int): Int {
+        var indice = de
+        while (indice < palheiro.length && EspacoUnicode.ehEspacoAscii(palheiro[indice])) indice++
+        if (indice < palheiro.length && (palheiro[indice] == ':' || palheiro[indice] == '=')) {
+            indice++
+        }
+        while (indice < palheiro.length && EspacoUnicode.ehEspacoAscii(palheiro[indice])) indice++
+        return indice
+    }
+
+    /** O fim do valor delimitado que começa em [de], ou nulo se não houver. */
+    private fun delimitadorDoValor(palheiro: String, de: Int): Int? {
+        val abre = palheiro.getOrNull(de) ?: return null
+        val fecha = when (abre) {
+            '[' -> ']'
+            '{' -> '}'
+            else -> return null
+        }
+        var profundidade = 0
+        var aspaAberta: Char? = null
+        var escapado = false
+        var indice = de
+        while (indice < palheiro.length) {
+            val caractere = palheiro[indice]
+            val aspa = aspaAberta
+            if (aspa != null) {
+                when {
+                    escapado -> escapado = false
+                    caractere == '\\' -> escapado = true
+                    caractere == aspa -> aspaAberta = null
+                }
+                indice++
+                continue
+            }
+            when (caractere) {
+                '"' -> aspaAberta = caractere
+                abre -> profundidade++
+                fecha -> {
+                    profundidade--
+                    if (profundidade == 0) return indice + 1
+                }
+            }
+            indice++
+        }
+        return null
     }
 
     /** A posição logo após a chave que começa em [inicio], com aspas se houver. */
@@ -215,7 +292,13 @@ internal object LeituraDoRelatorio {
                         return indice
                     }
                 }
-                aspaAberta = caractere
+                // Só a aspa dupla passa a valer como abertura de string. O
+                // apóstrofo é pontuação comum em prosa — "Here's the report:" —
+                // e tratá-lo como abertura engolia o resto do relatório como
+                // conteúdo de string: a seção sumia e a trava recusava trabalho
+                // legítimo. A chave citada com apóstrofo continua reconhecida
+                // acima; o que muda é ele não mexer mais no estado do varredor.
+                if (caractere == '"') aspaAberta = caractere
                 indice++
                 continue
             }

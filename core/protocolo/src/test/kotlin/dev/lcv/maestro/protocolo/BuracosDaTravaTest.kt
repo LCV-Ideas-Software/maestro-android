@@ -356,4 +356,36 @@ class BuracosDaTravaTest {
         assertEquals("B0001", blocos[0].id)
         assertEquals("B0002", blocos[1].id)
     }
+
+    // -- Achados da rodada 3 do cross-review -------------------------------
+
+    @Test
+    fun `campo irmao inventado nao entra na secao de blocos alterados`() {
+        // A secao ia do `changed_blocks` ate o proximo terminador CONHECIDO.
+        // Um campo que o agente invente nao esta na lista, entao a secao o
+        // engolia e a trava lia a declaracao de dentro dele.
+        val antes = "Alpha aprovado."
+        val depois = "Alpha reescrito."
+        val relatorio = """
+            {
+              "changed_blocks": [],
+              "notes": {"block_id": "B0001", "protocol_basis": "editorial precision"}
+            }
+        """.trimIndent()
+
+        exigirViolacao(antes, depois, relatorio, "without matching")
+    }
+
+    @Test
+    fun `apostrofo em prosa nao apaga o relatorio`() {
+        // O apostrofo de "Here's" abria uma aspa no varredor, e tudo depois
+        // virava conteudo de string: a secao sumia e a trava recusava trabalho
+        // legitimo. Apostrofo e pontuacao comum.
+        val antes = "Alpha aprovado."
+        val depois = "Alpha corrigido."
+        val relatorio = "Here's the report:" + System.lineSeparator() +
+            """{"changed_blocks": [{"block_id": "B0001", "protocol_basis": "editorial precision"}]}"""
+
+        exigirAprovacao(antes, depois, relatorio)
+    }
 }
