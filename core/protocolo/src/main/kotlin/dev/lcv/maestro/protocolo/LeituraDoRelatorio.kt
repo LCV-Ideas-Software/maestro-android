@@ -4,26 +4,53 @@ package dev.lcv.maestro.protocolo
  * Leitura da seção `changed_blocks` do `maestro_revision_report`.
  *
  * O relatório do agente não é JSON garantido: vem em formato solto, às vezes
- * com aspas, às vezes sem, às vezes em YAML aproximado. Por isso o canônico não
- * usa parser de JSON — varre o texto procurando a chave do campo em posição
- * plausível, e é esse comportamento que este arquivo reproduz.
+ * com aspas, às vezes sem, às vezes em YAML aproximado, às vezes cercado por
+ * prosa. Mesmo assim, **autorização nunca se decide por busca de substring**.
  *
- * Porte de `maestro-app/src-tauri/src/editorial_content_lock.rs`.
+ * ## Por que este arquivo foi reescrito
  *
- * **Sobre as expressões regulares:** todas levam `(?isU)`. O `U` é
- * `UNICODE_CHARACTER_CLASS`, e sem ele o `\s` do Java é ASCII puro e o `\d` só
- * pega `0-9` — enquanto no Rust `\s` é Unicode White_Space e `\d` é `\p{Nd}`.
- * Medido no JDK 17.0.20.1+1 em 21/09/2026: sem `U`, um `block_id` separado
- * do `:` por um no-break space não casa, e `B` seguido de dígitos devanágari
- * não casa; com `U`, os dois casam, como no canônico.
+ * A primeira versão portava o canônico literalmente, e o canônico decide
+ * autorização com `contains`. Medido em 22/09/2026, num portão cujo adversário
+ * é um modelo de linguagem escrevendo prosa:
+ *
+ * | Texto na justificativa         | Autorizava reordenar | Autorizava criar bloco |
+ * | ------------------------------ | -------------------- | ---------------------- |
+ * | `removed duplicate punctuation`| **sim** (`re-move-d`)| não                    |
+ * | `I have not moved anything`    | **sim**              | não                    |
+ * | `unmoved`                      | **sim**              | não                    |
+ * | `no addition was made`         | não                  | **sim**                |
+ *
+ * A palavra mais comum de um relatório editorial — "removed" — contém `move`,
+ * e uma negação explícita contava como autorização. Buraco que só precisa de
+ * prosa comum para disparar dispara no uso normal, não no uso hostil.
+ *
+ * ## O que este arquivo faz em vez disso
+ *
+ * Quebra cada entrada em pares **campo → valor**, com um varredor ciente de
+ * aspas e de escape, e decide sobre o **valor**:
+ *
+ * - `change_type` é comparado como **token inteiro** contra um conjunto
+ *   fechado. `"edit"` não autoriza nada, mesmo que a palavra "addition"
+ *   apareça na justificativa ao lado.
+ * - `protocol_basis` só conta quando é **campo da entrada**, não quando as
+ *   duas palavras aparecem dentro do valor de outro campo.
+ * - Entrada com dois `block_id`, ou duas entradas para o mesmo bloco, é
+ *   **recusada** em vez de ter as permissões somadas: registro ambíguo num
+ *   portão de integridade resolve-se fechando, não unindo.
+ *
+ * Porte de `maestro-app/src-tauri/src/editorial_content_lock.rs`, com os
+ * afastamentos acima declarados. O canônico tem os mesmos buracos e está
+ * registrado no rastreador dele.
  */
 internal object LeituraDoRelatorio {
 
-    private val CAMPO_BLOCK_ID =
-        Regex("""(?isU)["']?block_id["']?\s*[:=]\s*["']?(B\d{4})\b""")
+    /** Valores de `change_type` que autorizam crescer o número de blocos. */
+    private val VALORES_DE_CRESCIMENTO =
+        setOf("split", "addition", "added", "new_block", "new block", "insert", "inserted")
 
-    private val CHAVE_PROTOCOL_BASIS =
-        Regex("""(?isU)["']?protocol_basis["']?\s*[:=]\s*""")
+    /** Valores de `change_type` que autorizam reordenar. */
+    private val VALORES_DE_REORDENACAO =
+        setOf("reorder", "reordered", "move", "moved", "reposition", "repositioned")
 
     private val CHAVES_DE_INICIO = listOf("changed_blocks", "changes")
 
@@ -35,6 +62,97 @@ internal object LeituraDoRelatorio {
         "custody",
     )
 
+    /** O que uma entrada de `changed_blocks` declara, depois de lida. */
+    internal data class Entrada(
+        val id: String,
+        val temBaseDeProtocolo: Boolean,
+        val permiteCrescimento: Boolean,
+        val permiteReordenacao: Boolean,
+    )
+
+    /** Resultado da leitura da seção. */
+    internal sealed interface Leitura {
+        /** Não há seção de blocos alterados no relatório. */
+        data object SemSecao : Leitura
+
+        /** A seção foi lida e produziu estas entradas, uma por bloco. */
+        data class Entradas(val porBloco: Map<String, Entrada>) : Leitura
+
+        /**
+         * A seção existe mas é ambígua — dois `block_id` na mesma entrada, ou
+         * duas entradas para o mesmo bloco. Num portão de integridade isso
+         * **não** se resolve escolhendo uma nem somando as duas.
+         */
+        data class Ambigua(val motivo: String) : Leitura
+    }
+
+    fun ler(relatorio: String): Leitura {
+        val secao = extrairSecaoChangedBlocks(relatorio) ?: return Leitura.SemSecao
+        val porBloco = linkedMapOf<String, Entrada>()
+        for (fragmento in fragmentosDeEntrada(secao)) {
+            val campos = CamposDaEntrada.ler(fragmento)
+            val ids = campos.valoresDe("block_id").mapNotNull { idDeBloco(it) }.distinct()
+            when {
+                ids.isEmpty() -> continue
+
+                ids.size > 1 -> return Leitura.Ambigua(
+                    "changed_blocks entry declares more than one block_id " +
+                        "(${ids.joinToString(", ")})",
+                )
+            }
+            val id = ids.single()
+            if (porBloco.containsKey(id)) {
+                return Leitura.Ambigua(
+                    "changed_blocks declares $id more than once",
+                )
+            }
+            porBloco[id] = Entrada(
+                id = id,
+                temBaseDeProtocolo = campos.valoresDe("protocol_basis").any { temConteudo(it) },
+                permiteCrescimento = campos.valoresDe("change_type")
+                    .any { autoriza(it, VALORES_DE_CRESCIMENTO) },
+                permiteReordenacao = campos.valoresDe("change_type")
+                    .any { autoriza(it, VALORES_DE_REORDENACAO) },
+            )
+        }
+        return Leitura.Entradas(porBloco)
+    }
+
+    /**
+     * Identificador de bloco, com **quatro ou mais** dígitos: o segmentador
+     * emite `B10000` no bloco dez mil, e aceitar só quatro dígitos tornaria
+     * aquele bloco impossível de declarar.
+     */
+    private val ID_DE_BLOCO = Regex("""^B(\d{4,})$""")
+
+    private fun idDeBloco(valor: String): String? {
+        val limpo = EspacoUnicode.aparar(valor)
+        val caixaAlta = limpo.uppercase()
+        return if (ID_DE_BLOCO.matches(caixaAlta)) caixaAlta else null
+    }
+
+    /**
+     * Um `change_type` autoriza quando **o valor inteiro** é um dos termos, ou
+     * quando o valor é uma lista cujos itens são termos. Nunca quando o termo
+     * aparece como pedaço de outra palavra.
+     */
+    private fun autoriza(valor: String, termos: Set<String>): Boolean =
+        valor.split(',', ';', '|', '/')
+            .map { EspacoUnicode.caixaBaixaAscii(EspacoUnicode.aparar(it)) }
+            .any { it in termos }
+
+    /**
+     * Um valor conta como preenchido quando tem conteúdo de verdade. `null`,
+     * `[]`, `{}`, `none`, `n/a` e `-` são declaração vazia com aparência de
+     * declaração, e é exatamente o que a trava existe para recusar.
+     */
+    private fun temConteudo(valor: String): Boolean {
+        val limpo = EspacoUnicode.aparar(valor)
+        if (limpo.isEmpty()) return false
+        val rebaixado = EspacoUnicode.caixaBaixaAscii(limpo)
+        return rebaixado !in setOf("null", "none", "n/a", "na", "-", "[]", "{}", "\"\"", "''")
+    }
+
     /**
      * A fatia do relatório que vai do começo da seção de blocos alterados até o
      * próximo campo conhecido — ou até o fim, se não houver próximo.
@@ -42,44 +160,35 @@ internal object LeituraDoRelatorio {
      * O texto rebaixado só troca A–Z, então as posições achadas nele valem no
      * texto original.
      */
-    fun extrairSecaoChangedBlocks(relatorio: String): String? {
+    internal fun extrairSecaoChangedBlocks(relatorio: String): String? {
         val rebaixado = EspacoUnicode.caixaBaixaAscii(relatorio)
-        val inicio = acharPrimeiraChave(rebaixado, CHAVES_DE_INICIO, 0) ?: return null
-        val fim = acharPrimeiraChave(rebaixado, CHAVES_DE_FIM, inicio + 1) ?: relatorio.length
+        val inicio = acharChave(rebaixado, CHAVES_DE_INICIO, 0) ?: return null
+        // Retomar DEPOIS da chave inteira, e não em inicio+1, que cairia dentro
+        // dela: o varredor trataria a aspa de fechamento da chave como aspa de
+        // abertura, perderia os terminadores citados e esticaria a seção até o
+        // fim do relatório.
+        val depoisDaChave = fimDaChave(rebaixado, inicio, CHAVES_DE_INICIO)
+        val fim = acharChave(rebaixado, CHAVES_DE_FIM, depoisDaChave) ?: relatorio.length
         return relatorio.substring(inicio, fim)
     }
 
-    /** As declarações por `block_id`, somando os sinais quando houver repetição. */
-    fun extrairDeclaracoes(secao: String): Map<String, TravaDeConteudo.Declaracao> {
-        val declaracoes = sortedMapOf<String, TravaDeConteudo.Declaracao>()
-        for (fragmento in fragmentosDeEntrada(secao)) {
-            val id = CAMPO_BLOCK_ID.find(fragmento)?.groupValues?.get(1) ?: continue
-            val nova = TravaDeConteudo.Declaracao(
-                temBaseDeProtocolo = temBaseDeProtocoloNaoVazia(fragmento),
-                permiteCrescimento = declaraCrescimento(fragmento),
-                permiteReordenacao = declaraReordenacao(fragmento),
-            )
-            val anterior = declaracoes[id]
-            declaracoes[id] = if (anterior == null) {
-                nova
-            } else {
-                TravaDeConteudo.Declaracao(
-                    temBaseDeProtocolo = anterior.temBaseDeProtocolo || nova.temBaseDeProtocolo,
-                    permiteCrescimento = anterior.permiteCrescimento || nova.permiteCrescimento,
-                    permiteReordenacao = anterior.permiteReordenacao || nova.permiteReordenacao,
-                )
-            }
+    /** A posição logo após a chave que começa em [inicio], com aspas se houver. */
+    private fun fimDaChave(palheiro: String, inicio: Int, chaves: List<String>): Int {
+        val primeiro = palheiro.getOrNull(inicio)
+        if (primeiro == '"' || primeiro == '\'') {
+            val fechamento = palheiro.indexOf(primeiro, inicio + 1)
+            if (fechamento >= 0) return fechamento + 1
         }
-        return declaracoes
+        val chave = chaves.firstOrNull { palheiro.startsWith(it, inicio) }
+        return inicio + (chave?.length ?: 1)
     }
 
     /**
-     * Procura a primeira ocorrência de uma das chaves em posição de campo:
-     * precedida por `{`, `[`, `,` ou quebra de linha, e seguida por `:` ou `=`.
-     * O que estiver dentro de aspas é pulado, para que um valor citando o nome
-     * de um campo não passe por campo.
+     * Procura a primeira ocorrência de uma das chaves em posição de campo, a
+     * partir de [de]. O que estiver dentro de aspas é pulado, para que um valor
+     * citando o nome de um campo não passe por campo.
      */
-    private fun acharPrimeiraChave(palheiro: String, chaves: List<String>, de: Int): Int? {
+    private fun acharChave(palheiro: String, chaves: List<String>, de: Int): Int? {
         var indice = de
         var aspaAberta: Char? = null
         var escapado = false
@@ -100,7 +209,7 @@ internal object LeituraDoRelatorio {
                 if (fechamento >= 0) {
                     val candidato = palheiro.substring(indice + 1, fechamento)
                     if (candidato in chaves &&
-                        delimitadaAntes(palheiro, indice) &&
+                        emPosicaoDeCampo(palheiro, indice) &&
                         atribuicaoDepois(palheiro, fechamento + 1)
                     ) {
                         return indice
@@ -110,7 +219,7 @@ internal object LeituraDoRelatorio {
                 indice++
                 continue
             }
-            if (delimitadaAntes(palheiro, indice)) {
+            if (emPosicaoDeCampo(palheiro, indice)) {
                 for (chave in chaves) {
                     if (palheiro.startsWith(chave, indice) &&
                         atribuicaoDepois(palheiro, indice + chave.length)
@@ -124,12 +233,29 @@ internal object LeituraDoRelatorio {
         return null
     }
 
-    private fun delimitadaAntes(palheiro: String, indice: Int): Boolean {
+    /**
+     * Uma chave está em posição de campo quando vem no começo do texto, no
+     * **começo de uma linha**, ou depois de `{`, `[` ou `,`.
+     *
+     * O começo de linha entra por medição: um relatório que abre com uma frase
+     * — `As mudanças desta rodada:` e só então `changed_blocks:` — tinha a
+     * seção inteira ignorada pela versão anterior, porque o último caractere
+     * não branco antes da chave era o `:` da frase. A trava passava a agir como
+     * se não houvesse declaração nenhuma, e recusava trabalho legítimo. Portão
+     * que barra trabalho bom é desligado pelo usuário, que é como um portão
+     * morre de verdade.
+     */
+    private fun emPosicaoDeCampo(palheiro: String, indice: Int): Boolean {
         if (indice == 0) return true
-        for (anterior in indice - 1 downTo 0) {
+        var anterior = indice - 1
+        while (anterior >= 0) {
             val caractere = palheiro[anterior]
-            if (EspacoUnicode.ehEspacoAscii(caractere)) continue
-            return caractere == '{' || caractere == '[' || caractere == ','
+            if (caractere == '\n' || caractere == '\r') return true
+            if (!EspacoUnicode.ehEspacoAscii(caractere)) {
+                return caractere == '{' || caractere == '[' || caractere == ',' ||
+                    caractere == '-' // item de lista em YAML
+            }
+            anterior--
         }
         return true
     }
@@ -144,15 +270,42 @@ internal object LeituraDoRelatorio {
     }
 
     /**
-     * Os objetos `{...}` equilibrados da seção. Quando não há nenhum — relatório
-     * escrito em lista, sem chaves —, cai para as linhas que citam `block_id`.
+     * As entradas da seção. Primeiro os objetos `{...}` equilibrados, com a
+     * contagem de profundidade **ciente de aspas** — sem isso, uma chave solta
+     * dentro de uma justificativa parte a entrada no meio e o `protocol_basis`
+     * que vem depois é perdido.
+     *
+     * Quando não há objeto nenhum — relatório em lista YAML —, agrupa as linhas
+     * por entrada em vez de guardar só as que contêm `block_id`: num YAML
+     * normal, `block_id` e `protocol_basis` estão em linhas irmãs, e filtrar
+     * linha a linha jogava fora justamente a justificativa.
      */
     private fun fragmentosDeEntrada(secao: String): List<String> {
+        val objetos = objetosEquilibrados(secao)
+        if (objetos.isNotEmpty()) return objetos
+        return entradasDeLista(secao)
+    }
+
+    private fun objetosEquilibrados(secao: String): List<String> {
         val fragmentos = mutableListOf<String>()
         var profundidade = 0
         var inicio = -1
+        var aspaAberta: Char? = null
+        var escapado = false
         for (indice in secao.indices) {
-            when (secao[indice]) {
+            val caractere = secao[indice]
+            val aspa = aspaAberta
+            if (aspa != null) {
+                when {
+                    escapado -> escapado = false
+                    caractere == '\\' -> escapado = true
+                    caractere == aspa -> aspaAberta = null
+                }
+                continue
+            }
+            when (caractere) {
+                '"', '\'' -> aspaAberta = caractere
+
                 '{' -> {
                     if (profundidade == 0) inicio = indice
                     profundidade++
@@ -167,127 +320,40 @@ internal object LeituraDoRelatorio {
                 }
             }
         }
-        if (fragmentos.isEmpty()) {
-            fragmentos += secao.lines()
-                .filter { EspacoUnicode.caixaBaixaAscii(it).contains("block_id") }
-        }
         return fragmentos
     }
 
-    private fun temBaseDeProtocoloNaoVazia(fragmento: String): Boolean {
-        val chave = CHAVE_PROTOCOL_BASIS.find(fragmento) ?: return false
-        return valorNaoVazio(fragmento.substring(chave.range.last + 1))
-    }
-
     /**
-     * Um `protocol_basis` conta como preenchido quando tem conteúdo de verdade.
-     * `null`, `[]` e `{}` são declaração vazia com aparência de declaração, e é
-     * exatamente o que a trava existe para recusar.
+     * Agrupa as linhas da seção em entradas. Uma entrada começa numa linha de
+     * item — `- ` — ou numa linha que declara `block_id`, e segue até a próxima
+     * linha de item ou até uma linha menos indentada que a de abertura.
      */
-    private fun valorNaoVazio(bruto: String): Boolean {
-        val valor = EspacoUnicode.apararInicio(bruto)
-        if (valor.isEmpty()) return false
-        return when (valor.first()) {
-            '"' -> citadoNaoVazio(valor.substring(1), '"')
-            '\'' -> citadoNaoVazio(valor.substring(1), '\'')
-            '[' -> delimitadoNaoVazio(valor.substring(1), '[', ']')
-            '{' -> delimitadoNaoVazio(valor.substring(1), '{', '}')
-            else -> {
-                val simbolo = EspacoUnicode.aparar(primeiroSimbolo(valor))
-                simbolo.isNotEmpty() &&
-                    !simbolo.equals("null", ignoreCase = true) &&
-                    simbolo != "[]" && simbolo != "{}"
-            }
-        }
-    }
-
-    /** O primeiro símbolo nu, até espaço Unicode ou um dos fechamentos. */
-    private fun primeiroSimbolo(valor: String): String {
-        var indice = 0
-        while (indice < valor.length) {
-            val pontoDeCodigo = valor.codePointAt(indice)
-            val caractere = valor[indice]
-            if (EspacoUnicode.ehEspaco(pontoDeCodigo) ||
-                caractere == ',' || caractere == '}' || caractere == ']'
-            ) {
-                return valor.substring(0, indice)
-            }
-            indice += Character.charCount(pontoDeCodigo)
-        }
-        return valor
-    }
-
-    private fun citadoNaoVazio(resto: String, aspa: Char): Boolean {
-        var escapado = false
-        val valor = StringBuilder()
-        for (caractere in resto) {
-            when {
-                escapado -> {
-                    valor.append(caractere)
-                    escapado = false
-                }
-
-                caractere == '\\' -> escapado = true
-                caractere == aspa -> return !EspacoUnicode.soEspaco(valor.toString())
-                else -> valor.append(caractere)
-            }
-        }
-        return false
-    }
-
-    private fun delimitadoNaoVazio(resto: String, abre: Char, fecha: Char): Boolean {
-        var profundidade = 1
-        val corpo = StringBuilder()
-        var aspaAberta: Char? = null
-        var escapado = false
-        for (caractere in resto) {
-            val aspa = aspaAberta
-            if (aspa != null) {
-                corpo.append(caractere)
-                when {
-                    escapado -> escapado = false
-                    caractere == '\\' -> escapado = true
-                    caractere == aspa -> aspaAberta = null
-                }
+    private fun entradasDeLista(secao: String): List<String> {
+        val entradas = mutableListOf<String>()
+        var atual: MutableList<String>? = null
+        var indentacaoDeAbertura = 0
+        for (linha in secao.lines()) {
+            if (EspacoUnicode.soEspaco(linha)) {
+                atual?.add(linha)
                 continue
             }
-            when (caractere) {
-                '"', '\'' -> {
-                    aspaAberta = caractere
-                    corpo.append(caractere)
-                }
+            val indentacao = linha.length - EspacoUnicode.apararInicio(linha).length
+            val semIndentacao = EspacoUnicode.apararInicio(linha)
+            val abreItem = semIndentacao.startsWith("- ") || semIndentacao.startsWith("-\t")
+            val declaraBloco = EspacoUnicode.caixaBaixaAscii(linha).contains("block_id")
 
-                abre -> {
-                    profundidade++
-                    corpo.append(caractere)
-                }
+            val comecaEntrada = abreItem || (atual == null && declaraBloco)
+            val saiuDaEntrada = atual != null && !abreItem && indentacao < indentacaoDeAbertura
 
-                fecha -> {
-                    profundidade--
-                    if (profundidade == 0) return !EspacoUnicode.soEspaco(corpo.toString())
-                    corpo.append(caractere)
-                }
-
-                else -> corpo.append(caractere)
+            if (comecaEntrada || saiuDaEntrada) {
+                atual?.let { if (it.isNotEmpty()) entradas += it.joinToString("\n") }
+                atual = if (comecaEntrada) mutableListOf(linha) else null
+                indentacaoDeAbertura = indentacao
+                continue
             }
+            atual?.add(linha)
         }
-        return false
-    }
-
-    private fun declaraCrescimento(fragmento: String): Boolean {
-        val rebaixado = EspacoUnicode.caixaBaixaAscii(fragmento)
-        return rebaixado.contains("change_type") && (
-            rebaixado.contains("split") || rebaixado.contains("addition") ||
-                rebaixado.contains("added") || rebaixado.contains("new_block") ||
-                rebaixado.contains("new block")
-            )
-    }
-
-    private fun declaraReordenacao(fragmento: String): Boolean {
-        val rebaixado = EspacoUnicode.caixaBaixaAscii(fragmento)
-        return rebaixado.contains("change_type") && (
-            rebaixado.contains("reorder") || rebaixado.contains("reordered") ||
-                rebaixado.contains("move") || rebaixado.contains("moved")
-            )
+        atual?.let { if (it.isNotEmpty()) entradas += it.joinToString("\n") }
+        return entradas
     }
 }
