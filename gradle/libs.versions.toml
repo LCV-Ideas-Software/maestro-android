@@ -10,8 +10,17 @@
 agp = "9.4.1"
 kotlin = "2.4.20"
 junit = "6.1.3"
+jackson = "2.22.2"
 
 [libraries]
+# Leitura do `maestro_revision_report`. O relatório é JSON por contrato
+# (`editorial_prompts.rs:487`, "JSON-like audit data"), e relatório truncado já
+# é violação declarada (`:503`). A trava usa
+# `StreamReadFeature.STRICT_DUPLICATE_DETECTION`, que a FasterXML documenta como
+# desligada por padrão e que lança `JsonParseException` em campo duplicado —
+# é o que fecha, sem lógica própria, a ambiguidade de dois `protocol_basis` ou
+# dois `change_type` na mesma entrada.
+jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junit" }
 

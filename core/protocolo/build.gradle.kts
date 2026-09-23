@@ -12,6 +12,12 @@ kotlin {
 }
 
 dependencies {
+    // O relatório do agente é JSON por contrato. Ler JSON com varredura própria
+    // foi o defeito que custou quatro rodadas de revisão nesta entrega: um
+    // varredor escrito à mão discorda da especificação em algum lugar, sempre,
+    // e num portão de integridade cada discordância é uma autorização indevida.
+    implementation(libs.jackson.databind)
+
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter)
     // O Gradle não adiciona o launcher da JUnit Platform sozinho; sem ele os

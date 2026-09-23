@@ -13,6 +13,17 @@ import kotlin.test.fail
  * comportamento que o desktop exerce em produção, com valores conhecidos. Caso
  * inventado por mim provaria que o Kotlin faz o que eu achei que ele devia
  * fazer, e não o que o produto faz.
+ *
+ * Os 19 casos do canônico estão aqui. **Catorze estão como no canônico.**
+ * Cinco ganharam uma seção que o canônico não tem, `revised_block_origins`,
+ * porque este repositório passou a exigi-la quando o texto revisado tem bloco
+ * que não é cópia intacta de um recebido (Discussion #41): sem ela, os cinco
+ * seriam recusados. Os cinco são os de aprovação com edição ou acréscimo —
+ * `bloco alterado declarado com protocol_basis e aceito`, `acrescimo declarado
+ * nao faz os blocos seguintes parecerem alterados`, `o fim da secao casa com
+ * campo, nao com texto de valor`, `o fim da secao ignora aspas escapadas dentro
+ * do valor` e `bloco declarado pode ser dividido sem palavra extra de
+ * acrescimo`. Nenhum veredito de recusa do canônico mudou.
  */
 class TravaDeConteudoTest {
 
@@ -56,6 +67,11 @@ class TravaDeConteudoTest {
             {
               "changed_blocks": [
                 {"block_id": "B0003", "protocol_basis": "bibliographic integrity"}
+              ],
+              "revised_block_origins": [
+                {"prefix": "# Titulo", "origin": "B0001"},
+                {"prefix": "Paragrafo aprovado e denso.", "origin": "B0002"},
+                {"prefix": "Referencia removida.", "origin": "B0003"}
               ],
               "custody": "revised"
             }
@@ -174,6 +190,12 @@ class TravaDeConteudoTest {
             {
               "changed_blocks": [
                 {"block_id": "B0002", "change_type": "addition", "protocol_basis": "required context"}
+              ],
+              "revised_block_origins": [
+                {"prefix": "# Titulo", "origin": "B0001"},
+                {"prefix": "Novo contexto necessario.", "origin": "addition", "protocol_basis": "required context"},
+                {"prefix": "Paragrafo aprovado.", "origin": "B0002"},
+                {"prefix": "Conclusao aprovada.", "origin": "B0003"}
               ],
               "custody": "revised"
             }
@@ -298,6 +320,10 @@ class TravaDeConteudoTest {
                   "protocol_basis": "editorial precision"
                 }
               ],
+              "revised_block_origins": [
+                {"prefix": "# Titulo", "origin": "B0001"},
+                {"prefix": "Paragrafo corrigido.", "origin": "B0002"}
+              ],
               "custody": "revised"
             }
         """.trimIndent()
@@ -317,6 +343,10 @@ class TravaDeConteudoTest {
                   "reason": "clarifies \"custody\" transfer without changing scope",
                   "protocol_basis": "editorial precision with escaped \"custody\" text"
                 }
+              ],
+              "revised_block_origins": [
+                {"prefix": "# Titulo", "origin": "B0001"},
+                {"prefix": "Paragrafo corrigido.", "origin": "B0002"}
               ],
               "custody": "revised"
             }
@@ -371,6 +401,11 @@ class TravaDeConteudoTest {
             {
               "changed_blocks": [
                 {"block_id": "B0002", "change_type": "split", "protocol_basis": "bibliographic integrity"}
+              ],
+              "revised_block_origins": [
+                {"prefix": "# Titulo", "origin": "B0001"},
+                {"prefix": "Paragrafo longo sem a referencia pendente.", "origin": "B0002"},
+                {"prefix": "Nota editorial preservada.", "origin": "B0002", "protocol_basis": "bibliographic integrity"}
               ],
               "custody": "revised"
             }

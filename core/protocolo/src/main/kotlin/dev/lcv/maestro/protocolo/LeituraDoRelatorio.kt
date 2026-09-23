@@ -1,136 +1,359 @@
 package dev.lcv.maestro.protocolo
 
+import com.fasterxml.jackson.core.JacksonException
+import com.fasterxml.jackson.core.StreamReadFeature
+import com.fasterxml.jackson.databind.DeserializationFeature
+import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.json.JsonMapper
+
 /**
- * Leitura da seção `changed_blocks` do `maestro_revision_report`.
+ * Leitura do `maestro_revision_report`: a seção `changed_blocks` e o registro de
+ * procedência `revised_block_origins`.
  *
- * O relatório do agente não é JSON garantido: vem em formato solto, às vezes
- * com aspas, às vezes sem, às vezes em YAML aproximado, às vezes cercado por
- * prosa. Mesmo assim, **autorização nunca se decide por busca de substring**.
+ * ## Por que este arquivo foi reescrito uma segunda vez
  *
- * ## Por que este arquivo foi reescrito
+ * A versão anterior varria o relatório com um leitor escrito à mão — ciente de
+ * aspas, de escape, de colchete equilibrado, de item de lista YAML, de escalar
+ * de bloco, de comentário. Setecentas e setenta e seis linhas. Em quatro
+ * rodadas de revisão ela recebeu 9, 7, 5 e 6 achados, e os da última rodada
+ * reduziam-se todos a uma frase: **um varredor escrito à mão não é um parser**.
+ * Indentação de escalar de bloco, aspa simples no varredor externo, item de
+ * lista aninhado, `"\u0020"` chegando como o texto `u0020`, campos duplicados
+ * unidos em vez de recusados. Esse conjunto não é uma lista de buracos: é tudo
+ * o que JSON e YAML conseguem expressar, e enumerar isso à mão não converge.
  *
- * A primeira versão portava o canônico literalmente, e o canônico decide
- * autorização com `contains`. Medido em 22/09/2026, num portão cujo adversário
- * é um modelo de linguagem escrevendo prosa:
+ * ## O que o contrato realmente diz
  *
- * | Texto na justificativa         | Autorizava reordenar | Autorizava criar bloco |
- * | ------------------------------ | -------------------- | ---------------------- |
- * | `removed duplicate punctuation`| **sim** (`re-move-d`)| não                    |
- * | `I have not moved anything`    | **sim**              | não                    |
- * | `unmoved`                      | **sim**              | não                    |
- * | `no addition was made`         | não                  | **sim**                |
+ * Medido no canônico, não recordado:
  *
- * A palavra mais comum de um relatório editorial — "removed" — contém `move`,
- * e uma negação explícita contava como autorização. Buraco que só precisa de
- * prosa comum para disparar dispara no uso normal, não no uso hostil.
+ * - `editorial_prompts.rs:487` — o agente emite `<maestro_revision_report>`
+ *   com *"en_US **JSON-like** audit data"*.
+ * - `editorial_prompts.rs:503` — *"An incomplete tag, missing closing tag,
+ *   reproduced protocol text, or **truncated JSON/report is a contract
+ *   violation** and will not count as READY."*
+ * - `session_orchestration.rs:2546` — `extract_tagged_block` recorta a tag e
+ *   `require_balanced_tag` confere o balanceamento **antes** da trava rodar.
+ * - `session_orchestration.rs:2595` — a trava recebe o **conteúdo da tag**, já
+ *   isolado. Nunca prosa livre.
+ * - 19 de 19 fixtures de relatório da suíte canônica abrem com `{`. Nenhuma
+ *   linha de YAML em lugar nenhum.
  *
- * ## O que este arquivo faz em vez disso
+ * Ou seja: a varredura de prosa resolvia um problema que o contrato não tem, e
+ * o caminho YAML implementava um formato que o contrato nunca prometeu. As
+ * duas coisas eram superfície inventada, e era nelas que os achados moravam.
  *
- * Quebra cada entrada em pares **campo → valor**, com um varredor ciente de
- * aspas e de escape, e decide sobre o **valor**:
+ * ## O que este arquivo faz agora
  *
- * - `change_type` é comparado como **token inteiro** contra um conjunto
- *   fechado. `"edit"` não autoriza nada, mesmo que a palavra "addition"
- *   apareça na justificativa ao lado.
- * - `protocol_basis` só conta quando é **campo da entrada**, não quando as
- *   duas palavras aparecem dentro do valor de outro campo.
- * - Entrada com dois `block_id`, ou duas entradas para o mesmo bloco, é
- *   **recusada** em vez de ter as permissões somadas: registro ambíguo num
- *   portão de integridade resolve-se fechando, não unindo.
+ * O relatório é JSON e é lido com parser de verdade, com **detecção estrita de
+ * chave duplicada ligada** — `StreamReadFeature.STRICT_DUPLICATE_DETECTION`,
+ * que a FasterXML documenta como desligada por padrão e que lança
+ * `JsonParseException` quando um objeto repete um nome de campo. Isso fecha,
+ * sem uma linha de lógica minha, a entrada com dois `block_id`, dois
+ * `protocol_basis` ou dois `change_type`.
  *
- * Porte de `maestro-app/src-tauri/src/editorial_content_lock.rs`, com os
- * afastamentos acima declarados. O canônico tem os mesmos buracos e está
- * registrado no rastreador dele.
+ * Relatório que não parseia é **violação de contrato**, não motivo para cair
+ * num caminho tolerante — o caminho tolerante é onde a insegurança morava, e o
+ * próprio prompt canônico já declara essa violação.
+ *
+ * A seção é lida do **nível de topo** do documento. Uma ocorrência aninhada de
+ * `changed_blocks` dentro de `metadata` deixa de ser alcançável por
+ * construção, em vez de ser recusada por uma conferência extra.
+ *
+ * Porte de `maestro-app/src-tauri/src/editorial_content_lock.rs`, com dois
+ * afastamentos declarados. O canônico varre o relatório à mão e tem os mesmos
+ * buracos, registrados no rastreador dele (MAESTRO-30). E o registro de
+ * procedência é exigência deste repositório, não do canônico — ver
+ * [TravaDeConteudo] e a Discussion #41.
  */
 internal object LeituraDoRelatorio {
+
+    /**
+     * Leitor único e imutável. `ObjectMapper` é documentado como seguro para
+     * uso concorrente depois de configurado, e reconfigurá-lo por chamada é o
+     * que a FasterXML desaconselha.
+     */
+    private val LEITOR: JsonMapper = JsonMapper.builder()
+        .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+        // Sem isto, o leitor casa o primeiro valor e **ignora o que vier
+        // depois**: `{"changed_blocks":[...]} {"changed_blocks":[]}` passaria
+        // pela primeira ocorrência e a segunda sumiria sem aviso. A FasterXML
+        // documenta a opção como desligada por retrocompatibilidade.
+        .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+        .build()
 
     /** Valores de `change_type` que autorizam crescer o número de blocos. */
     private val VALORES_DE_CRESCIMENTO =
         setOf("split", "addition", "added", "new_block", "new block", "insert", "inserted")
 
+    /**
+     * Valor de `change_type` que autoriza um recebido a continuar em mais de um
+     * bloco revisado. Só `split`: `addition` também autoriza crescer, mas
+     * declara bloco novo, e não a continuação de um recebido.
+     */
+    private val VALORES_DE_DIVISAO = setOf("split")
+
+    /** Valores de `change_type` que declaram bloco novo: os de crescimento, menos `split`. */
+    private val VALORES_DE_ACRESCIMO = VALORES_DE_CRESCIMENTO - VALORES_DE_DIVISAO
+
     /** Valores de `change_type` que autorizam reordenar. */
     private val VALORES_DE_REORDENACAO =
         setOf("reorder", "reordered", "move", "moved", "reposition", "repositioned")
 
-    private val CHAVES_DE_INICIO = listOf("changed_blocks", "changes")
+    /**
+     * Nomes aceitos para a seção, na ordem de preferência do canônico
+     * (`find_first_report_field_key(&lower, &["changed_blocks", "changes"])`).
+     */
+    private val NOMES_DA_SECAO = listOf("changed_blocks", "changes")
 
-    private val CHAVES_DE_FIM = listOf(
-        "operator_evidence_required",
-        "out_of_scope",
-        "quality_preservation",
-        "unchanged_approved_blocks",
-        "custody",
-    )
+    /** Nome da seção que declara a procedência dos blocos revisados. */
+    internal const val NOME_DO_REGISTRO = "revised_block_origins"
+
+    /** Valor de `origin` que marca bloco novo. */
+    private const val ORIGEM_ACRESCIMO = "addition"
 
     /** O que uma entrada de `changed_blocks` declara, depois de lida. */
     internal data class Entrada(
         val id: String,
         val temBaseDeProtocolo: Boolean,
         val permiteCrescimento: Boolean,
+        val permiteDivisao: Boolean,
+        val permiteAcrescimo: Boolean,
         val permiteReordenacao: Boolean,
+    )
+
+    /**
+     * Uma entrada do registro de procedência: **um bloco do texto revisado**,
+     * na mesma ordem do texto.
+     *
+     * [prefixo] é o começo do bloco, copiado — conferência do bloco daquela
+     * ordem, não localizador. [origem] é o `block_id` recebido de onde o bloco
+     * vem, ou `null` quando ele é novo. [temBaseDeProtocolo] vale para a
+     * justificativa escrita **na própria entrada**, que todo bloco extra tem
+     * de trazer: acréscimo, e todo pedaço de divisão depois do primeiro.
+     */
+    internal data class Procedencia(
+        val prefixo: String,
+        val origem: String?,
+        val temBaseDeProtocolo: Boolean,
     )
 
     /** Resultado da leitura da seção. */
     internal sealed interface Leitura {
-        /** Não há seção de blocos alterados no relatório. */
+        /** O relatório não traz nem `changed_blocks` nem registro de procedência. */
         data object SemSecao : Leitura
 
-        /** A seção foi lida e produziu estas entradas, uma por bloco. */
-        data class Entradas(val porBloco: Map<String, Entrada>) : Leitura
+        /**
+         * As declarações lidas: [porBloco], de `changed_blocks`, e
+         * [procedencias], o registro. [procedencias] é `null` quando o registro
+         * **não veio** — distinto de vir vazio, porque ausência e conteúdo
+         * errado pedem correções diferentes ao agente.
+         */
+        data class Entradas(
+            val porBloco: Map<String, Entrada>,
+            val procedencias: List<Procedencia>?,
+        ) : Leitura
 
         /**
-         * A seção existe mas é ambígua — dois `block_id` na mesma entrada, ou
-         * duas entradas para o mesmo bloco. Num portão de integridade isso
-         * **não** se resolve escolhendo uma nem somando as duas.
+         * A seção existe mas é ambígua — duas entradas para o mesmo bloco, ou
+         * dois nomes de topo que valem pela mesma seção. Num portão de
+         * integridade isso **não** se resolve escolhendo uma nem somando as
+         * duas.
          */
         data class Ambigua(val motivo: String) : Leitura
+
+        /**
+         * O relatório não é JSON válido. Distinto de [Ambigua] porque a
+         * correção que o agente precisa fazer é outra: reemitir o relatório,
+         * não desfazer uma declaração conflitante.
+         */
+        data class Invalida(val motivo: String) : Leitura
     }
 
     fun ler(relatorio: String): Leitura {
-        // Duas seções candidatas é ambiguidade, não uma escolha de ordem. Sem
-        // isto, `{"metadata":{"changed_blocks":[...]},"changed_blocks":[]}`
-        // autorizava pela ocorrência aninhada e ignorava a seção real, vazia —
-        // e quem decide passaria a ser a posição no texto.
-        if (contarSecoesCandidatas(relatorio) > 1) {
-            return Leitura.Ambigua(
-                "maestro_revision_report declares more than one changed_blocks section",
+        val raiz = try {
+            LEITOR.readTree(relatorio)
+        } catch (erro: JacksonException) {
+            return Leitura.Invalida(
+                "maestro_revision_report is not valid JSON: ${primeiraLinha(erro)}",
             )
         }
-        val secao = extrairSecaoChangedBlocks(relatorio) ?: return Leitura.SemSecao
-        val porBloco = linkedMapOf<String, Entrada>()
-        for (fragmento in fragmentosDeEntrada(secao)) {
-            val campos = CamposDaEntrada.ler(fragmento)
-            // Contar os campos CRUS antes de validar. Mapear inválido para nulo
-            // e aplicar `distinct()` aceitava uma entrada com dois `block_id`
-            // sempre que só um sobrasse válido — e um leitor de JSON comum
-            // escolheria o último, que era o inválido. Dois campos iguais
-            // também sumiam no `distinct()`. Num portão de integridade, entrada
-            // com mais de um `block_id` é ambígua, qualquer que seja o valor.
-            val brutos = campos.valoresDe("block_id")
-            if (brutos.isEmpty()) continue
-            if (brutos.size > 1) {
-                return Leitura.Ambigua(
-                    "changed_blocks entry declares more than one block_id " +
-                        "(${brutos.joinToString(", ") { EspacoUnicode.aparar(it) }})",
-                )
+        // Relatório vazio não é relatório inválido: é relatório sem seção, e o
+        // portão já fecha sozinho quando houver mudança sem declaração.
+        if (raiz == null || raiz.isMissingNode || raiz.isNull) return Leitura.SemSecao
+        if (!raiz.isObject) {
+            return Leitura.Invalida(
+                "maestro_revision_report must be a JSON object at the top level",
+            )
+        }
+
+        val procedencias = when (val lido = lerRegistro(raiz)) {
+            is Registro.Falha -> return lido.leitura
+            is Registro.Lido -> lido.itens
+        }
+
+        // Sem `changed_blocks` mas com registro: lê-se como seção vazia, e a
+        // trava decide. Toda mudança que exige declaração — edição,
+        // reordenação, bloco a mais — continua exigindo a entrada em
+        // `changed_blocks`, como o prompt canônico manda.
+        val secao = acharSecao(raiz)
+            ?: return if (procedencias == null) {
+                Leitura.SemSecao
+            } else {
+                Leitura.Entradas(emptyMap(), procedencias)
             }
-            val id = idDeBloco(brutos.single()) ?: continue
+        if (secao is Achado.Conflito) return Leitura.Ambigua(secao.motivo)
+        val entradas = (secao as Achado.Secao).valor
+
+        // A seção precisa ser a lista que o contrato descreve. Objeto ou
+        // escalar no lugar dela é relatório malformado, e adivinhar o que o
+        // agente quis dizer é a doença que esta reescrita cura.
+        if (!entradas.isArray) {
+            return Leitura.Invalida(
+                "maestro_revision_report ${secao.nome} must be a JSON array of declarations",
+            )
+        }
+
+        val porBloco = linkedMapOf<String, Entrada>()
+        for (entrada in entradas) {
+            // Item que não é objeto não declara nada. Não é erro do agente
+            // declarar `[]`, e a trava já recusa mudança não declarada.
+            if (!entrada.isObject) continue
+            val id = idDeBloco(entrada.get("block_id")) ?: continue
             if (porBloco.containsKey(id)) {
-                return Leitura.Ambigua(
-                    "changed_blocks declares $id more than once",
-                )
+                return Leitura.Ambigua("changed_blocks declares $id more than once")
             }
             porBloco[id] = Entrada(
                 id = id,
-                temBaseDeProtocolo = campos.valoresDe("protocol_basis").any { temConteudo(it) },
-                permiteCrescimento = campos.valoresDe("change_type")
-                    .any { autoriza(it, VALORES_DE_CRESCIMENTO) },
-                permiteReordenacao = campos.valoresDe("change_type")
-                    .any { autoriza(it, VALORES_DE_REORDENACAO) },
+                temBaseDeProtocolo = temConteudo(entrada.get("protocol_basis")),
+                permiteCrescimento = autoriza(entrada.get("change_type"), VALORES_DE_CRESCIMENTO),
+                permiteDivisao = autoriza(entrada.get("change_type"), VALORES_DE_DIVISAO),
+                permiteAcrescimo = autoriza(entrada.get("change_type"), VALORES_DE_ACRESCIMO),
+                permiteReordenacao = autoriza(entrada.get("change_type"), VALORES_DE_REORDENACAO),
             )
         }
-        return Leitura.Entradas(porBloco)
+        return Leitura.Entradas(porBloco, procedencias)
     }
+
+    // -- Registro de procedência -------------------------------------------
+
+    private sealed interface Registro {
+        /** [itens] é `null` quando o registro não veio. */
+        data class Lido(val itens: List<Procedencia>?) : Registro
+        data class Falha(val leitura: Leitura) : Registro
+    }
+
+    /**
+     * Lê `revised_block_origins`, **só a forma**. Se o registro cobre o texto
+     * revisado e se confere com ele, quem decide é a trava — este objeto não
+     * conhece os blocos.
+     *
+     * ```json
+     * "revised_block_origins": [
+     *   {"prefix": "The committee met on Tuesday", "origin": "B0001"},
+     *   {"prefix": "However, the vote was", "origin": "addition",
+     *    "protocol_basis": "..."}
+     * ]
+     * ```
+     */
+    private fun lerRegistro(raiz: JsonNode): Registro {
+        val nomes = raiz.properties().asSequence().map { it.key }
+            .filter { EspacoUnicode.caixaBaixaAscii(it) == NOME_DO_REGISTRO }
+            .toList()
+        if (nomes.isEmpty()) return Registro.Lido(null)
+        if (nomes.size > 1) {
+            return Registro.Falha(
+                Leitura.Ambigua(
+                    "maestro_revision_report declares more than one $NOME_DO_REGISTRO " +
+                        "section (${nomes.joinToString(", ")})",
+                ),
+            )
+        }
+        val lista = raiz.get(nomes.single())
+        if (!lista.isArray) {
+            return Registro.Falha(
+                Leitura.Invalida("maestro_revision_report $NOME_DO_REGISTRO must be a JSON array"),
+            )
+        }
+        val itens = mutableListOf<Procedencia>()
+        for ((indice, item) in lista.withIndex()) {
+            val numero = indice + 1
+            if (!item.isObject) {
+                return Registro.Falha(
+                    Leitura.Invalida("$NOME_DO_REGISTRO entry $numero must be a JSON object"),
+                )
+            }
+            val prefixo = item.get("prefix")
+            if (prefixo == null || !prefixo.isTextual || EspacoUnicode.soEspaco(prefixo.textValue())) {
+                return Registro.Falha(
+                    Leitura.Invalida(
+                        "$NOME_DO_REGISTRO entry $numero must declare prefix as the opening " +
+                            "text of revised block $numero",
+                    ),
+                )
+            }
+            val origem = item.get("origin")
+            if (origem == null || !origem.isTextual) {
+                return Registro.Falha(
+                    Leitura.Invalida(
+                        "$NOME_DO_REGISTRO entry $numero must declare origin as a received " +
+                            "block ID or \"$ORIGEM_ACRESCIMO\"",
+                    ),
+                )
+            }
+            val textoDaOrigem = EspacoUnicode.aparar(origem.textValue())
+            val id = if (EspacoUnicode.caixaBaixaAscii(textoDaOrigem) == ORIGEM_ACRESCIMO) {
+                null
+            } else {
+                idDeBlocoDeTexto(textoDaOrigem) ?: return Registro.Falha(
+                    Leitura.Invalida(
+                        "$NOME_DO_REGISTRO entry $numero declares origin \"$textoDaOrigem\", " +
+                            "which is neither a block ID nor \"$ORIGEM_ACRESCIMO\"",
+                    ),
+                )
+            }
+            itens += Procedencia(
+                prefixo = prefixo.textValue(),
+                origem = id,
+                temBaseDeProtocolo = temConteudo(item.get("protocol_basis")),
+            )
+        }
+        return Registro.Lido(itens)
+    }
+
+    // -- Seção -------------------------------------------------------------
+
+    private sealed interface Achado {
+        data class Secao(val nome: String, val valor: JsonNode) : Achado
+        data class Conflito(val motivo: String) : Achado
+    }
+
+    /**
+     * A seção, procurada **só no nível de topo**.
+     *
+     * A comparação de nome ignora caixa porque o canônico rebaixa o relatório
+     * inteiro antes de procurar a chave. Dois campos de topo que rebaixam para
+     * o mesmo nome — `changed_blocks` e `Changed_Blocks` — não são chave
+     * duplicada para o JSON, então o parser não os barra: quem decide passaria
+     * a ser a ordem no documento, e isso fecha aqui.
+     */
+    private fun acharSecao(raiz: JsonNode): Achado? {
+        for (nome in NOMES_DA_SECAO) {
+            val iguais = raiz.properties().asSequence().map { it.key }
+                .filter { EspacoUnicode.caixaBaixaAscii(it) == nome }
+                .toList()
+            when (iguais.size) {
+                0 -> continue
+                1 -> return Achado.Secao(nome, raiz.get(iguais.single()))
+                else -> return Achado.Conflito(
+                    "maestro_revision_report declares more than one $nome section " +
+                        "(${iguais.joinToString(", ")})",
+                )
+            }
+        }
+        return null
+    }
+
+    // -- Campos ------------------------------------------------------------
 
     /**
      * Identificador de bloco, com **quatro ou mais** dígitos: o segmentador
@@ -139,345 +362,66 @@ internal object LeituraDoRelatorio {
      */
     private val ID_DE_BLOCO = Regex("""^B(\d{4,})$""")
 
-    private fun idDeBloco(valor: String): String? {
-        val limpo = EspacoUnicode.aparar(valor)
-        val caixaAlta = limpo.uppercase()
+    private fun idDeBloco(no: JsonNode?): String? {
+        if (no == null || !no.isTextual) return null
+        return idDeBlocoDeTexto(no.textValue())
+    }
+
+    private fun idDeBlocoDeTexto(valor: String): String? {
+        val caixaAlta = EspacoUnicode.aparar(valor).uppercase()
         return if (ID_DE_BLOCO.matches(caixaAlta)) caixaAlta else null
     }
 
     /**
      * Um `change_type` autoriza quando **o valor inteiro** é um dos termos, ou
-     * quando o valor é uma lista cujos itens são termos. Nunca quando o termo
-     * aparece como pedaço de outra palavra.
+     * quando é uma lista cujos itens são termos. Nunca quando o termo aparece
+     * como pedaço de outra palavra: `removed` contém `move`, e era a palavra
+     * mais comum de um relatório editorial.
+     *
+     * A divisão por `,;|/` existe porque o canônico aceita `"edit, reorder"`
+     * num campo só, e recusar isso barraria declaração correta.
      */
-    private fun autoriza(valor: String, termos: Set<String>): Boolean =
-        valor.split(',', ';', '|', '/')
-            .map { EspacoUnicode.caixaBaixaAscii(semAspas(EspacoUnicode.aparar(it))) }
+    private fun autoriza(no: JsonNode?, termos: Set<String>): Boolean {
+        if (no == null) return false
+        if (no.isArray) return no.any { autoriza(it, termos) }
+        if (!no.isTextual) return false
+        return no.textValue().split(',', ';', '|', '/')
+            .map { EspacoUnicode.caixaBaixaAscii(EspacoUnicode.aparar(it)) }
             .any { it in termos }
-
-    /**
-     * Tira as aspas de um item de lista.
-     *
-     * `"change_type": ["addition"]` é JSON perfeitamente normal, e o leitor
-     * devolve o interior do colchete com as aspas dos itens ainda lá. Comparar
-     * `"addition"` — com aspas — contra o conjunto fechado dava falso, e uma
-     * adição corretamente declarada era **recusada**. Portão que barra trabalho
-     * bom é desligado pelo usuário.
-     */
-    private fun semAspas(valor: String): String {
-        if (valor.length < 2) return valor
-        val primeiro = valor.first()
-        if ((primeiro == '"' || primeiro == '\'') && valor.last() == primeiro) {
-            return EspacoUnicode.aparar(valor.substring(1, valor.length - 1))
-        }
-        return valor
     }
 
     /**
-     * Um valor conta como preenchido quando tem conteúdo de verdade. `null`,
-     * `[]`, `{}`, `none`, `n/a` e `-` são declaração vazia com aparência de
-     * declaração, e é exatamente o que a trava existe para recusar.
+     * Um valor conta como preenchido quando tem conteúdo de verdade.
+     *
+     * `null`, `[]`, `{}`, `""`, `none`, `n/a` e `-` são declaração vazia com
+     * aparência de declaração, e é exatamente o que a trava existe para
+     * recusar. O canônico tem caso dedicado para `[]` e `{}`.
+     *
+     * Escape já vem resolvido pelo parser: `"\u0020"` chega como um espaço e
+     * cai no vazio, em vez de chegar como o texto `u0020` e contar como base
+     * preenchida.
      */
-    private fun temConteudo(valor: String): Boolean {
-        val limpo = EspacoUnicode.aparar(valor)
+    private fun temConteudo(no: JsonNode?): Boolean {
+        if (no == null || no.isNull || no.isMissingNode) return false
+        if (no.isContainerNode) return no.any { temConteudo(it) }
+        if (!no.isTextual) return true
+        val limpo = EspacoUnicode.aparar(no.textValue())
         if (limpo.isEmpty()) return false
-        val rebaixado = EspacoUnicode.caixaBaixaAscii(limpo)
-        return rebaixado !in setOf("null", "none", "n/a", "na", "-", "[]", "{}", "\"\"", "''")
+        return EspacoUnicode.caixaBaixaAscii(limpo) !in MARCADORES_VAZIOS
     }
 
-    /** Quantas chaves de seção o relatório declara, em posição de campo. */
-    private fun contarSecoesCandidatas(relatorio: String): Int {
-        val rebaixado = EspacoUnicode.caixaBaixaAscii(relatorio)
-        var quantas = 0
-        var de = 0
-        while (true) {
-            val achada = acharChave(rebaixado, CHAVES_DE_INICIO, de) ?: return quantas
-            quantas++
-            if (quantas > 1) return quantas
-            de = fimDaChave(rebaixado, achada, CHAVES_DE_INICIO)
-        }
-    }
+    private val MARCADORES_VAZIOS = setOf("null", "none", "n/a", "na", "-")
 
     /**
-     * A seção é o **valor** do campo `changed_blocks`, delimitado por estrutura.
-     *
-     * O texto rebaixado só troca A–Z, então as posições achadas nele valem no
-     * texto original.
-     *
-     * A versão anterior ia da chave até o próximo terminador de uma **lista
-     * fechada** de campos conhecidos. Um campo que o agente inventasse não
-     * estava na lista, então a seção o engolia e a trava lia declaração de
-     * dentro dele:
-     *
-     * ```json
-     * {"changed_blocks": [], "notes": {"block_id": "B0001", "protocol_basis": "x"}}
-     * ```
-     *
-     * `changed_blocks` está vazio, mas o `notes` entrava na seção e autorizava
-     * uma mudança que ninguém declarou. Lista fechada de terminadores é a mesma
-     * doença da decisão por substring: depende de enumerar o que o modelo pode
-     * escrever, e ele sempre escreve mais.
-     *
-     * Agora o valor é lido pela própria estrutura — `[...]` ou `{...}`
-     * equilibrado, ciente de aspas —, e só se cai na lista de terminadores
-     * quando o valor não abre delimitador nenhum (relatório em YAML solto).
+     * A primeira linha da mensagem do parser. A mensagem inteira traz local e
+     * trecho do documento, e ela volta ao agente dentro da violação — o
+     * relatório pode conter o texto em custódia, que não deve vazar para o
+     * histórico de erro.
      */
-    internal fun extrairSecaoChangedBlocks(relatorio: String): String? {
-        val rebaixado = EspacoUnicode.caixaBaixaAscii(relatorio)
-        val inicio = acharChave(rebaixado, CHAVES_DE_INICIO, 0) ?: return null
-        // Retomar DEPOIS da chave inteira, e não em inicio+1, que cairia dentro
-        // dela: o varredor trataria a aspa de fechamento da chave como aspa de
-        // abertura e perderia a estrutura seguinte.
-        val depoisDaChave = fimDaChave(rebaixado, inicio, CHAVES_DE_INICIO)
-        val depoisDoSeparador = pularSeparador(rebaixado, depoisDaChave)
-
-        delimitadorDoValor(rebaixado, depoisDoSeparador)?.let { fim ->
-            return relatorio.substring(depoisDoSeparador, fim)
-        }
-
-        // Valor sem delimitador: vale a lista de terminadores conhecidos, que é
-        // o melhor que se consegue num YAML solto — e por isso a leitura de
-        // entradas exige `block_id` em posição de campo para contar qualquer
-        // coisa.
-        val fim = acharChave(rebaixado, CHAVES_DE_FIM, depoisDoSeparador) ?: relatorio.length
-        return relatorio.substring(inicio, fim)
-    }
-
-    private fun pularSeparador(palheiro: String, de: Int): Int {
-        var indice = de
-        while (indice < palheiro.length && EspacoUnicode.ehEspacoAscii(palheiro[indice])) indice++
-        if (indice < palheiro.length && (palheiro[indice] == ':' || palheiro[indice] == '=')) {
-            indice++
-        }
-        while (indice < palheiro.length && EspacoUnicode.ehEspacoAscii(palheiro[indice])) indice++
-        return indice
-    }
-
-    /** O fim do valor delimitado que começa em [de], ou nulo se não houver. */
-    private fun delimitadorDoValor(palheiro: String, de: Int): Int? {
-        val abre = palheiro.getOrNull(de) ?: return null
-        val fecha = when (abre) {
-            '[' -> ']'
-            '{' -> '}'
-            else -> return null
-        }
-        var profundidade = 0
-        var aspaAberta: Char? = null
-        var escapado = false
-        var indice = de
-        while (indice < palheiro.length) {
-            val caractere = palheiro[indice]
-            val aspa = aspaAberta
-            if (aspa != null) {
-                when {
-                    escapado -> escapado = false
-                    caractere == '\\' -> escapado = true
-                    caractere == aspa -> aspaAberta = null
-                }
-                indice++
-                continue
-            }
-            when (caractere) {
-                '"' -> aspaAberta = caractere
-                abre -> profundidade++
-                fecha -> {
-                    profundidade--
-                    if (profundidade == 0) return indice + 1
-                }
-            }
-            indice++
-        }
-        return null
-    }
-
-    /** A posição logo após a chave que começa em [inicio], com aspas se houver. */
-    private fun fimDaChave(palheiro: String, inicio: Int, chaves: List<String>): Int {
-        val primeiro = palheiro.getOrNull(inicio)
-        if (primeiro == '"' || primeiro == '\'') {
-            val fechamento = palheiro.indexOf(primeiro, inicio + 1)
-            if (fechamento >= 0) return fechamento + 1
-        }
-        val chave = chaves.firstOrNull { palheiro.startsWith(it, inicio) }
-        return inicio + (chave?.length ?: 1)
-    }
-
-    /**
-     * Procura a primeira ocorrência de uma das chaves em posição de campo, a
-     * partir de [de]. O que estiver dentro de aspas é pulado, para que um valor
-     * citando o nome de um campo não passe por campo.
-     */
-    private fun acharChave(palheiro: String, chaves: List<String>, de: Int): Int? {
-        var indice = de
-        var aspaAberta: Char? = null
-        var escapado = false
-        while (indice < palheiro.length) {
-            val caractere = palheiro[indice]
-            val aspa = aspaAberta
-            if (aspa != null) {
-                when {
-                    escapado -> escapado = false
-                    caractere == '\\' -> escapado = true
-                    caractere == aspa -> aspaAberta = null
-                }
-                indice++
-                continue
-            }
-            if (caractere == '"' || caractere == '\'') {
-                val fechamento = palheiro.indexOf(caractere, indice + 1)
-                if (fechamento >= 0) {
-                    val candidato = palheiro.substring(indice + 1, fechamento)
-                    if (candidato in chaves &&
-                        emPosicaoDeCampo(palheiro, indice) &&
-                        atribuicaoDepois(palheiro, fechamento + 1)
-                    ) {
-                        return indice
-                    }
-                }
-                // Só a aspa dupla passa a valer como abertura de string. O
-                // apóstrofo é pontuação comum em prosa — "Here's the report:" —
-                // e tratá-lo como abertura engolia o resto do relatório como
-                // conteúdo de string: a seção sumia e a trava recusava trabalho
-                // legítimo. A chave citada com apóstrofo continua reconhecida
-                // acima; o que muda é ele não mexer mais no estado do varredor.
-                if (caractere == '"') aspaAberta = caractere
-                indice++
-                continue
-            }
-            if (emPosicaoDeCampo(palheiro, indice)) {
-                for (chave in chaves) {
-                    if (palheiro.startsWith(chave, indice) &&
-                        atribuicaoDepois(palheiro, indice + chave.length)
-                    ) {
-                        return indice
-                    }
-                }
-            }
-            indice++
-        }
-        return null
-    }
-
-    /**
-     * Uma chave está em posição de campo quando vem no começo do texto, no
-     * **começo de uma linha**, ou depois de `{`, `[` ou `,`.
-     *
-     * O começo de linha entra por medição: um relatório que abre com uma frase
-     * — `As mudanças desta rodada:` e só então `changed_blocks:` — tinha a
-     * seção inteira ignorada pela versão anterior, porque o último caractere
-     * não branco antes da chave era o `:` da frase. A trava passava a agir como
-     * se não houvesse declaração nenhuma, e recusava trabalho legítimo. Portão
-     * que barra trabalho bom é desligado pelo usuário, que é como um portão
-     * morre de verdade.
-     */
-    private fun emPosicaoDeCampo(palheiro: String, indice: Int): Boolean {
-        if (indice == 0) return true
-        var anterior = indice - 1
-        while (anterior >= 0) {
-            val caractere = palheiro[anterior]
-            if (caractere == '\n' || caractere == '\r') return true
-            if (!EspacoUnicode.ehEspacoAscii(caractere)) {
-                return caractere == '{' || caractere == '[' || caractere == ',' ||
-                    caractere == '-' // item de lista em YAML
-            }
-            anterior--
-        }
-        return true
-    }
-
-    private fun atribuicaoDepois(palheiro: String, indice: Int): Boolean {
-        for (posterior in indice until palheiro.length) {
-            val caractere = palheiro[posterior]
-            if (EspacoUnicode.ehEspacoAscii(caractere)) continue
-            return caractere == ':' || caractere == '='
-        }
-        return false
-    }
-
-    /**
-     * As entradas da seção. Primeiro os objetos `{...}` equilibrados, com a
-     * contagem de profundidade **ciente de aspas** — sem isso, uma chave solta
-     * dentro de uma justificativa parte a entrada no meio e o `protocol_basis`
-     * que vem depois é perdido.
-     *
-     * Quando não há objeto nenhum — relatório em lista YAML —, agrupa as linhas
-     * por entrada em vez de guardar só as que contêm `block_id`: num YAML
-     * normal, `block_id` e `protocol_basis` estão em linhas irmãs, e filtrar
-     * linha a linha jogava fora justamente a justificativa.
-     */
-    private fun fragmentosDeEntrada(secao: String): List<String> {
-        val objetos = objetosEquilibrados(secao)
-        if (objetos.isNotEmpty()) return objetos
-        return entradasDeLista(secao)
-    }
-
-    private fun objetosEquilibrados(secao: String): List<String> {
-        val fragmentos = mutableListOf<String>()
-        var profundidade = 0
-        var inicio = -1
-        var aspaAberta: Char? = null
-        var escapado = false
-        for (indice in secao.indices) {
-            val caractere = secao[indice]
-            val aspa = aspaAberta
-            if (aspa != null) {
-                when {
-                    escapado -> escapado = false
-                    caractere == '\\' -> escapado = true
-                    caractere == aspa -> aspaAberta = null
-                }
-                continue
-            }
-            when (caractere) {
-                '"', '\'' -> aspaAberta = caractere
-
-                '{' -> {
-                    if (profundidade == 0) inicio = indice
-                    profundidade++
-                }
-
-                '}' -> if (profundidade > 0) {
-                    profundidade--
-                    if (profundidade == 0 && inicio >= 0) {
-                        fragmentos += secao.substring(inicio, indice + 1)
-                        inicio = -1
-                    }
-                }
-            }
-        }
-        return fragmentos
-    }
-
-    /**
-     * Agrupa as linhas da seção em entradas. Uma entrada começa numa linha de
-     * item — `- ` — ou numa linha que declara `block_id`, e segue até a próxima
-     * linha de item ou até uma linha menos indentada que a de abertura.
-     */
-    private fun entradasDeLista(secao: String): List<String> {
-        val entradas = mutableListOf<String>()
-        var atual: MutableList<String>? = null
-        var indentacaoDeAbertura = 0
-        for (linha in secao.lines()) {
-            if (EspacoUnicode.soEspaco(linha)) {
-                atual?.add(linha)
-                continue
-            }
-            val indentacao = linha.length - EspacoUnicode.apararInicio(linha).length
-            val semIndentacao = EspacoUnicode.apararInicio(linha)
-            val abreItem = semIndentacao.startsWith("- ") || semIndentacao.startsWith("-\t")
-            val declaraBloco = EspacoUnicode.caixaBaixaAscii(linha).contains("block_id")
-
-            val comecaEntrada = abreItem || (atual == null && declaraBloco)
-            val saiuDaEntrada = atual != null && !abreItem && indentacao < indentacaoDeAbertura
-
-            if (comecaEntrada || saiuDaEntrada) {
-                atual?.let { if (it.isNotEmpty()) entradas += it.joinToString("\n") }
-                atual = if (comecaEntrada) mutableListOf(linha) else null
-                indentacaoDeAbertura = indentacao
-                continue
-            }
-            atual?.add(linha)
-        }
-        atual?.let { if (it.isNotEmpty()) entradas += it.joinToString("\n") }
-        return entradas
+    private fun primeiraLinha(erro: JacksonException): String {
+        val mensagem = erro.originalMessage ?: return "malformed JSON"
+        val corte = mensagem.indexOf('\n')
+        val linha = if (corte < 0) mensagem else mensagem.substring(0, corte)
+        return EspacoUnicode.aparar(linha).ifEmpty { "malformed JSON" }
     }
 }

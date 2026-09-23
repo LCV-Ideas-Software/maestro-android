@@ -26,9 +26,10 @@ All material changes to Maestro Android are recorded here.
   keying block equality by normalized text rather than SHA-256. Porting the
   TypeScript would have meant porting a port, inheriting that deviation and
   inventing from scratch a test suite that already exists. The operator decided
-  on 21/09/2026 to port from the canonical Rust; its 352 lines of tests come
-  along as the module's suite, and the specification's claim that every unit
-  comes from the web is corrected where it does not hold.
+  on 21/09/2026 to port from the canonical Rust; its 19 tests come along as the
+  module's suite — 14 as they are, 5 extended with the provenance section
+  described below — and the specification's claim that every unit comes from
+  the web is corrected where it does not hold.
 
   One trap justified the whole exercise, and it would have failed silently.
   There are **three** different definitions of whitespace in play, measured on
@@ -44,11 +45,119 @@ All material changes to Maestro Android are recorded here.
   `Char.isWhitespace()`, `String.trim()`, `String.isBlank()` and regex `\s`; six
   tests fail if anyone swaps it back, which was proven by swapping it back.
 
-  The same class of trap appears twice more and is handled: block character
+  The same class of trap appears once more and is handled: block character
   counts use code points rather than UTF-16 units, because the count is shown to
-  the agents in the manifest; and every regex carries the `U` flag, without which
-  Java's `\s` is ASCII-only and `\d` misses Unicode digits, where the Rust regex
-  crate has both.
+  the agents in the manifest.
+
+- Read the agent's revision report with a real JSON parser, and delete the
+  hand-written scanner that read it before. This is the repository's first
+  production-runtime dependency: `com.fasterxml.jackson.core:jackson-databind`
+  2.22.2, recorded in `THIRDPARTY.md` with its two transitives, the two MIT
+  components `jackson-core` bundles inside itself, and their measured size.
+
+  The scanner it replaces was 776 lines across two files, and it took 9, 7, 5
+  and 6 findings in four consecutive review rounds. The last round's findings
+  all reduced to one sentence: a hand-written scanner is not a parser. YAML
+  block-scalar indentation, a single quote in the outer scanner, a nested list
+  item, `"\u0020"` arriving as the literal text `u0020`, duplicate
+  authorization fields unioned instead of refused. That set is not a list of
+  holes; it is everything JSON and YAML can express, and enumerating it by hand
+  does not converge.
+
+  Two pieces of that surface were invented rather than required. The canonical
+  orchestrator cuts the `<maestro_revision_report>` tag and checks its balance
+  before the lock runs, so the lock receives isolated content and never free-form
+  prose — the prose scanning solved a problem the contract does not have. And
+  the canonical prompt asks for "JSON-like audit data", with 19 of 19 fixtures in
+  its test suite opening with `{` and no YAML anywhere — the YAML path
+  implemented a format nothing ever promised. Both are gone.
+
+  A report that does not parse is now a contract violation, which is what the
+  canonical prompt already declares it to be, rather than a reason to fall back
+  to the tolerant path where the danger lived. `StreamReadFeature.STRICT_DUPLICATE_DETECTION`,
+  which FasterXML documents as disabled by default, closes duplicate `block_id`,
+  `protocol_basis` and `change_type` fields with no logic of our own; turning the
+  flag off drops exactly four tests, which is how that was proven.
+  `DeserializationFeature.FAIL_ON_TRAILING_TOKENS`, also off by default, refuses
+  a second document pasted after the first; turning it off drops exactly one. The
+  section is read from the top level of the document, so a `changed_blocks`
+  nested inside `metadata` stops being reachable by construction instead of
+  being caught by an extra check. No canonical rejection changed verdict.
+
+- Require the report to declare where each revised block comes from, as
+  `revised_block_origins`, whenever the revised text has a block that is not an
+  unchanged copy of a received one. This is a declared departure from the
+  canonical contract, decided by the operator on 22/09/2026 and recorded in
+  Discussion #41.
+
+  The reason is a question the two texts cannot answer. An edited block leaves
+  the received side and comes back with a new hash, indistinguishable from an
+  added one: received `A / B / C`, revised `D / B / A-edited / C` fits both "D was
+  added and A moved" and "A was edited in place and D was added after B". Three
+  pairing heuristics were written and knocked down in three review rounds; a
+  five-model cross-review then established that ordinal pairing does not
+  identify even when the unmatched counts are equal. The declaration used to
+  name only received blocks, so it could not settle it either.
+
+  The ledger has one entry per revised block, in the order of the text; the
+  order stands in for a position nobody has to count, and each entry's `prefix`
+  is a checksum of that block, not a locator: it must cover at least the first
+  20 characters of the block as written, so a literal copy passes whatever its
+  spacing. A block whose text equals a received block's text is an unchanged
+  copy, however it was produced, as in the canonical: it names a received
+  block with that text, the agent choosing among identical ones, and once
+  every received block with that text is named, a further copy is an
+  addition. Every addition,
+  and every piece of a split after the first, carries its own `protocol_basis`
+  inside its entry, so a split declaration no longer covers children without
+  limit. Extra blocks still need their declaration in `changed_blocks`, as the
+  canonical prompt asks, and of the right kind: a received block that
+  continues in several revised blocks must declare `split`, and any addition
+  needs an entry of the `addition` kind, with its own `protocol_basis`, under
+  the ID of a received block, even when the text does not grow on balance; an
+  extra exact copy of a received block is an addition, never a split piece; a
+  `split` on a block that did not
+  split covers nothing. The canonical checks only that some growth entry
+  exists (`editorial_content_lock.rs`: `.any(|declaration|
+  declaration.allows_block_count_growth)`). Without a ledger this port is
+  stricter than the canonical on purpose: each extra block needs its own
+  growth entry, because nothing else justifies it block by block.
+
+  With a ledger, each source decides only what it knows. The text decides
+  that a block is a copy; the ledger decides which of several identical
+  received blocks a copy is, and where every block that is not a copy comes
+  from. Nothing attributes by hash against the ledger, which is what the
+  earlier review rounds kept finding corners in; and a pure move can no longer
+  be declared as two edits.
+
+  Reordering is decided from the declared identities. Between identical copies,
+  which copy is which is not a fact of the text, and three review rounds broke,
+  one at a time, every rule that tried to infer it. So the ledger's naming
+  decides: the IDs the agent gives the copies are its account of which copy went
+  where, each received block is named by one unchanged copy only, and whatever
+  moved in that account must declare `reorder`. As in the canonical, position is
+  compared only among the received blocks the revision keeps: a deleted or added
+  block moves nothing by itself, and when two blocks trade places both declare
+  `reorder`. The instruction says so. Blocks
+  that are not identical copies are flagged the same under any naming of the
+  copies. Duplicate content whose
+  count changed is another deliberate deviation: the canonical attributes by
+  count and can blame the wrong copy. Without a ledger this port refuses. With
+  a ledger, it takes the attribution from the ledger. The instruction that asks the agent for the section ships
+  in the same module, as `InstrucaoDoRegistro`, so the two ends of the contract
+  change together.
+
+  Each of the thirteen guards has its own witness in `MatrizDeDesarmeTest`, and
+  the matrix was executed by switching the guards off one at a time: twelve fall
+  alone; switching off the thirteenth, position-based reorder detection, also
+  takes down the witness of the protocol-basis check on reordered blocks,
+  because that check consumes what the detection produces. Twelve existing tests changed verdict — all of them
+  approvals that now require the section — and carry an honest ledger; none of
+  the canonical rejections changed.
+
+  What it does not close is written down as a test: a ledger can lie. The gain
+  is that a move is no longer silent; hiding one takes a false, attributable and
+  justified claim.
 
 - Close four further review findings, this time on the correction itself, which
   is the right place for them: three of the four exist only because the previous

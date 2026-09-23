@@ -52,6 +52,16 @@ declared in the `changed_blocks` section of its report. That unit is ported from
 `maestro-app/src-tauri/src/editorial_content_lock.rs`, which the web module
 itself names as canonical, together with the canonical Rust test suite.
 
+It departs from that source in two declared ways. The agent's report is read as
+strict JSON — the canonical prompt already asks for JSON and treats a truncated
+report as a contract violation — using Jackson, the repository's first runtime
+dependency, recorded in [`THIRDPARTY.md`](THIRDPARTY.md). And when the revised
+text has a block that is not an unchanged copy of a received one, the report
+must also declare, in `revised_block_origins`, where each revised block comes
+from: without it, an edited block that moved is indistinguishable from an
+added one. The operator's decision, and the residual it does not close, are
+recorded in [Discussion #41](https://github.com/LCV-Ideas-Software/maestro-android/discussions/41).
+
 The native port is specified in
 [`docs/especificacao-v1.md`](docs/especificacao-v1.md) (in Portuguese), written
 before any Kotlin, as `calculadora-android` did. It fixes the scope unit by

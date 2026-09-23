@@ -52,16 +52,6 @@ internal object EspacoUnicode {
         else -> pontoDeCodigo in 0x2000..0x200A // en quad .. hair space
     }
 
-    /**
-     * Espaço em branco ASCII no sentido do `u8::is_ascii_whitespace` do Rust,
-     * usado pelos varredores de campo do relatório. **Não inclui a tabulação
-     * vertical** (`U+000B`), ao contrário do `Character.isWhitespace` do JVM —
-     * mais uma divergência que só aparece quando alguém a encontra em produção.
-     */
-    fun ehEspacoAscii(caractere: Char): Boolean =
-        caractere == ' ' || caractere == '\t' || caractere == '\n' ||
-            caractere == '\u000C' || caractere == '\r'
-
     /** Equivalente do `str::trim` do Rust. */
     fun aparar(texto: String): String {
         var inicio = 0
@@ -119,9 +109,9 @@ internal object EspacoUnicode {
     }
 
     /**
-     * Caixa baixa só de A–Z, como o `to_ascii_lowercase` do Rust. Preserva o
-     * comprimento da cadeia, o que é o que permite usar as posições achadas no
-     * texto rebaixado para fatiar o texto original.
+     * Caixa baixa só de A–Z, como o `to_ascii_lowercase` do Rust — usada para
+     * comparar nomes de campo e valores de `change_type` do jeito do canônico.
+     * Dobra Unicode casaria nomes que o canônico não casa.
      */
     fun caixaBaixaAscii(texto: String): String {
         val construtor = StringBuilder(texto.length)

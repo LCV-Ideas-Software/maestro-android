@@ -1,7 +1,8 @@
 # Third-party inventory
 
-This repository has no Android or production-runtime dependency. The following
-table records the direct automation dependencies. The current immutable pins
+This repository has one production-runtime dependency, recorded under [Runtime
+dependencies](#runtime-dependencies), and no Android-specific one. The table
+below records the direct automation dependencies. The current immutable pins
 are the full commit SHAs in each workflow's `uses:` references. Transitive
 Action dependencies remain defined by those pinned upstream actions.
 
@@ -32,8 +33,45 @@ The CodeQL CLI is separately governed by the immutable
 and the Enterprise GitHub Code Security entitlement.
 
 The official Linear action explicitly selects CLI v0.17.2 for continuous
-commit-history releases. This repository publishes no application package and
-has no runtime dependency notice bundle to generate.
+commit-history releases.
+
+## Runtime dependencies
+
+| Component | Version | License | Purpose |
+| --- | --- | --- | --- |
+| `com.fasterxml.jackson.core:jackson-databind` | 2.22.2 | [Apache-2.0](https://github.com/FasterXML/jackson-databind/blob/jackson-databind-2.22.2/LICENSE) | Read the `maestro_revision_report` in `:core:protocolo` |
+| `com.fasterxml.jackson.core:jackson-core` | 2.22.2 | [Apache-2.0](https://github.com/FasterXML/jackson-core/blob/jackson-core-2.22.2/LICENSE) | Transitive: the streaming parser, and `StreamReadFeature.STRICT_DUPLICATE_DETECTION` |
+| `com.fasterxml.jackson.core:jackson-annotations` | 2.22 | [Apache-2.0](https://github.com/FasterXML/jackson-annotations/blob/jackson-annotations-2.22/LICENSE) | Transitive of `jackson-databind` |
+| FastDoubleParser, shaded inside `jackson-core` | bundled | MIT, © 2023 Werner Randelshofer | Number parsing inside `jackson-core`; not a separate artifact |
+| Schubfach, copied inside `jackson-core` | bundled | MIT, © 2018-2020 Raffaello Giulietti | Number writing inside `jackson-core`; not a separate artifact |
+
+Version alignment across the three is held by the `jackson-bom` platform that
+`jackson-databind` brings in, so the catalogue pins one version and the BOM
+constrains the rest. Measured contribution to the runtime classpath: 1 668 KB,
+580 KB and 82 KB respectively, 2 330 KB in total before shrinking.
+
+The `maestro_revision_report` is JSON by contract — the canonical prompt asks
+for "JSON-like audit data" and already declares a truncated report a contract
+violation — and `:core:protocolo` is an integrity gate. Reading that JSON with
+a hand-written scanner produced findings in four consecutive review rounds,
+because a hand-written scanner disagrees with the specification somewhere, and
+in a gate every disagreement is an authorization that should not have been
+granted. `STRICT_DUPLICATE_DETECTION`, which FasterXML documents as disabled by
+default, is what closes duplicate `block_id`, `protocol_basis` and
+`change_type` fields without any logic of our own.
+
+The last two rows are not declared anywhere in the dependency graph: they were
+found by reading `META-INF/NOTICE` inside `jackson-core-2.22.2.jar`, which
+records both as bundled MIT code and names their licence files. Each of the
+three jars also carries its own `META-INF/LICENSE` (Apache-2.0) and
+`META-INF/NOTICE`.
+
+No binary this repository distributes contains them yet: `:app` does not depend
+on `:core:protocolo`. The first APK that includes the module has to carry what
+the licences require of a distributed work — a copy of the Apache-2.0 text and
+the attribution in the three Jackson `NOTICE` files, and the MIT notices of
+FastDoubleParser and Schubfach — and the repository `NOTICE` does not carry
+them today.
 
 ## Accepted upstream constraints
 

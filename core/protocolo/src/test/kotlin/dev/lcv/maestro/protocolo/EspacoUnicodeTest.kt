@@ -41,8 +41,6 @@ class EspacoUnicodeTest {
     private val espacoDeFigura = 0x2007
     private val nbspEstreito = 0x202F
     private val separadorDeArquivo = 0x001C
-    private val tabulacaoVertical = 0x000B
-    private val avancoDeFormulario = 0x000C
     private val rostoSorridente = 0x1F600
 
     /** Espaços Unicode que o `Character.isWhitespace` do Java não reconhece. */
@@ -145,19 +143,6 @@ class EspacoUnicodeTest {
     }
 
     @Test
-    fun `espaco ASCII nao inclui a tabulacao vertical, ao contrario do JVM`() {
-        // `u8::is_ascii_whitespace` do Rust não tem a tabulação vertical; o
-        // `Character.isWhitespace` do JVM tem. A varredura de campos do
-        // relatório depende dessa lista.
-        assertFalse(EspacoUnicode.ehEspacoAscii(pc(tabulacaoVertical).single()))
-        assertTrue(Character.isWhitespace(tabulacaoVertical))
-        val esperados = listOf(' ', '\t', '\n', pc(avancoDeFormulario).single(), '\r')
-        for (esperado in esperados) {
-            assertTrue(EspacoUnicode.ehEspacoAscii(esperado))
-        }
-    }
-
-    @Test
     fun `a contagem de caracteres conta pontos de codigo, nao unidades UTF-16`() {
         // O número vai para a coluna `chars` do manifesto que o agente lê.
         val comEmoji = "ab" + pc(rostoSorridente)
@@ -166,14 +151,14 @@ class EspacoUnicodeTest {
     }
 
     @Test
-    fun `caixaBaixaAscii preserva o comprimento e nao toca em nao-ASCII`() {
-        // Preservar o comprimento é o que permite usar as posições achadas no
-        // texto rebaixado para fatiar o texto original. O `O` final da palavra
-        // é ASCII e rebaixa; as letras acentuadas não.
+    fun `caixaBaixaAscii so rebaixa A-Z, como o canonico`() {
+        // Nomes de campo e valores de `change_type` são comparados sem caixa,
+        // como o `to_ascii_lowercase` do canônico: só A-Z rebaixa. Uma dobra
+        // Unicode faria o `İ` virar `i` + ponto combinante e casar nome que o
+        // canônico não casa. O `O` final é ASCII e rebaixa; os acentuados não.
         val acentuadas = pc(0x00C1) + pc(0x00C7) + pc(0x00C3) + "O"
         val original = "CHANGED_BLOCKS: $acentuadas " + pc(0x0130)
         val rebaixado = EspacoUnicode.caixaBaixaAscii(original)
-        assertEquals(original.length, rebaixado.length)
         assertEquals(
             "changed_blocks: " + pc(0x00C1) + pc(0x00C7) + pc(0x00C3) + "o " + pc(0x0130),
             rebaixado,
