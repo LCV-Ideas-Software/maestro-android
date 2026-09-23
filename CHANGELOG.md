@@ -319,6 +319,64 @@ All material changes to Maestro Android are recorded here.
   `versionCode` 1 was already consumed by the internal publication of 17/09/2026,
   so the first real version must carry 2 or higher.
 
+- Complete `:core:protocolo` with the rest of MAEANDR-14:
+  - the serial turn's output contract, with the `MAESTRO_STATUS` line reader;
+  - the bibliographic integrity gate;
+  - the anti-impoverishment quality guard;
+  - prompt assembly;
+  - cost in `BigDecimal`.
+
+  Each unit comes from where it is canonical, a question the specification
+  requires be asked per unit. The turn contract, the gate and the guard come
+  from the desktop's Rust, which the web declares it ports byte for byte. The
+  prompts and cost come from the web, which has the API-only prompt variants and
+  the three per-provider rates, where the desktop builds CLI prompts and has no
+  per-request rate.
+
+  The turn contract refuses:
+
+  - a reply that echoes the prompt;
+  - unbalanced report or final-text tags; a balanced duplicate resolves to the
+    last complete block;
+  - a report that is not exactly one strict JSON object, read by the same
+    parser configuration as the lock, so no report can pass one path and fail
+    the other;
+  - a final text without `custody: "revised"`, or `revised` custody without a
+    final text;
+  - an `unchanged` turn that still lists correctable changes;
+  - a final text that still carries `[EVIDENCIA_PENDENTE]` or a bibliographic
+    lacuna such as `[s. d.]`.
+
+  The gate treats only ASCII `0`–`9` as digits, as the Rust does; Kotlin's
+  `isDigit()` would turn `[٣?]` into an uncertain date.
+
+  The revision prompt describes this repository's lock, not the web's. It
+  carries the `revised_block_origins` instruction the lock requires. It does not
+  ask for `new_block_count`, which the web prompt requests and this lock never
+  reads.
+
+  Cost follows section 7.1, clarified by the operator on 23/09/2026:
+
+  - estimates and observed costs are summed and compared at scale 8, both
+    rounded up;
+  - a call is allowed when `accumulated + estimate <= cap`;
+  - two decimals, half up, are for display only;
+  - a missing input or output rate refuses the call instead of producing `NaN`.
+
+  Summing at two decimals, as the old wording read, would have made a $0.004
+  call add nothing, and the cap would never trip.
+
+  The lock stops accepting `changes` as an alias for `changed_blocks`. Since the
+  desktop's v00.05.65, `changes` is the list of changed passages that the turn
+  contract reads; with the alias, one list would count as both. The 19
+  canonical lock tests still pass without it.
+
+  The canonical Rust cases for these units are ported where they exercise them;
+  those that need the final-release audit move to MAEANDR-18. The suite grows
+  from 117 to 186 tests. Nineteen deliberate mutations, one per new rule, each
+  make it fail, and a green control run before and after the mutations proves
+  the failures come from the tests and not from the harness.
+
 ### Changed
 
 - Reconfirm `grok-4.7` against xAI's official documentation on 22/09/2026, when

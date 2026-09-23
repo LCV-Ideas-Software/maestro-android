@@ -705,9 +705,12 @@ conta do usuário. Fica declarado:
   `RoundingMode.CEILING`. O sentido é deliberado: arredondamento nunca deixa
   passar uma chamada que o teto não comportava. Errar para o lado do usuário é
   o único erro aceitável quando o outro lado é a fatura dele.
-- **O custo observado, para exibir e para somar, arredonda a meio para cima**
-  (`HALF_UP`), na escala de exibição de 2 casas. Exibição nunca alimenta
-  comparação; a comparação usa sempre a escala interna.
+- **O custo observado também vai para a escala interna arredondando para
+  cima** (`CEILING`), como a estimativa, e é nela que se soma e se compara.
+  **Para exibir**, arredonda a meio para cima (`HALF_UP`), na escala de 2 casas.
+  Exibição nunca alimenta soma nem comparação. Uma versão anterior desta frase
+  mandava somar em 2 casas: uma chamada de US$ 0,004 somaria zero, e o teto
+  nunca dispararia. Decisão do operador em 23/09/2026.
 - **A comparação é `custo_acumulado + estimativa <= max_cost_usd`.** Igualdade
   **permite** a chamada. "Teto" é o valor máximo que se pode gastar, não o
   primeiro valor proibido — e gastar exatamente o que se autorizou é o que o
