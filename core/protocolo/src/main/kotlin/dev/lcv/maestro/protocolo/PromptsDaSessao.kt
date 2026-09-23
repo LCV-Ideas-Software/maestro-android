@@ -17,6 +17,10 @@ package dev.lcv.maestro.protocolo
  *
  * - "Web/API" vira "Android/API", e "web module"/"web engine" vira "Android
  *   app".
+ * - Sai a frase do web que diz ao agente que os links públicos são auditados
+ *   na finalização. Aqui essa auditoria ainda não existe (MAEANDR-18), e o
+ *   agente não pode contar com uma rede de proteção ausente. A frase volta
+ *   junto com a auditoria.
  * - O item `changed_blocks` do contrato de saída descreve a trava deste
  *   repositório. O do web manda usar `new_block_count`, que a trava daqui não
  *   lê: aqui o crescimento é decidido pelo registro de procedência, e a seção
@@ -188,7 +192,7 @@ Session: ${sanearTitulo(pedido.titulo)}
 - The original redactor may act in the closing redactor turn only when the current version author is another peer. In that case, the original redactor reviews the completed peer circuit, may revise only issues raised by prior reviewers or concrete final-delivery blockers, and must preserve all approved content.
 - You must act as reviewer and reviser in one turn: inspect the current text, apply only authorized corrections, and return the complete current article.
 - A Maestro round is a full circular pass through all active AI agents. This call is one turn inside that round; do not call it a new round in your own report.
-- The Android app audits public links automatically when a text attempts finalization. Do not fabricate URLs. If a link cannot be verified from the provided context, mark it as [EVIDENCIA_PENDENTE] instead of inventing one.
+- Do not fabricate URLs. If a link cannot be verified from the provided context, mark it as [EVIDENCIA_PENDENTE] instead of inventing one.
 
 ## Sovereign Approved-Content Lock
 

@@ -353,7 +353,9 @@ All material changes to Maestro Android are recorded here.
   The revision prompt describes this repository's lock, not the web's. It
   carries the `revised_block_origins` instruction the lock requires. It does not
   ask for `new_block_count`, which the web prompt requests and this lock never
-  reads.
+  reads. It also drops the web's claim that public links are audited at
+  finalization. That audit arrives with MAEANDR-18, and until then the agent
+  must not rely on a check that does not exist.
 
   Cost follows section 7.1, clarified by the operator on 23/09/2026:
 
@@ -361,7 +363,9 @@ All material changes to Maestro Android are recorded here.
     rounded up;
   - a call is allowed when `accumulated + estimate <= cap`;
   - two decimals, half up, are for display only;
-  - a missing input or output rate refuses the call instead of producing `NaN`.
+  - a missing input or output rate refuses the call instead of producing `NaN`;
+  - a negative token count from the provider counts as missing and falls back
+    to the estimate, so a malformed response cannot lower the running total.
 
   Summing at two decimals, as the old wording read, would have made a $0.004
   call add nothing, and the cap would never trip.
@@ -373,7 +377,7 @@ All material changes to Maestro Android are recorded here.
 
   The canonical Rust cases for these units are ported where they exercise them;
   those that need the final-release audit move to MAEANDR-18. The suite grows
-  from 117 to 186 tests. Nineteen deliberate mutations, one per new rule, each
+  from 117 to 188 tests. Twenty-one deliberate mutations, one per new rule, each
   make it fail, and a green control run before and after the mutations proves
   the failures come from the tests and not from the harness.
 

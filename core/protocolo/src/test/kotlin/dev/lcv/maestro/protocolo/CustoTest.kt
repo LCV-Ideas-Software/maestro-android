@@ -115,6 +115,19 @@ class CustoTest {
     }
 
     @Test
+    fun `contagem negativa do provedor vale como ausente`() {
+        // Somada como veio, -1 000 000 tokens de saída dariam custo negativo e
+        // baixariam o acumulado da sessão.
+        val observado = assertNotNullObservado(
+            Custo.observar(taxas, "a".repeat(400), "b".repeat(80), 100, -1_000_000),
+        )
+
+        assertEquals(Custo.Fonte.ESTIMATIVA, observado.fonte)
+        // 100 tokens de entrada do provedor; 20 de saída estimados pelo texto.
+        assertEquals(bd("0.00060000"), observado.valor)
+    }
+
+    @Test
     fun `custo em dolar informado pelo provedor vale como esta`() {
         val observado = assertNotNullObservado(
             Custo.observar(Custo.Taxas(null, null), "p", "r", null, null, custoInformadoUsd = bd("0.123456781")),
