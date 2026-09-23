@@ -128,3 +128,15 @@ jobs:
         run: >-
           ./gradlew :core:seguranca:api37DebugAndroidTest --no-daemon --stacktrace
           -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
+
+      - name: Keep the instrumented test results
+        # O Gradle não imprime no log quantos testes rodaram nem quais pularam.
+        # O resultado fica como artefato, para que se possa conferir que os
+        # casos rodaram de fato no emulador, e não apenas que o job passou.
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: instrumented-test-results
+          path: core/seguranca/build/outputs/androidTest-results/
+          retention-days: 14
+          if-no-files-found: error
