@@ -6,6 +6,83 @@ All material changes to Maestro Android are recorded here.
 
 ### Added
 
+- Add `:core:provedores`, the second delivery of the native port (MAEANDR-19):
+  the six AI providers as pure Kotlin on the JVM, with no Android dependency.
+  The API key is requested through `FonteDeChave`, which `:core:seguranca`
+  will implement over the Keystore.
+
+  **The request body of each provider comes from its official documentation,
+  reconfirmed on 23/09/2026.** Neither canonical source uses the new
+  transports: the desktop still calls Perplexity's `/v1/sonar`, which stops on
+  27/09/2026, and Gemini's `generateContent`, and the web reaches Gemini through
+  Vertex. The reconfirmation corrected the specification in four places:
+  - Gemini's Interactions endpoint is `/v1beta/interactions`, not `/v1beta2/`;
+  - the Perplexity model is `perplexity/sonar` with the `xhigh` preset, the
+    Agent API's only Perplexity-owned model and the operator's decision of
+    22/09/2026 for the web;
+  - DeepSeek now exposes reasoning effort, inside `thinking`;
+  - xAI exposes `store`, so four providers receive `store: false` (OpenAI,
+    Gemini, xAI, Perplexity) and two never see the field (Anthropic, DeepSeek).
+    The specification now also says what `store: false` does not do: xAI keeps
+    every request for 30 days for abuse auditing regardless, unless the user's
+    account enables zero data retention.
+
+  The operator decided on 23/09/2026:
+  - reasoning at each provider's maximum;
+  - a 64 000-token output ceiling per call, the starting point Anthropic
+    documents for `max` effort;
+  - OkHttp alone, without Retrofit.
+
+  Only the final answer is read from each response — never a reasoning block,
+  which would otherwise reach `<maestro_final_text>`. Reasoning tokens are
+  counted as output, as all six bill them; Gemini reports them apart, and they
+  are added. A truncated or refused response is its own outcome and still
+  carries its usage, because it is still billed. Perplexity's reported cost is
+  read as an exact decimal.
+
+  The network policy is ported from the canonical desktop's `provider_retry.rs`:
+  - at most two attempts;
+  - one retry after a network error, following 1.5 s;
+  - `Retry-After` honoured only on HTTP 429, 30 s when absent, capped at 120 s;
+  - each attempt's deadline is the lesser of 120 s and the time the session
+    has left, which the session passes in; a wait that does not fit in that
+    time ends the call with the failure that caused it, instead of starting a
+    paid attempt past the limit, and no attempt starts once that time is
+    gone, even when a wait that fitted ended late;
+  - waits, in-flight calls and body reads stop on cancellation.
+
+  **OkHttp never repeats a request on its own.** Every attempt is a paid call,
+  and OkHttp retries in several cases outside the two attempts above: HTTP 408
+  under `retryOnConnectionFailure`, which is switched off, and HTTP 503 with
+  `Retry-After: 0` regardless of that option. Each attempt therefore sends a
+  one-shot body, which OkHttp documents it never retries. Redirects are off as
+  well: the endpoints are fixed, and on a cross-origin redirect OkHttp drops
+  `Authorization` but forwards `x-api-key` and `x-goog-api-key`. A failure while
+  reading the body of a response is not retried either: the provider has
+  probably already billed. Error messages port the canonical status classes and
+  secret redaction, and also redact the exact key of the call, whose shape the
+  canonical pattern may not know, so a key echoed in an error body never
+  reaches the journal.
+
+  A 2xx object missing the fields its contract requires is an invalid
+  response, not an empty success. A response marked complete that carries no
+  text, and a refusal from the Responses API, are incomplete outcomes. The
+  reason an incomplete outcome carries comes from the provider (`status`,
+  `stop_reason`, the refusal text) and goes through the same redaction,
+  control-character replacement and length cap as error messages.
+
+  A pasted key is trimmed. A key with a character that cannot go in an HTTP
+  header is refused before any request, as its own outcome: OkHttp would
+  otherwise throw with the header value, the key itself, in its message.
+
+  The module has 47 tests against a fake HTTP server; none talks to a real
+  provider or carries a key-shaped value. Forty-two deliberate mutations each
+  make them fail, with a green control run before and after. The per-call
+  deadline at maximum effort, and charging the estimate for a call that timed
+  out, are recorded as an open item for `:core:sessao` in section 11. `THIRDPARTY.md` records
+  the new runtime dependencies, the Public Suffix List (MPL-2.0) bundled inside
+  OkHttp, and `kotlin-stdlib`, which the inventory had been missing.
+
 - Raise the Gradle baseline and land `:core:protocolo`, the first module of the
   native port (MAEANDR-14). The project moves to `compileSdk`/`targetSdk` 37 and
   `minSdk` 34 from 36/36/24, gains a `gradle/libs.versions.toml` catalog holding
@@ -261,9 +338,10 @@ All material changes to Maestro Android are recorded here.
   Google's Interactions API supersedes `generateContent`, with `thinking_level`
   replacing `thinking_budget` and the two together returning 400; and
   Perplexity's Sonar Chat Completions is switched off on **27/09/2026** in favour
-  of the Agent API. One transport serves all six providers — Retrofit/OkHttp over
-  the documented REST contracts — because no provider publishes an Android SDK,
-  a fact measured rather than assumed.
+  of the Agent API. One transport serves all six providers — OkHttp over the
+  documented REST contracts; the specification first said Retrofit/OkHttp, and
+  the operator dropped Retrofit on 23/09/2026 — because no provider publishes an
+  Android SDK, a fact measured rather than assumed.
 
   Three questions the specification could not answer for itself were decided by
   the operator on 21/09/2026 and are written into it as settled: the Keystore key
