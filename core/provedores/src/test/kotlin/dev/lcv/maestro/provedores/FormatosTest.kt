@@ -6,8 +6,10 @@ import java.time.Instant
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
@@ -220,6 +222,37 @@ class FormatosTest {
             """{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[]}""",
         )
         assertEquals("status: incomplete, reason: max_output_tokens", (resultado as Resultado.Incompleta).motivo)
+    }
+
+    @Test
+    fun `recusa na Responses API nao passa por resposta concluida`() {
+        val (resultado, _) = chamarERegistrar(
+            Provedor.CODEX,
+            """{"status":"completed","output":[{"type":"message","content":[{"type":"refusal","refusal":"Nao posso ajudar."}]}]}""",
+        )
+        assertContains((resultado as Resultado.Incompleta).motivo, "refusal")
+    }
+
+    @Test
+    fun `objeto 2xx sem os campos do contrato e resposta invalida`() {
+        val semEstrutura = mapOf(
+            Provedor.CLAUDE to """{"stop_reason":"end_turn"}""",
+            Provedor.CODEX to """{"status":"completed"}""",
+            Provedor.GEMINI to """{"status":"completed"}""",
+            Provedor.DEEPSEEK to """{"choices":[]}""",
+            Provedor.GROK to """{"output":[]}""",
+            Provedor.PERPLEXITY to """{"status":"completed"}""",
+        )
+        for ((provedor, corpo) in semEstrutura) {
+            val (resultado, _) = chamarERegistrar(provedor, corpo)
+            assertIs<Resultado.RespostaInvalida>(resultado, "$provedor")
+        }
+    }
+
+    @Test
+    fun `resposta concluida sem texto nao e resposta`() {
+        val (resultado, _) = chamarERegistrar(Provedor.CODEX, """{"status":"completed","output":[]}""")
+        assertIs<Resultado.Incompleta>(resultado)
     }
 
     @Test

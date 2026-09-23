@@ -44,20 +44,36 @@ All material changes to Maestro Android are recorded here.
   - at most two attempts;
   - one retry after a network error, following 1.5 s;
   - `Retry-After` honoured only on HTTP 429, 30 s when absent, capped at 120 s;
-  - waits and in-flight calls stop on cancellation.
+  - each attempt's deadline is the lesser of 120 s and the time the session
+    has left, which the session passes in; a wait that does not fit in that
+    time ends the call with the failure that caused it, instead of starting a
+    paid attempt past the limit;
+  - waits, in-flight calls and body reads stop on cancellation.
 
-  OkHttp's own `retryOnConnectionFailure` is switched off, because it silently
-  repeats HTTP 408, a paid call outside those two attempts. A failure while
+  **OkHttp never repeats a request on its own.** Every attempt is a paid call,
+  and OkHttp retries in several cases outside the two attempts above: HTTP 408
+  under `retryOnConnectionFailure`, which is switched off, and HTTP 503 with
+  `Retry-After: 0` regardless of that option. Each attempt therefore sends a
+  one-shot body, which OkHttp documents it never retries. Redirects are off as
+  well: the endpoints are fixed, and on a cross-origin redirect OkHttp drops
+  `Authorization` but forwards `x-api-key` and `x-goog-api-key`. A failure while
   reading the body of a response is not retried either: the provider has
   probably already billed. Error messages port the canonical status classes and
-  secret redaction, so a key echoed in an error body never reaches the journal.
+  secret redaction, and also redact the exact key of the call, whose shape the
+  canonical pattern may not know, so a key echoed in an error body never
+  reaches the journal.
+
+  A 2xx object missing the fields its contract requires is an invalid
+  response, not an empty success, and so is a response marked complete that
+  carries no text; a refusal from the Responses API is its own incomplete
+  outcome.
 
   A pasted key is trimmed. A key with a character that cannot go in an HTTP
   header is refused before any request, as its own outcome: OkHttp would
   otherwise throw with the header value, the key itself, in its message.
 
-  The module has 35 tests against a fake HTTP server; none talks to a real
-  provider or carries a key-shaped value. Twenty-four deliberate mutations each
+  The module has 44 tests against a fake HTTP server; none talks to a real
+  provider or carries a key-shaped value. Thirty-nine deliberate mutations each
   make them fail, with a green control run before and after. The per-call
   deadline at maximum effort, and charging the estimate for a call that timed
   out, are recorded as an open item for `:core:sessao` in section 11. `THIRDPARTY.md` records

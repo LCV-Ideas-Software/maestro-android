@@ -16,7 +16,7 @@ import com.fasterxml.jackson.databind.JsonNode
  */
 internal object Erros {
 
-    fun mensagemHttp(status: Int, corpo: String): String {
+    fun mensagemHttp(status: Int, corpo: String, chave: String? = null): String {
         val classe = when (status) {
             400 -> "BAD_REQUEST"
             401 -> "AUTH"
@@ -28,11 +28,11 @@ internal object Erros {
             in 500..599 -> "SERVER"
             else -> "OTHER"
         }
-        return sanear("PROVIDER_ERROR_HTTP_${status}_$classe: ${mensagemDoProvedor(corpo)}", 240)
+        return sanear("PROVIDER_ERROR_HTTP_${status}_$classe: ${mensagemDoProvedor(corpo, chave)}", 240, chave)
     }
 
     /** `api_error_message`. */
-    fun mensagemDoProvedor(corpo: String): String {
+    fun mensagemDoProvedor(corpo: String, chave: String? = null): String {
         if (corpo.isBlank()) return "sem detalhe na resposta"
         val raiz: JsonNode? = try {
             Json.LEITOR.readTree(corpo)
@@ -42,22 +42,28 @@ internal object Erros {
         if (raiz != null) {
             for (caminho in listOf("/error/message", "/error/status", "/error/code")) {
                 val no = raiz.at(caminho)
-                if (no.isTextual) return sanear(no.textValue(), 180)
+                if (no.isTextual) return sanear(no.textValue(), 180, chave)
             }
             for (campo in listOf("error", "message")) {
                 val no = raiz.get(campo)
-                if (no != null && no.isTextual) return sanear(no.textValue(), 180)
+                if (no != null && no.isTextual) return sanear(no.textValue(), 180, chave)
             }
         }
-        return sanear(corpo, 180)
+        return sanear(corpo, 180, chave)
     }
 
     /**
      * `sanitize_text`: apaga segredos com forma conhecida, troca caractere de
      * controle por espaço e corta em [limite] pontos de código.
+     *
+     * Além do canônico, apaga o valor exato da [chave] usada na chamada. A
+     * expressão só conhece formas de chave já catalogadas, e a da xAI
+     * (`xai-…`), por exemplo, não está nela; o valor exato vale para qualquer
+     * provedor, com qualquer formato.
      */
-    fun sanear(texto: String, limite: Int): String {
-        val semSegredo = SEGREDO.replace(texto, "<redacted>")
+    fun sanear(texto: String, limite: Int, chave: String? = null): String {
+        val semChave = if (chave.isNullOrEmpty()) texto else texto.replace(chave, "<redacted>")
+        val semSegredo = SEGREDO.replace(semChave, "<redacted>")
         val construtor = StringBuilder()
         var contados = 0
         var indice = 0

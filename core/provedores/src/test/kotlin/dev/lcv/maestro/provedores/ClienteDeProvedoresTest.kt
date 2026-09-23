@@ -13,6 +13,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -60,8 +61,8 @@ class ClienteDeProvedoresTest {
     private fun status(codigo: Int, vararg cabecalhos: Pair<String, String>, corpo: String = "") =
         MockResponse.Builder().code(codigo).apply { cabecalhos.forEach { (k, v) -> addHeader(k, v) } }.body(corpo).build()
 
-    private fun chamar(prazo: kotlin.time.Duration = ClienteDeProvedores.PRAZO_POR_CHAMADA) =
-        runBlocking { cliente().chamar(Provedor.CODEX, pedido, prazo) }
+    private fun chamar(tempoRestante: kotlin.time.Duration? = null) =
+        runBlocking { cliente().chamar(Provedor.CODEX, pedido, tempoRestante) }
 
     // -- 429 -----------------------------------------------------------------------
 
@@ -216,13 +217,28 @@ class ClienteDeProvedoresTest {
     }
 
     @Test
-    fun `prazo estourado e erro de rede, com uma nova tentativa`() {
+    fun `o cliente desliga as repeticoes e os redirecionamentos do OkHttp, mesmo que o recebido os ligue`() {
+        // O corpo de uso único já impede o 408 escondido do teste acima; a
+        // opção desligada é a segunda camada, e só é observável aqui.
+        val recebido = OkHttpClient.Builder().retryOnConnectionFailure(true).followRedirects(true)
+            .followSslRedirects(true).build()
+        val http = ClienteDeProvedores(recebido) { chave }.http
+
+        assertFalse(http.retryOnConnectionFailure)
+        assertFalse(http.followRedirects)
+        assertFalse(http.followSslRedirects)
+    }
+
+    @Test
+    fun `prazo estourado sem tempo para esperar nao tenta de novo`() {
+        // O prazo de cada tentativa é o menor entre 120 s e o tempo que resta
+        // da sessão. Esgotado o tempo, a espera de 1,5 s já não cabe.
         repeat(2) { servidor.enqueue(MockResponse.Builder().headersDelay(2, TimeUnit.SECONDS).body(concluida).build()) }
 
-        val resultado = assertIs<Resultado.FalhaDeRede>(chamar(prazo = 300.milliseconds))
+        val resultado = assertIs<Resultado.FalhaDeRede>(chamar(tempoRestante = 300.milliseconds))
         assertContains(resultado.mensagem, "PROVIDER_NETWORK_ERROR")
-        assertEquals(2, servidor.requestCount)
-        assertEquals(listOf(1_500L), esperas)
+        assertEquals(1, servidor.requestCount)
+        assertTrue(esperas.isEmpty())
     }
 
     // -- Chave e cancelamento ------------------------------------------------------
@@ -277,9 +293,76 @@ class ClienteDeProvedoresTest {
         servidor.enqueue(MockResponse.Builder().bodyDelay(2, TimeUnit.SECONDS).body(concluida).build())
         servidor.enqueue(ok())
 
-        assertIs<Resultado.FalhaDeRede>(chamar(prazo = 300.milliseconds))
+        assertIs<Resultado.FalhaDeRede>(chamar(tempoRestante = 300.milliseconds))
         assertEquals(1, servidor.requestCount)
         assertTrue(esperas.isEmpty())
+    }
+
+    // -- Apontamentos do Codex na #51 ---------------------------------------------
+
+    @Test
+    fun `o OkHttp nao repete o 503 com Retry-After zero`() {
+        // RetryAndFollowUpInterceptor, linha 265 no 5.5.0: o 503 com
+        // `Retry-After: 0` é refeito sem olhar `retryOnConnectionFailure`.
+        servidor.enqueue(status(503, "Retry-After" to "0"))
+        servidor.enqueue(ok())
+
+        assertEquals(503, assertIs<Resultado.FalhaHttp>(chamar()).status)
+        assertEquals(1, servidor.requestCount)
+    }
+
+    @Test
+    fun `redirecionamento nao e seguido, e a chave nao vai ao destino`() {
+        val outro = MockWebServer()
+        outro.start()
+        try {
+            outro.enqueue(ok())
+            servidor.enqueue(status(302, "Location" to outro.url("/roubo").toString()))
+
+            assertEquals(302, assertIs<Resultado.FalhaHttp>(runBlocking { cliente().chamar(Provedor.CLAUDE, pedido) }).status)
+            assertEquals(0, outro.requestCount)
+        } finally {
+            outro.close()
+        }
+    }
+
+    @Test
+    fun `a chave ecoada no corpo do erro e apagada, qualquer que seja a forma`() {
+        servidor.enqueue(status(401, corpo = """{"error":{"message":"invalid key chave-de-teste for this project"}}"""))
+
+        val mensagem = assertIs<Resultado.FalhaHttp>(chamar()).mensagem
+        assertFalse(mensagem.contains("chave-de-teste"))
+        assertContains(mensagem, "<redacted>")
+    }
+
+    @Test
+    fun `espera que nao cabe no tempo restante da sessao encerra a chamada`() {
+        servidor.enqueue(status(429, "Retry-After" to "30"))
+        servidor.enqueue(ok())
+
+        val resultado = runBlocking { cliente().chamar(Provedor.CODEX, pedido, tempoRestante = 10.seconds) }
+
+        assertEquals(429, assertIs<Resultado.FalhaHttp>(resultado).status)
+        assertEquals(1, servidor.requestCount)
+        assertTrue(esperas.isEmpty())
+    }
+
+    @Test
+    fun `cancelamento durante a leitura do corpo para a chamada logo`() {
+        // Cabeçalhos chegam, e o corpo só depois de 30 s. O `throttleBody` não
+        // serve aqui: ele atrasa também a leitura do corpo do pedido.
+        servidor.enqueue(MockResponse.Builder().body(concluida).bodyDelay(30, TimeUnit.SECONDS).build())
+
+        val inicio = System.nanoTime()
+        runBlocking {
+            val chamada = async(Dispatchers.IO) { cliente().chamar(Provedor.CODEX, pedido) }
+            servidor.takeRequest(5, TimeUnit.SECONDS)
+            Thread.sleep(500)
+            chamada.cancel()
+            assertFailsWith<CancellationException> { chamada.await() }
+        }
+        val segundos = (System.nanoTime() - inicio) / 1_000_000_000.0
+        assertTrue(segundos < 5, "o cancelamento esperou o corpo: $segundos s")
     }
 
     @Test

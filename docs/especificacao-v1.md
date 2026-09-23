@@ -786,8 +786,10 @@ de teste, porque compra confiança sem entregá-la.
   uma versão anterior deste documento exigia, mandaria à Anthropic um parâmetro
   que o `/v1/messages` não declara. A política de nova tentativa de
   `provider_retry.rs` também é conferida com a contagem de requisições que
-  chegaram ao servidor, porque cada tentativa é uma chamada paga. Nenhum teste
-  fala com provedor real.
+  chegaram ao servidor, porque cada tentativa é uma chamada paga — inclusive
+  nos casos em que o próprio OkHttp repetiria a requisição sozinho (408, 503
+  com `Retry-After: 0`, redirecionamento). Nenhum teste fala com provedor
+  real.
 - **`:core:seguranca`, instrumentado.** O Keystore só existe em aparelho ou
   emulador, então estes testes são instrumentados — e são poucos justamente
   porque a fronteira manteve tudo o mais fora deles. Cinco casos não podem

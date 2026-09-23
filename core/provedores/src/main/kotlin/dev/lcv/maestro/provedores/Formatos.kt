@@ -92,13 +92,14 @@ internal sealed interface Formato {
                     tokensDeSaida = u.inteiro("output_tokens"),
                 )
             }
+            val parada = resposta.texto("stop_reason")
+            if (!resposta.path("content").isArray || parada == null) return invalida("claude", "content or stop_reason")
             val texto = resposta.path("content").filter { it.texto("type") == "text" }
                 .joinToString("") { it.texto("text").orEmpty() }
-            val parada = resposta.texto("stop_reason")
             return if (parada == "end_turn") {
-                Resultado.Concluida(texto.trim(), uso)
+                concluida(texto, uso)
             } else {
-                Resultado.Incompleta("stop_reason: ${parada ?: "ausente"}", uso)
+                Resultado.Incompleta("stop_reason: $parada", uso)
             }
         }
     }
@@ -126,17 +127,23 @@ internal sealed interface Formato {
             val uso = resposta.path("usage").let { u ->
                 Uso(u.inteiro("input_tokens"), u.inteiro("output_tokens"))
             }
-            val texto = resposta.path("output").filter { it.texto("type") == "message" }
-                .flatMap { it.path("content") }
-                .filter { it.texto("type") == "output_text" }
-                .joinToString("") { it.texto("text").orEmpty() }
             val estado = resposta.texto("status")
+            if (!resposta.path("output").isArray || estado == null) return invalida("responses", "output or status")
+            val conteudo = resposta.path("output").filter { it.texto("type") == "message" }
+                .flatMap { it.path("content") }
+            // Recusa vem como bloco `refusal` dentro de uma resposta
+            // `completed`; sem esta checagem ela passaria como sucesso vazio.
+            conteudo.firstOrNull { it.texto("type") == "refusal" }?.let {
+                return Resultado.Incompleta("refusal: ${Erros.sanear(it.texto("refusal").orEmpty(), 180)}", uso)
+            }
+            val texto = conteudo.filter { it.texto("type") == "output_text" }
+                .joinToString("") { it.texto("text").orEmpty() }
             return if (estado == "completed") {
-                Resultado.Concluida(texto.trim(), uso)
+                concluida(texto, uso)
             } else {
                 val razao = resposta.path("incomplete_details").texto("reason")
                 Resultado.Incompleta(
-                    "status: ${estado ?: "ausente"}" + (razao?.let { ", reason: $it" } ?: ""),
+                    "status: $estado" + (razao?.let { ", reason: $it" } ?: ""),
                     uso,
                 )
             }
@@ -173,15 +180,16 @@ internal sealed interface Formato {
                     tokensDeSaida = soma(u.inteiro("total_output_tokens"), u.inteiro("total_thought_tokens")),
                 )
             }
+            val estado = resposta.texto("status")
+            if (!resposta.path("steps").isArray || estado == null) return invalida("gemini", "steps or status")
             val texto = resposta.path("steps").filter { it.texto("type") == "model_output" }
                 .flatMap { it.path("content") }
                 .filter { it.texto("type") == "text" }
                 .joinToString("") { it.texto("text").orEmpty() }
-            val estado = resposta.texto("status")
             return if (estado == "completed") {
-                Resultado.Concluida(texto.trim(), uso)
+                concluida(texto, uso)
             } else {
-                Resultado.Incompleta("status: ${estado ?: "ausente"}", uso)
+                Resultado.Incompleta("status: $estado", uso)
             }
         }
     }
@@ -218,13 +226,13 @@ internal sealed interface Formato {
                 Uso(u.inteiro("prompt_tokens"), u.inteiro("completion_tokens"))
             }
             val escolha = resposta.path("choices").path(0)
+            val fim = escolha.texto("finish_reason") ?: return invalida("deepseek", "choices[0].finish_reason")
             val texto = escolha.path("message").texto("content").orEmpty()
                 .replace(PENSAMENTO_INICIAL, "")
-            val fim = escolha.texto("finish_reason")
             return if (fim == "stop") {
-                Resultado.Concluida(texto.trim(), uso)
+                concluida(texto, uso)
             } else {
-                Resultado.Incompleta("finish_reason: ${fim ?: "ausente"}", uso)
+                Resultado.Incompleta("finish_reason: $fim", uso)
             }
         }
 
@@ -251,21 +259,33 @@ internal sealed interface Formato {
             val custo = u.path("cost").takeIf { it.texto("currency") == "USD" }
                 ?.path("total_cost")?.takeIf { it.isNumber }?.decimalValue()
             val uso = Uso(u.inteiro("input_tokens"), u.inteiro("output_tokens"), custo)
+            val estado = resposta.texto("status")
+            if (!resposta.path("output").isArray || estado == null) return invalida("perplexity", "output or status")
             val texto = resposta.path("output")
                 .filter { it.texto("type") == "message" && it.texto("role") == "assistant" }
                 .flatMap { it.path("content") }
                 .filter { it.texto("type") == "output_text" }
                 .mapNotNull { it.texto("text") }
                 .joinToString("\n")
-            val estado = resposta.texto("status")
             return if (estado == "completed") {
-                Resultado.Concluida(texto.trim(), uso)
+                concluida(texto, uso)
             } else {
-                Resultado.Incompleta("status: ${estado ?: "ausente"}", uso)
+                Resultado.Incompleta("status: $estado", uso)
             }
         }
     }
 }
+
+/**
+ * Objeto 2xx que não tem a estrutura do contrato — proxy, mudança de esquema
+ * — é resposta inválida, e não uma resposta concluída vazia.
+ */
+private fun invalida(provedor: String, campos: String): Resultado =
+    Resultado.RespostaInvalida("$provedor response lacks $campos")
+
+/** Resposta que o provedor deu por concluída sem texto nenhum não é resposta. */
+private fun concluida(texto: String, uso: Uso): Resultado =
+    if (texto.isBlank()) Resultado.Incompleta("completed without text", uso) else Resultado.Concluida(texto.trim(), uso)
 
 private fun JsonNode.texto(campo: String): String? = get(campo)?.takeIf { it.isTextual }?.textValue()
 
