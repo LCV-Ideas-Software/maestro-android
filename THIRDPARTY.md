@@ -1,7 +1,7 @@
 # Third-party inventory
 
-This repository has one production-runtime dependency, recorded under [Runtime
-dependencies](#runtime-dependencies), and no Android-specific one. The table
+This repository's production-runtime dependencies are recorded under [Runtime
+dependencies](#runtime-dependencies); none is Android-specific. The table
 below records the direct automation dependencies. The current immutable pins
 are the full commit SHAs in each workflow's `uses:` references. Transitive
 Action dependencies remain defined by those pinned upstream actions.
@@ -72,6 +72,35 @@ the licences require of a distributed work — a copy of the Apache-2.0 text and
 the attribution in the three Jackson `NOTICE` files, and the MIT notices of
 FastDoubleParser and Schubfach — and the repository `NOTICE` does not carry
 them today.
+
+### `:core:provedores`
+
+| Component | Version | License | Purpose |
+| --- | --- | --- | --- |
+| `com.squareup.okhttp3:okhttp` (`okhttp-jvm`) | 5.5.0 | [Apache-2.0](https://github.com/square/okhttp/blob/parent-5.5.0/LICENSE.txt) | HTTP transport to the six AI providers |
+| Public Suffix List, bundled inside `okhttp-jvm` | bundled | [MPL-2.0](https://publicsuffix.org/list/), © Mozilla Foundation and contributors | `okhttp3/internal/publicsuffix/PublicSuffixDatabase.list`, used by OkHttp for cookie domains; not a separate artifact |
+| `com.squareup.okhttp3:okhttp-coroutines` | 5.5.0 | [Apache-2.0](https://github.com/square/okhttp/blob/parent-5.5.0/LICENSE.txt) | OkHttp's official coroutine bridge: cancelling the coroutine cancels the call |
+| `com.squareup.okio:okio` (`okio-jvm`) | 3.18.1 | [Apache-2.0](https://github.com/square/okio/blob/parent-3.18.1/LICENSE.txt) | Transitive of OkHttp |
+| `org.jetbrains.kotlinx:kotlinx-coroutines-core` (`-jvm`) | 1.11.0 | [Apache-2.0](https://github.com/Kotlin/kotlinx.coroutines/blob/1.11.0/LICENSE.txt) | Suspending provider calls and cancellable waits |
+| `org.jetbrains.kotlin:kotlin-stdlib` | 2.4.20 | [Apache-2.0](https://github.com/JetBrains/kotlin/blob/v2.4.20/license/LICENSE.txt) | The Kotlin standard library, needed by every Kotlin module, `:core:protocolo` included; it was missing from this inventory |
+
+The module also uses `jackson-databind`, recorded above, to build the request
+bodies and read the responses. Measured contribution to the runtime classpath:
+939 KB (`okhttp-jvm`), 7 KB (`okhttp-coroutines`), 383 KB (`okio-jvm`),
+1 540 KB (`kotlinx-coroutines-core-jvm`) and 1 810 KB (`kotlin-stdlib`),
+before shrinking.
+
+Retrofit is not used. Each provider is a single `POST` endpoint whose JSON body
+is built with Jackson, so Retrofit would only wrap the same OkHttp client; the
+operator decided on 23/09/2026 to use OkHttp alone. The Public Suffix List row
+was found by listing the contents of `okhttp-jvm-5.5.0.jar`, not in the
+dependency graph. MPL-2.0 is a file-level copyleft: distributing it unmodified,
+as OkHttp ships it, requires telling recipients where its source form is
+available, which the row's link does. The first APK that includes the module
+has to carry that notice along with the Apache-2.0 text.
+
+Test-only dependencies (`mockwebserver3`, `kotlinx-coroutines-test`, JUnit and
+`kotlin-test`) never reach a distributed binary and are not listed.
 
 ## Accepted upstream constraints
 

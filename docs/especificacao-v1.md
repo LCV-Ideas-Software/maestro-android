@@ -203,7 +203,7 @@ A primeira entrega de código traz, na mesma mudança:
 ```
 :core:protocolo   Kotlin puro, sem Android — content-lock, leitura de relatório,
                   auditoria de release, montagem de prompts, custo
-:core:provedores  Kotlin puro — os seis provedores sobre Retrofit/OkHttp, retry
+:core:provedores  Kotlin puro — os seis provedores sobre OkHttp, retry
                   e uso; lê a chave por uma interface, não pelo Keystore
 :core:seguranca   Android library — a implementação da chave sobre o Keystore
 :core:sessao      Android library — Room, orquestração da deliberação, retomada
@@ -428,16 +428,33 @@ revogada no mesmo dia, depois que o changelog oficial mostrou que o V4 Pro não
 foi descontinuado: *"In response to user demand, we have decided to continue
 providing API services for DeepSeek V4 Pro after September 14, 2026."*
 
-### 5.1 O quadro, verificado em 21/09/2026 (a linha do `grok`, reconfirmada em 22/09/2026)
+### 5.1 O quadro, reconferido em 23/09/2026
 
-| Agente | Modelo | Transporte | Controle de raciocínio |
-| --- | --- | --- | --- |
-| `claude` | `claude-fable-5-1` | `POST https://api.anthropic.com/v1/messages` | `thinking: {type: "adaptive"}` + `output_config.effort` |
-| `codex` | `gpt-6-astra` | `POST https://api.openai.com/v1/responses` | `reasoning.effort`: `low`…`max` |
-| `gemini` | `gemini-3.1-pro-preview` | `POST https://generativelanguage.googleapis.com/v1beta2/interactions` | `generation_config.thinking_level`: `low`, `medium`, `high` (padrão `high`) |
-| `deepseek` | `deepseek-v4-pro` | `POST https://api.deepseek.com/chat/completions` | — |
-| `grok` | `grok-4.7` | `POST https://api.x.ai/v1/responses` | `reasoning.effort`: `low`, `medium`, `high`, `xhigh` (padrão `high`) |
-| `perplexity` | `perplexity/sonar-reasoning-pro` | `POST https://api.perplexity.ai/v1/agent` | `reasoning.effort`: `minimal`…`max` |
+| Agente | Modelo | Transporte | Controle de raciocínio | Valor fixado |
+| --- | --- | --- | --- | --- |
+| `claude` | `claude-fable-5-1` | `POST https://api.anthropic.com/v1/messages` | `thinking: {type: "adaptive"}` + `output_config.effort`: `low`…`max` | `max` |
+| `codex` | `gpt-6-astra` | `POST https://api.openai.com/v1/responses` | `reasoning.effort`: `minimal`…`max`, sem padrão; `none` devolve 400 | `max` |
+| `gemini` | `gemini-3.1-pro-preview` | `POST https://generativelanguage.googleapis.com/v1beta/interactions` | `generation_config.thinking_level`: `low`, `medium`, `high` (padrão `high`) | `high` |
+| `deepseek` | `deepseek-v4-pro` | `POST https://api.deepseek.com/chat/completions` | `thinking: {type: "enabled", reasoning_effort}`: `none`, `low`, `high`, `max` | `max` |
+| `grok` | `grok-4.7` | `POST https://api.x.ai/v1/responses` | `reasoning.effort`: `low`, `medium`, `high`, `xhigh` (padrão `high`) | `xhigh` |
+| `perplexity` | `perplexity/sonar` | `POST https://api.perplexity.ai/v1/agent` | `preset`: `fast`, `low`, `medium`, `high`, `xhigh` | `xhigh` |
+
+**Valor fixado: o máximo de cada provedor, decisão do operador de 23/09/2026.**
+A versão anterior do quadro listava as faixas sem escolher o valor, e no
+`gpt-6-astra` a escolha é obrigatória: a documentação diz que ele não tem padrão.
+Com o raciocínio no máximo, o teto de saída de cada chamada é **64 mil tokens**,
+raciocínio incluído (decisão do operador de 23/09/2026): é o ponto de partida
+que a Anthropic documenta para `max`, e cabe no teto de saída de cada modelo —
+Claude Fable 5.1 e GPT-6 Astra 128 mil, Gemini 3.1 Pro 65.536, DeepSeek 384 mil,
+Grok 4.7 128 mil por padrão. A Perplexity não publica o teto do
+`perplexity/sonar`, que tem 128 mil de contexto; ver a seção 11.
+
+**Três linhas mudaram na reconferência de 23/09/2026.** O endereço do Gemini é
+`/v1beta/interactions`, e não `/v1beta2/`, como o quadro dizia: é o endereço do
+exemplo REST oficial, e a Interactions API está disponível para uso geral desde
+junho de 2026. A DeepSeek passou a expor o controle de raciocínio, com o esforço
+**dentro** de `thinking`, como a referência da API documenta. E o modelo da
+Perplexity mudou, pelo motivo do parágrafo sobre a Perplexity, logo abaixo.
 
 Três escolhas são do operador — `claude-fable-5-1`, `gemini-3.1-pro-preview` e o
 uso da API geral do Gemini. As outras decorrem da regra: `gpt-6-astra` é o
@@ -454,12 +471,15 @@ versão agrupam as entradas por mês, sem dia, e `grok-4.7` e `grok-4.6` aparece
 ambos em setembro: pela documentação não se prova se, em 21/09, o `grok-4.7` já
 estava publicado quando esta tabela o registrou.
 
-**Perplexity, uma linha de justificativa.** O peer é `sonar-reasoning-pro` e não
-`sonar-deep-research`. A recusa é por **forma**, não por capacidade: *Deep
-Research* é um produto de pesquisa longa, que devolve relatório após minutos, e
-não um interlocutor de turno numa deliberação. O `sonar` simples está barrado
-pela regra de não usar tier reduzido. O pin `perplexity/kimi-k3` que existe no
-cross-review é decisão daquele produto e **não** se transporta para cá.
+**Perplexity: `perplexity/sonar`, com o preset `xhigh`.** Uma versão anterior
+deste quadro fixava `sonar-reasoning-pro`. Na Agent API, a lista oficial de
+modelos traz `perplexity/sonar` como o **único** modelo próprio da Perplexity;
+os outros são de terceiros servidos por ela (`anthropic/…`, `openai/…`), e usar
+um deles aqui seria outro provedor disfarçado de Perplexity. A capacidade vem
+do preset `xhigh`, o maior, que aceita o modelo explícito. É a mesma decisão do
+operador de 22/09/2026 para o Maestro AI web (ADMIAPP-33), confirmada lá com
+chamada autenticada. O pin `perplexity/kimi-k3` que existe no cross-review é
+decisão daquele produto e **não** se transporta para cá.
 
 ### 5.2 Os três recursos de API que mudaram e precisam entrar
 
@@ -470,7 +490,7 @@ Não são detalhes de implementação: cada um invalida o jeito antigo de chamar
    `output_config.effort`.
 2. **Google — a Interactions API substituiu o `generateContent`.** É *"the new
    standard for building with Gemini, recommended for all new projects"*; o
-   `generateContent` segue suportado. Muda o endpoint (`/v1beta2/interactions`),
+   `generateContent` segue suportado. Muda o endpoint (`/v1beta/interactions`),
    `contents` vira `input`, o *streaming* passa a ser `"stream": true` no mesmo
    endereço em vez de um `:streamGenerateContent` separado, e o raciocínio vira
    `thinking_level` no lugar de `thinking_budget`. **Os dois juntos no mesmo
@@ -491,13 +511,21 @@ Android uma única vez, e apenas para dizer que publica regras de *keep* para
 ProGuard/R8 — o que não é declaração de suporte. xAI, DeepSeek e Perplexity não
 publicam SDK Java nenhum.
 
-Decisão: **Retrofit/OkHttp contra os contratos REST documentados, para os
-seis.** Os contratos REST são a interface oficial e documentada de todos eles,
-o que mantém a diretriz de usar solução oficial; e um transporte só significa uma
-abstração de *streaming*, uma taxonomia de erro e uma contabilidade de custo,
-testadas uma vez em vez de seis. Misturar um SDK que não afirma suportar Android
-com cinco clientes REST seria carregar peso, risco de R8 e uma segunda linha de
-inventário em [`THIRDPARTY.md`](../THIRDPARTY.md) para não ganhar nada.
+Decisão: **OkHttp contra os contratos REST documentados, para os seis.** Os
+contratos REST são a interface oficial e documentada de todos eles, o que mantém
+a diretriz de usar solução oficial; e um transporte só significa uma taxonomia de
+erro e uma contabilidade de custo testadas uma vez em vez de seis. Misturar um
+SDK que não afirma suportar Android com cinco clientes REST seria carregar peso,
+risco de R8 e uma segunda linha de inventário em
+[`THIRDPARTY.md`](../THIRDPARTY.md) para não ganhar nada.
+
+Uma versão anterior desta seção dizia "Retrofit/OkHttp". Cada provedor é um
+`POST` num endpoint só, com corpo JSON montado pelo Jackson, e o Retrofit só
+embrulharia o mesmo OkHttp; o operador decidiu em 23/09/2026 pelo OkHttp sozinho,
+com o módulo oficial `okhttp-coroutines` ligando o cancelamento da corrotina ao
+da chamada. A mesma versão prometia "uma abstração de *streaming*": nem o web nem
+o desktop usam *streaming*, e a v1 também não — cada turno é uma chamada
+completa, com o prazo da seção 4.1.
 
 Isto é afastamento declarado do padrão da *skill* `claude-api`, que manda usar o
 SDK Java oficial em projetos Kotlin. O padrão supõe JVM de servidor; aqui o alvo
@@ -659,16 +687,27 @@ omissão:
 - **Gemini Interactions:** `store` é `true` por padrão, com retenção de 55 dias
   no *tier* pago e 1 dia no gratuito.
 - **Perplexity Agent API:** expõe `store`.
+- **xAI Responses:** expõe `store`, sem padrão documentado. Esta seção dizia,
+  até a reconferência de 23/09/2026, que a xAI não tinha o campo.
 
-E os outros **três não têm o campo**. Em particular, o `POST /v1/messages` da
-Anthropic não aceita `store`: a lista de parâmetros de corpo publicada não o
-inclui. Mandar campo que a API não conhece é pedir recusa, não privacidade.
+E os outros **dois não têm o campo**: o `POST /v1/messages` da Anthropic e o
+`/chat/completions` da DeepSeek não o declaram. Mandar campo que a API não
+conhece é pedir recusa, não privacidade.
 
 Um produto que promete guardar o texto do usuário só onde ele escolheu não pode
-deixá-lo retido por padrão em três provedores. **`store: false` é explícito em
-todo pedido dos três provedores que expõem o campo, e ausente nos outros três.**
-A serialização é por provedor, não uma chave costurada em todos — e a seção 8
-testa exatamente isso, inclusive que os três sem o campo não o recebem.
+deixá-lo retido por padrão. **`store: false` é explícito em todo pedido dos
+quatro provedores que expõem o campo, e ausente nos outros dois.** A
+serialização é por provedor, não uma chave costurada em todos — e a seção 8
+testa exatamente isso, inclusive que os dois sem o campo não o recebem.
+
+**O que `store: false` não faz, e a tela não pode prometer.** Ele impede o
+objeto guardado para consulta posterior, e não a retenção do provedor para
+auditoria de abuso. A xAI é explícita: *"By default, all API requests and
+responses are stored on our servers (encrypted at rest) for 30 days for auditing
+purposes in the event of suspected abuse or misuse"*, e só a retenção zero
+(ZDR), ligada pelo administrador da conta do usuário na xAI, evita isso. A frase
+honesta para a tela é que o aplicativo pede a cada provedor para não guardar a
+conversa, e que cada provedor ainda aplica a própria política de retenção.
 
 Isso cobra dois preços, ambos aceitos. No Gemini, `store=false` é incompatível
 com execução em segundo plano e impede `previous_interaction_id` — o que apenas
@@ -741,11 +780,14 @@ de teste, porque compra confiança sem entregá-la.
   `MockWebServer` por provedor cobre: corpo montado conforme o contrato da seção
   5.1, 429 com e sem `Retry-After`, timeout, e resposta sem `usage`. Sobre
   retenção, o caso é **em dois sentidos**, porque a regra tem dois lados: nos
-  três provedores que expõem `store`, o corpo enviado **tem** `store: false`;
-  nos três que não expõem — Anthropic, xAI e DeepSeek —, o corpo **não tem** o
-  campo. Exigir `store: false` nos seis, como uma versão anterior deste
-  documento exigia, mandaria à Anthropic um parâmetro que o `/v1/messages` não
-  declara. Nenhum teste fala com provedor real.
+  quatro provedores que expõem `store` — OpenAI, Gemini, xAI e Perplexity —, o
+  corpo enviado **tem** `store: false`; nos dois que não expõem — Anthropic e
+  DeepSeek —, o corpo **não tem** o campo. Exigir `store: false` nos seis, como
+  uma versão anterior deste documento exigia, mandaria à Anthropic um parâmetro
+  que o `/v1/messages` não declara. A política de nova tentativa de
+  `provider_retry.rs` também é conferida com a contagem de requisições que
+  chegaram ao servidor, porque cada tentativa é uma chamada paga. Nenhum teste
+  fala com provedor real.
 - **`:core:seguranca`, instrumentado.** O Keystore só existe em aparelho ou
   emulador, então estes testes são instrumentados — e são poucos justamente
   porque a fronteira manteve tudo o mais fora deles. Cinco casos não podem
@@ -859,10 +901,22 @@ apontada na calculadora, e não se repete.
    decepcionar, a troca é **serviço em primeiro plano do próprio aplicativo**,
    em que `onTimeout()` e `stopSelf()` são nossos. Isso muda o agendamento, não
    o resto do desenho.
-2. **Timeout por chamada na Perplexity com `store: false`.** Com `store: false`
+2. **O prazo por chamada, com o raciocínio no máximo, nos seis provedores.** O
+   prazo canônico é 120 s (`PRAZO_POR_CHAMADA` no `:core:provedores`), pensado
+   para o esforço padrão e 20 mil tokens de saída. Com o raciocínio no máximo e
+   até 64 mil tokens de saída sem *streaming*, é provável que ele estoure com
+   frequência em qualquer dos seis. Isso tem dois efeitos que o `:core:sessao`
+   precisa tratar: a chamada que estourou o prazo **pode ter sido cobrada sem
+   devolver o uso**, e a sessão tem de lançar no acumulado o custo **estimado**
+   dela, e não zero; e a política canônica repete o erro de rede uma vez, o que
+   pode cobrar duas vezes. Na Perplexity há um agravante: com `store: false`
    não há modo assíncrono, e a medição de 17/09/2026 registrou o caminho
-   síncrono passando de 40 s sem responder. O teto por chamada precisa ser
-   calibrado com medição, não arbitrado.
+   síncrono passando de 40 s sem responder. O prazo precisa ser calibrado com
+   medição, não arbitrado. Na mesma medição entra o teto de
+   saída: a Perplexity não publica o máximo de saída do `perplexity/sonar`,
+   que tem 128 mil de contexto, e os 64 mil da seção 5.1 somados a um pedido
+   longo podem passar dele. Se passarem, a chamada volta com erro HTTP do
+   provedor, classificado como tal, e o teto dela tem de baixar.
 3. **O valor da janela de autenticação e o teto de sessão.** A janela é fixa na
    geração da chave (seção 6.2) e o `dataSync` não passa de seis horas em 24
    (seção 4.1). O número que o produto adota tem de sair de sessões reais, e

@@ -73,6 +73,16 @@ section 7.1 of the specification: amounts are summed and compared at eight
 decimals, and a call is allowed when the running total plus its estimate does
 not exceed the cap.
 
+The second module is `:core:provedores`, also pure Kotlin and tested on the
+JVM against a fake HTTP server. It holds the six AI providers, each built from
+its official API documentation, reconfirmed on 23/09/2026. Every request uses
+reasoning at the provider's maximum and a 64 000-token output ceiling. Four of
+them get `store: false`; the other two have no such field. The network policy
+comes from the canonical desktop: two attempts at most, and a wait on HTTP 429
+that honours `Retry-After`. The module reads the API key through an interface
+and never touches the Android Keystore; that implementation arrives with
+`:core:seguranca`.
+
 The native port is specified in
 [`docs/especificacao-v1.md`](docs/especificacao-v1.md) (in Portuguese), written
 before any Kotlin, as `calculadora-android` did. It fixes the scope unit by
