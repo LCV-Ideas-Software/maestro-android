@@ -25,9 +25,10 @@ import javax.crypto.SecretKey
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -63,7 +64,12 @@ public class CofreDeChaves internal constructor(
 ) : FonteDeChave {
 
     init {
-        require(janela >= 1.seconds) { "a janela de autenticação tem de ser de pelo menos 1 s" }
+        // O Keystore recebe a janela em segundos inteiros, num `Int`. Janela
+        // infinita ou acima do teto viraria número negativo na conversão, em
+        // silêncio, e a chave não teria a janela pedida.
+        require(janela.isFinite() && janela.inWholeSeconds in 1..Int.MAX_VALUE.toLong()) {
+            "a janela de autenticação tem de ser finita, entre 1 s e ${Int.MAX_VALUE} s"
+        }
     }
 
     /**
@@ -74,23 +80,37 @@ public class CofreDeChaves internal constructor(
     public suspend fun guardar(provedor: Provedor, chave: String): Guarda {
         require(chave.isNotBlank()) { "chave de API vazia" }
         if (!contexto.getSystemService(KeyguardManager::class.java).isDeviceSecure) return Guarda.SemTravaDeTela
-        val dados = withContext(Dispatchers.IO) {
-            val cifra = Cipher.getInstance(TRANSFORMACAO)
-            try {
-                cifra.init(Cipher.ENCRYPT_MODE, chaveDoKeystore() ?: gerar())
-            } catch (_: UserNotAuthenticatedException) {
-                return@withContext null
-            } catch (_: KeyPermanentlyInvalidatedException) {
-                // O que foi cifrado com a chave anterior já não volta; a nova
-                // passa a valer para o que se guardar daqui em diante.
-                keystore().deleteEntry(alias)
-                cifra.init(Cipher.ENCRYPT_MODE, gerar())
+        // A chave do Keystore é uma só. Sem exclusão mútua, duas guardas
+        // simultâneas no primeiro uso veriam o alias ausente, cada uma geraria
+        // a sua, e a segunda apagaria a da primeira, com o cifrado já gravado.
+        return EXCLUSAO.withLock {
+            var chaveNova = false
+            val dados = withContext(Dispatchers.IO) {
+                val cifra = Cipher.getInstance(TRANSFORMACAO)
+                try {
+                    cifra.init(Cipher.ENCRYPT_MODE, chaveDoKeystore() ?: gerar().also { chaveNova = true })
+                } catch (_: UserNotAuthenticatedException) {
+                    return@withContext null
+                } catch (_: KeyPermanentlyInvalidatedException) {
+                    keystore().deleteEntry(alias)
+                    cifra.init(Cipher.ENCRYPT_MODE, gerar())
+                    chaveNova = true
+                }
+                cifra.updateAAD(provedor.agente.toByteArray(Charsets.UTF_8))
+                cifra.iv + cifra.doFinal(chave.trim().toByteArray(Charsets.UTF_8))
+            } ?: return@withLock Guarda.ExigeAutenticacao
+            armazem.edit { preferencias ->
+                // Chave nova não abre o que a anterior cifrou — trava de tela
+                // removida, chave invalidada. Esses cifrados não voltam mais e
+                // não podem continuar aparecendo como configurados.
+                if (chaveNova) {
+                    preferencias.asMap().keys.map { it.name }.filter { it.startsWith(PREFIXO) }
+                        .forEach { preferencias.remove(byteArrayPreferencesKey(it)) }
+                }
+                preferencias[chaveDoArmazem(provedor)] = dados
             }
-            cifra.updateAAD(provedor.agente.toByteArray(Charsets.UTF_8))
-            cifra.iv + cifra.doFinal(chave.trim().toByteArray(Charsets.UTF_8))
-        } ?: return Guarda.ExigeAutenticacao
-        armazem.edit { it[chaveDoArmazem(provedor)] = dados }
-        return Guarda.Guardada(nivel() ?: NivelDoCofre.DESCONHECIDO)
+            Guarda.Guardada(nivel() ?: NivelDoCofre.DESCONHECIDO)
+        }
     }
 
     /** Apaga a chave de API do [provedor]. */
@@ -197,13 +217,17 @@ public class CofreDeChaves internal constructor(
             )
         }
 
+        /** Uma por processo, para todos os cofres: o Keystore é do processo. */
+        private val EXCLUSAO = Mutex()
+
         private const val ALIAS = "maestro_chaves_de_api"
+        private const val PREFIXO = "chave_"
         private const val KEYSTORE = "AndroidKeyStore"
         private const val TRANSFORMACAO = "AES/GCM/NoPadding"
         private const val TAMANHO_DO_IV = 12
         private const val BITS_DA_ETIQUETA = 128
 
-        private fun chaveDoArmazem(provedor: Provedor) = byteArrayPreferencesKey("chave_${provedor.agente}")
+        private fun chaveDoArmazem(provedor: Provedor) = byteArrayPreferencesKey("$PREFIXO${provedor.agente}")
     }
 }
 

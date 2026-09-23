@@ -15,10 +15,13 @@ import dev.lcv.maestro.provedores.Provedor
 import java.io.File
 import java.security.KeyStore
 import javax.crypto.AEADBadTagException
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -26,6 +29,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeFalse
 import org.junit.Before
@@ -166,6 +170,53 @@ class CofreDeChavesTest {
 
         assertEquals(LeituraDaChave.Ausente, cofre.chaveDe(Provedor.CLAUDE))
         assertFalse(cofre.configurada(Provedor.CLAUDE))
+    }
+
+    @Test
+    fun chave_nova_do_keystore_apaga_os_cifrados_que_ela_nao_abre() = runBlocking {
+        // Removida a trava, a chave some e os cifrados ficam órfãos. Guardar
+        // de novo cria outra chave com o mesmo alias; os cifrados antigos não
+        // abrem com ela e não podem continuar aparecendo como configurados.
+        guardar(Provedor.CLAUDE)
+        shell("locksettings clear --old $PIN")
+        assertTrue(shell("locksettings set-pin $PIN").contains(PIN))
+
+        guardar(Provedor.CODEX, "valor-novo")
+
+        assertFalse(cofre.configurada(Provedor.CLAUDE))
+        assertEquals(LeituraDaChave.Ausente, cofre.chaveDe(Provedor.CLAUDE))
+        assertEquals("valor-novo", (cofre.chaveDe(Provedor.CODEX) as LeituraDaChave.Presente).valor)
+    }
+
+    @Test
+    fun guardas_simultaneas_no_primeiro_uso_geram_uma_chave_so() = runBlocking {
+        // Sem exclusão mútua, cada guarda veria o alias ausente e geraria a
+        // própria chave, e a última apagaria a das outras.
+        autenticar()
+        val provedores = Provedor.entries
+        provedores.map { provedor ->
+            async(Dispatchers.IO) { cofre.guardar(provedor, "valor-${provedor.agente}") }
+        }.awaitAll().forEach { assertTrue("$it", it is Guarda.Guardada) }
+
+        autenticar()
+        for (provedor in provedores) {
+            assertEquals(
+                provedor.agente,
+                "valor-${provedor.agente}",
+                (cofre.chaveDe(provedor) as? LeituraDaChave.Presente)?.valor,
+            )
+        }
+    }
+
+    @Test
+    fun janela_que_nao_cabe_em_segundos_inteiros_e_recusada() {
+        // O Keystore recebe a janela em segundos, num `Int`. Infinita ou acima
+        // do teto, a conversão viraria número negativo em silêncio.
+        for (janela in listOf(Duration.INFINITE, (Int.MAX_VALUE.toLong() + 1).seconds, 0.seconds)) {
+            assertThrows("$janela", IllegalArgumentException::class.java) {
+                CofreDeChaves(contexto, armazem, janela, alias)
+            }
+        }
     }
 
     @Test

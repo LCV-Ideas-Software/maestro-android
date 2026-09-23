@@ -25,6 +25,16 @@ All material changes to Maestro Android are recorded here.
   for authentication, a permanently invalidated key is a lost secret, and
   anything else is "no key configured".
 
+  The Keystore key is one for all providers, so saving is serialized
+  process-wide: two saves on first use would otherwise each generate a key,
+  and the second would delete the first's with its ciphertext already
+  written. When a new key replaces a lost one — screen lock removed, key
+  invalidated — every earlier ciphertext is deleted, since none opens again
+  and none may keep showing as configured. The window must be finite and fit
+  in the whole seconds the Keystore takes. `:app` now declares
+  `dataExtractionRules`, excluding the vault's DataStore file from both cloud
+  backup and device transfer, as section 4.2 requires.
+
   The tests are instrumented, because the Keystore exists only on a device or
   an emulator. The operator decided on 23/09/2026 that four of the five cases
   in section 8 run in CI on every pull request, on an emulator managed by the
