@@ -77,7 +77,54 @@ jobs:
       - name: Lint
         # Executado em passo próprio, e não como parte de `build`, para que a
         # falha diga qual portão reprovou sem exigir leitura do log inteiro.
-        run: ./gradlew :app:lintDebug --no-daemon --stacktrace
+        run: ./gradlew :app:lintDebug :core:seguranca:lintDebug --no-daemon --stacktrace
 
       - name: Unit tests
         run: ./gradlew test --no-daemon --stacktrace
+
+  instrumented:
+    # Os testes do `:core:seguranca` só rodam em aparelho ou emulador: o
+    # Android Keystore não existe na JVM. Decisão do operador de 23/09/2026:
+    # os casos 2 a 5 da seção 8 da especificação rodam aqui, em toda PR; o
+    # caso 1, que exige o hardware de StrongBox que o emulador não tem, roda
+    # num aparelho que o tenha, e o resultado é registrado na PR.
+    #
+    # Job próprio, com prazo próprio, para que o emulador não entre no prazo
+    # do job de build.
+    name: Instrumented tests (emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read # Check out the repository.
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up the JDK
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Enable hardware acceleration for the emulator
+        # O passo que o GitHub documenta para usar a aceleração de hardware do
+        # emulador Android nos runners Linux (changelog de 02/04/2024,
+        # "Hardware accelerated Android virtualization now available").
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Instrumented tests
+        # O emulador é o do Gradle Managed Devices, declarado em
+        # `core/seguranca/build.gradle.kts`. A opção de GPU é a que a
+        # documentação do Android manda usar no GitHub Actions, que não tem
+        # renderização por hardware.
+        run: >-
+          ./gradlew :core:seguranca:api37DebugAndroidTest --no-daemon --stacktrace
+          -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
