@@ -243,7 +243,7 @@ The answer MUST contain exactly these parts:
    - reviewer
    - current_author
    - status
-   - changed_blocks: list every changed received block using unique block_id, change_type, reason, protocol_basis, and required: true|false. Use change_type: "split" or "addition" for extra blocks and change_type: "reorder" whenever approved blocks move, as the Revised Block Origins section defines. Do not duplicate block_id entries.
+   - changed_blocks: list every changed received block using unique block_id, change_type, reason, protocol_basis, and required: true|false. Use change_type: "split" or "addition" for extra blocks and change_type: "reorder" whenever approved blocks move, as the Revised Block Origins section defines. Do not duplicate block_id entries. Copy every block ID, in changed_blocks and in revised_block_origins, exactly as the manifest shows it. change_type is one exact token or a non-empty list of distinct tokens; only "addition", "split" and "reorder" grant permission.
    - revised_block_origins: required whenever custody is "revised", as the Revised Block Origins section defines.
    - unchanged_approved_blocks: list approved block IDs that you intentionally preserved.
    - changes: list of changed passages, received line/passage reference, reason, protocol citation, and whether the change was required.

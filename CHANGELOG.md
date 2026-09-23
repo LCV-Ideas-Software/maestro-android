@@ -383,6 +383,50 @@ All material changes to Maestro Android are recorded here.
 
 ### Changed
 
+- Align the approved-content lock with the canonical lock's v00.05.65 contract
+  (MAEANDR-17). The desktop rewrote its lock in `maestro-app#395` and `#396`
+  without adopting this repository's `revised_block_origins` ledger. The 33 test
+  cases it gained were run against the Kotlin lock, each as an agent following
+  this app's prompt would answer: with a truthful ledger.
+
+  **Adopted**, because they are about the report's form and do not touch the
+  ledger. Each one was previously looser here and now refuses:
+  - an empty or non-object report, on every turn;
+  - a field name in another case: `Changed_Blocks` is no longer
+    `changed_blocks`;
+  - an entry that is not an object, or has no string `block_id`;
+  - a malformed `block_id`, with no trimming or case folding — and the same
+    for the ledger's `origin`, which carries the same manifest ID;
+  - a `block_id` absent from the received manifest;
+  - an empty or repeated `change_type`, or one that is neither a string nor a
+    list of strings;
+  - any `change_type` token other than the exact `addition`, `split` and
+    `reorder`: synonyms such as `moved` and comma-joined values such as
+    `"edit, reorder"` no longer authorize anything;
+  - a `protocol_basis` whose only leaves are numbers or booleans.
+
+  The serial turn checks the same form through the same reader, even when no
+  revised text is returned — slightly stricter than the canonical, whose turn
+  only type-checks and leaves the rest to the lock. Messages now use the
+  canonical wording, and a malformed report is refused before duplicate-block
+  ambiguity is considered, as in the canonical order. The revision prompt now
+  tells the agent the same rules: copy every block ID exactly, and only the
+  exact tokens grant permission.
+
+  **Covered by the ledger, not adopted.** The local-growth-source rule, the
+  `new_block_count` limit and the two #396 cases (MAESTRO-31, growth beside
+  several edited blocks) exist because the desktop cannot tell where an extra
+  block came from. Here the ledger declares it, each addition carries its own
+  `protocol_basis`, and `new_block_count` is ignored. The residual is the one
+  accepted in Discussion #41: the declaration can lie.
+
+  **Stricter here by design.** The desktop lets an edited block change place
+  without `reorder`, because it cannot see the move. The ledger can, and this
+  lock requires `reorder` there.
+
+  Suite: 226 tests. Thirteen mutations, one per adopted rule, each make it
+  fail, with a green control run before and after.
+
 - Reconfirm `grok-4.7` against xAI's official documentation on 22/09/2026, when
   the operator announced its release, and record in the specification the
   reasoning-effort values the table was missing for it: `low`, `medium`, `high`

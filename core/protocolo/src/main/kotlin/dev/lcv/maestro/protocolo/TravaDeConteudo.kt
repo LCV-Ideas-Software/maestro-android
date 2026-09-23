@@ -138,19 +138,9 @@ public object TravaDeConteudo {
         val diferenca = compararCustodias(blocosAntes, blocosDepois)
         val leitura = LeituraDoRelatorio.ler(relatorio)
 
-        // Atribuição ambígua entre blocos idênticos: sem registro, fecha, não
-        // escolhe. Com registro, cada bloco revisado diz de onde vem, e a
-        // atribuição sai dele — ver `validarComRegistro`.
-        val registroLido = (leitura as? LeituraDoRelatorio.Leitura.Entradas)?.procedencias
-        if (diferenca.ambiguo != null && registroLido == null) {
-            return Veredito.Violada(
-                "approved-content lock violation: ${diferenca.ambiguo}",
-            )
-        }
-
         // Relatório que não parseia é violação de contrato, e não motivo para
-        // adivinhar o que ele queria dizer. O próprio prompt canônico já
-        // declara isso: "truncated JSON/report is a contract violation".
+        // adivinhar o que ele queria dizer. Vem antes de tudo, como no
+        // canônico, que lê o relatório antes de olhar os blocos.
         if (leitura is LeituraDoRelatorio.Leitura.Invalida) {
             return Veredito.Violada(
                 "approved-content lock violation: ${leitura.motivo}",
@@ -160,6 +150,29 @@ public object TravaDeConteudo {
         if (leitura is LeituraDoRelatorio.Leitura.Ambigua) {
             return Veredito.Violada(
                 "approved-content lock violation: ${leitura.motivo}",
+            )
+        }
+
+        // Declaração de bloco que não existe no manifesto recebido não
+        // autoriza nada e é recusada, como no canônico v00.05.65: um
+        // `B9999` num texto de um bloco só é erro do agente, não permissão.
+        if (leitura is LeituraDoRelatorio.Leitura.Entradas) {
+            val recebidos = blocosAntes.mapTo(HashSet()) { it.id }
+            leitura.porBloco.keys.firstOrNull { it !in recebidos }?.let { ausente ->
+                return Veredito.Violada(
+                    "approved-content lock violation: changed_blocks block_id $ausente is " +
+                        "absent from the received manifest",
+                )
+            }
+        }
+
+        // Atribuição ambígua entre blocos idênticos: sem registro, fecha, não
+        // escolhe. Com registro, cada bloco revisado diz de onde vem, e a
+        // atribuição sai dele — ver `validarComRegistro`.
+        val registroLido = (leitura as? LeituraDoRelatorio.Leitura.Entradas)?.procedencias
+        if (diferenca.ambiguo != null && registroLido == null) {
+            return Veredito.Violada(
+                "approved-content lock violation: ${diferenca.ambiguo}",
             )
         }
 

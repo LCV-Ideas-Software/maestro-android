@@ -391,6 +391,15 @@ Terceiro bloco intacto.
     }
 
     @Test
+    fun `declaracao malformada recusa ate turno sem texto revisado`() {
+        // O canônico passa todo relatório pelo serde tipado antes de decidir;
+        // entrada sem `block_id` não chega nem à trava.
+        val corpo = """{ "custody": "unchanged", "changes": [], "changed_blocks": [{ "protocol_basis": "x" }] }"""
+
+        assertContains(motivo(relatorioInalterado(corpo), "READY"), "must declare block_id as a string")
+    }
+
+    @Test
     fun `custody que nao e texto e recusado`() {
         assertContains(
             motivo(relatorioInalterado("""{ "custody": ["unchanged"], "changes": [] }"""), "READY"),

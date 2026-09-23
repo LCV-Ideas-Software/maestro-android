@@ -213,7 +213,7 @@ class BuracosDaTravaTest {
             {"changed_blocks": [{"block_id": "B0002", "protocol_basis": "editorial precision"}]}
         """.trimIndent()
 
-        exigirViolacao(antes, depois, relatorio, "is not valid JSON")
+        exigirViolacao(antes, depois, relatorio, "must be one strict JSON object")
     }
 
     @Test
@@ -233,7 +233,7 @@ class BuracosDaTravaTest {
             custody: revised
         """.trimIndent()
 
-        exigirViolacao(antes, depois, relatorio, "is not valid JSON")
+        exigirViolacao(antes, depois, relatorio, "must be one strict JSON object")
     }
 
     @Test
@@ -292,7 +292,7 @@ class BuracosDaTravaTest {
             }
         """.trimIndent()
 
-        exigirViolacao(antes, depois, relatorio, "more than once")
+        exigirViolacao(antes, depois, relatorio, "duplicate changed_blocks declaration for B0002")
     }
 
     @Test
@@ -312,7 +312,7 @@ class BuracosDaTravaTest {
             }
         """.trimIndent()
 
-        exigirViolacao(antes, depois, relatorio, "is not valid JSON")
+        exigirViolacao(antes, depois, relatorio, "must be one strict JSON object")
     }
 
     @Test
@@ -401,7 +401,7 @@ class BuracosDaTravaTest {
         val relatorio =
             """{"changed_blocks": [{"block_id": "B0001", "protocol_basis": 'editorial precision'}]}"""
 
-        exigirViolacao(antes, depois, relatorio, "is not valid JSON")
+        exigirViolacao(antes, depois, relatorio, "must be one strict JSON object")
     }
 
     // -- Achados do Codex sobre a reescrita --------------------------------
@@ -470,7 +470,7 @@ class BuracosDaTravaTest {
             }
         """.trimIndent()
 
-        exigirViolacao(antes, depois, relatorio, "is not valid JSON")
+        exigirViolacao(antes, depois, relatorio, "must be one strict JSON object")
     }
 
     @Test
@@ -492,7 +492,7 @@ class BuracosDaTravaTest {
             }
         """.trimIndent()
 
-        exigirViolacao(antes, depois, relatorio, "is not valid JSON")
+        exigirViolacao(antes, depois, relatorio, "must be one strict JSON object")
     }
 
     @Test
@@ -507,7 +507,9 @@ class BuracosDaTravaTest {
             }
         """.trimIndent()
 
-        exigirViolacao(antes, depois, relatorio, "added new blocks")
+        // Desde a v00.05.65 do canônico, declarar bloco que não existe no
+        // manifesto é recusado pelo nome, antes de contar crescimento.
+        exigirViolacao(antes, depois, relatorio, "B9999 is absent from the received manifest")
     }
 
     // -- Movimento de bloco editado, pelo registro de procedencia -----------
@@ -692,7 +694,7 @@ class BuracosDaTravaTest {
         val relatorio =
             """{"changed_blocks": [{"block_id": "B0001", "protocol_basis": "x"}]} {"changed_blocks": []}"""
 
-        exigirViolacao(antes, depois, relatorio, "is not valid JSON")
+        exigirViolacao(antes, depois, relatorio, "must be one strict JSON object")
     }
 
     @Test
@@ -711,7 +713,7 @@ class BuracosDaTravaTest {
             }
         """.trimIndent()
 
-        exigirViolacao(antes, depois, relatorio, "more than once")
+        exigirViolacao(antes, depois, relatorio, "duplicate changed_blocks declaration for B0001")
     }
 
     @Test
@@ -728,22 +730,21 @@ class BuracosDaTravaTest {
     }
 
     @Test
-    fun `duas secoes que so diferem na caixa sao recusadas`() {
-        // Para o JSON, `changed_blocks` e `Changed_Blocks` sao campos
-        // distintos, entao o parser nao os barra como chave duplicada. O
-        // canonico rebaixa o relatorio inteiro antes de procurar a chave, o
-        // que faria as duas valerem pela mesma secao — e dai quem decidiria
-        // seria a ordem no documento.
+    fun `secao com outra caixa nao vale como changed_blocks`() {
+        // Desde a v00.05.65 o canonico le o relatorio com serde tipado, e o
+        // nome do campo e exato: `Changed_Blocks` e so um campo que ninguem le.
+        // A declaracao que ele carrega nao autoriza a edicao.
         val antes = "Alpha aprovado."
         val depois = "Alpha reescrito."
         val relatorio = """
             {
               "Changed_Blocks": [{"block_id": "B0001", "protocol_basis": "x"}],
-              "changed_blocks": []
+              "changed_blocks": [],
+              "revised_block_origins": [{"prefix": "Alpha reescrito.", "origin": "B0001"}]
             }
         """.trimIndent()
 
-        exigirViolacao(antes, depois, relatorio, "more than one changed_blocks")
+        exigirViolacao(antes, depois, relatorio, "without matching")
     }
 
     @Test
@@ -1060,11 +1061,14 @@ class BuracosDaTravaTest {
             }
         """.trimIndent()
 
+        // Desde a v00.05.65, o ID que não está no manifesto recebido é
+        // recusado pelo nome, antes de a trava procurar quem autoriza o
+        // acréscimo.
         exigirViolacao(
             "Alpha.${q}Beta.",
             "Alpha.${q}New block.${q}Beta.",
             relatorio,
-            "so a changed_blocks entry must declare change_type addition",
+            "B0003 is absent from the received manifest",
         )
     }
 
@@ -1425,6 +1429,6 @@ class BuracosDaTravaTest {
             }
         """.trimIndent()
 
-        exigirViolacao(antes, depois, relatorio, "is not valid JSON")
+        exigirViolacao(antes, depois, relatorio, "must be one strict JSON object")
     }
 }
