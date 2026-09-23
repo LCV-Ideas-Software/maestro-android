@@ -47,7 +47,8 @@ All material changes to Maestro Android are recorded here.
   - each attempt's deadline is the lesser of 120 s and the time the session
     has left, which the session passes in; a wait that does not fit in that
     time ends the call with the failure that caused it, instead of starting a
-    paid attempt past the limit;
+    paid attempt past the limit, and no attempt starts once that time is
+    gone, even when a wait that fitted ended late;
   - waits, in-flight calls and body reads stop on cancellation.
 
   **OkHttp never repeats a request on its own.** Every attempt is a paid call,
@@ -64,16 +65,18 @@ All material changes to Maestro Android are recorded here.
   reaches the journal.
 
   A 2xx object missing the fields its contract requires is an invalid
-  response, not an empty success, and so is a response marked complete that
-  carries no text; a refusal from the Responses API is its own incomplete
-  outcome.
+  response, not an empty success. A response marked complete that carries no
+  text, and a refusal from the Responses API, are incomplete outcomes. The
+  reason an incomplete outcome carries comes from the provider (`status`,
+  `stop_reason`, the refusal text) and goes through the same redaction,
+  control-character replacement and length cap as error messages.
 
   A pasted key is trimmed. A key with a character that cannot go in an HTTP
   header is refused before any request, as its own outcome: OkHttp would
   otherwise throw with the header value, the key itself, in its message.
 
-  The module has 44 tests against a fake HTTP server; none talks to a real
-  provider or carries a key-shaped value. Thirty-nine deliberate mutations each
+  The module has 47 tests against a fake HTTP server; none talks to a real
+  provider or carries a key-shaped value. Forty-two deliberate mutations each
   make them fail, with a green control run before and after. The per-call
   deadline at maximum effort, and charging the estimate for a call that timed
   out, are recorded as an open item for `:core:sessao` in section 11. `THIRDPARTY.md` records

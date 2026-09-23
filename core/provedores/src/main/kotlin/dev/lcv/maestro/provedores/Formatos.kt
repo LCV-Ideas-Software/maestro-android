@@ -99,7 +99,7 @@ internal sealed interface Formato {
             return if (parada == "end_turn") {
                 concluida(texto, uso)
             } else {
-                Resultado.Incompleta("stop_reason: $parada", uso)
+                incompleta("stop_reason: $parada", uso)
             }
         }
     }
@@ -134,7 +134,7 @@ internal sealed interface Formato {
             // Recusa vem como bloco `refusal` dentro de uma resposta
             // `completed`; sem esta checagem ela passaria como sucesso vazio.
             conteudo.firstOrNull { it.texto("type") == "refusal" }?.let {
-                return Resultado.Incompleta("refusal: ${Erros.sanear(it.texto("refusal").orEmpty(), 180)}", uso)
+                return incompleta("refusal: ${it.texto("refusal").orEmpty()}", uso)
             }
             val texto = conteudo.filter { it.texto("type") == "output_text" }
                 .joinToString("") { it.texto("text").orEmpty() }
@@ -142,10 +142,7 @@ internal sealed interface Formato {
                 concluida(texto, uso)
             } else {
                 val razao = resposta.path("incomplete_details").texto("reason")
-                Resultado.Incompleta(
-                    "status: $estado" + (razao?.let { ", reason: $it" } ?: ""),
-                    uso,
-                )
+                incompleta("status: $estado" + (razao?.let { ", reason: $it" } ?: ""), uso)
             }
         }
     }
@@ -189,7 +186,7 @@ internal sealed interface Formato {
             return if (estado == "completed") {
                 concluida(texto, uso)
             } else {
-                Resultado.Incompleta("status: $estado", uso)
+                incompleta("status: $estado", uso)
             }
         }
     }
@@ -232,7 +229,7 @@ internal sealed interface Formato {
             return if (fim == "stop") {
                 concluida(texto, uso)
             } else {
-                Resultado.Incompleta("finish_reason: $fim", uso)
+                incompleta("finish_reason: $fim", uso)
             }
         }
 
@@ -270,7 +267,7 @@ internal sealed interface Formato {
             return if (estado == "completed") {
                 concluida(texto, uso)
             } else {
-                Resultado.Incompleta("status: $estado", uso)
+                incompleta("status: $estado", uso)
             }
         }
     }
@@ -285,7 +282,15 @@ private fun invalida(provedor: String, campos: String): Resultado =
 
 /** Resposta que o provedor deu por concluída sem texto nenhum não é resposta. */
 private fun concluida(texto: String, uso: Uso): Resultado =
-    if (texto.isBlank()) Resultado.Incompleta("completed without text", uso) else Resultado.Concluida(texto.trim(), uso)
+    if (texto.isBlank()) incompleta("completed without text", uso) else Resultado.Concluida(texto.trim(), uso)
+
+/**
+ * O motivo carrega texto do provedor — `status`, `stop_reason`, a recusa — e
+ * vai ao jornal da sessão. Passa pelo mesmo saneamento das mensagens de erro:
+ * caractere de controle vira espaço, para não forjar linha, e o tamanho tem
+ * teto.
+ */
+private fun incompleta(motivo: String, uso: Uso): Resultado = Resultado.Incompleta(Erros.sanear(motivo, 180), uso)
 
 private fun JsonNode.texto(campo: String): String? = get(campo)?.takeIf { it.isTextual }?.textValue()
 

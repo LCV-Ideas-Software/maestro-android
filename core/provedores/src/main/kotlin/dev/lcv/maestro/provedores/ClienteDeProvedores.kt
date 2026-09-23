@@ -44,7 +44,8 @@ import okio.BufferedSink
  * tempo que resta da sessão. Quem sabe o tempo que resta é a sessão, que o
  * passa em [chamar]. Aqui ele vale para a chamada inteira: uma espera que não
  * cabe no tempo restante encerra a chamada com a falha que a motivou, em vez
- * de começar outra tentativa paga depois do limite.
+ * de começar outra tentativa paga depois do limite; e nenhuma tentativa
+ * começa sem tempo restante, nem quando a espera que cabia terminou tarde.
  *
  * **Nenhuma tentativa escondida.** Cada tentativa é um POST pago, e o OkHttp
  * refaz pedidos sozinho em vários casos:
@@ -102,8 +103,18 @@ public class ClienteDeProvedores internal constructor(
         fun cabe(espera: Duration): Boolean = restante()?.let { espera < it } ?: true
 
         var tentativa = 1
+        // A falha que motivou a espera. Se a espera terminar tarde — o
+        // aparelho dormiu, o escalonador atrasou — e o tempo tiver acabado, é
+        // ela que volta, e a tentativa seguinte não sai.
+        var falhaAnterior: Resultado? = null
         while (true) {
-            val prazo = minOf(PRAZO_POR_CHAMADA, restante() ?: PRAZO_POR_CHAMADA)
+            val resta = restante()
+            if (resta != null && resta <= Duration.ZERO) {
+                return falhaAnterior
+                    ?: Resultado.FalhaDeRede("PROVIDER_NETWORK_ERROR: no time left in the session for the call")
+            }
+            val prazo = minOf(PRAZO_POR_CHAMADA, resta ?: PRAZO_POR_CHAMADA)
+            // Positivo e abaixo de 1 ms, o OkHttp recusaria o valor.
             val chamada = http.newBuilder().callTimeout(prazo.coerceAtLeast(1.milliseconds).toJavaDuration()).build()
                 .newCall(
                     Request.Builder().url(endereco(provedor)).headers(cabecalhos)
@@ -115,8 +126,10 @@ public class ClienteDeProvedores internal constructor(
                 // Cancelamento não passa por aqui: o `executeAsync` o entrega
                 // como `CancellationException`, e a espera abaixo também é
                 // cancelável. Nada que o usuário mandou parar é repetido.
+                val falha = falhaDeRede(erro, chave)
                 val espera = ESPERA_APOS_ERRO_DE_REDE_MS.milliseconds
-                if (tentativa >= MAX_TENTATIVAS || !cabe(espera)) return falhaDeRede(erro, chave)
+                if (tentativa >= MAX_TENTATIVAS || !cabe(espera)) return falha
+                falhaAnterior = falha
                 esperar(espera.inWholeMilliseconds)
                 tentativa++
                 continue
@@ -127,12 +140,6 @@ public class ClienteDeProvedores internal constructor(
             } else {
                 null
             }
-            if (espera429 != null) {
-                resposta.close()
-                esperar(espera429.inWholeMilliseconds)
-                tentativa++
-                continue
-            }
             // Falha lendo o corpo, depois de o provedor ter respondido, não se
             // repete: ele provavelmente já cobrou, e repetir pagaria duas
             // vezes. É o que o canônico faz, que só envolve o envio na
@@ -140,10 +147,17 @@ public class ClienteDeProvedores internal constructor(
             val corpoDaResposta = try {
                 resposta.use { lerCorpo(chamada, it) }
             } catch (erro: IOException) {
-                return falhaDeRede(erro, chave)
+                // O 429 não é cobrado, e o corpo dele só serve à mensagem.
+                if (espera429 == null) return falhaDeRede(erro, chave)
+                ""
             }
             if (!resposta.isSuccessful) {
-                return Resultado.FalhaHttp(resposta.code, Erros.mensagemHttp(resposta.code, corpoDaResposta, chave))
+                val falha = Resultado.FalhaHttp(resposta.code, Erros.mensagemHttp(resposta.code, corpoDaResposta, chave))
+                if (espera429 == null) return falha
+                falhaAnterior = falha
+                esperar(espera429.inWholeMilliseconds)
+                tentativa++
+                continue
             }
             val json = try {
                 Json.LEITOR.readTree(corpoDaResposta)

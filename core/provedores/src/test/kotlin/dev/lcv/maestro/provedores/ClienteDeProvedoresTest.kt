@@ -12,10 +12,12 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -43,11 +45,11 @@ class ClienteDeProvedoresTest {
 
     @AfterTest fun descer() = servidor.close()
 
-    private fun cliente() = ClienteDeProvedores(
+    private fun cliente(esperar: suspend (Long) -> Unit = { esperas += it }) = ClienteDeProvedores(
         OkHttpClient(),
         { chave },
         { servidor.url("/${it.agente}").toString() },
-        { esperas += it },
+        esperar,
         { agora },
     )
 
@@ -61,7 +63,7 @@ class ClienteDeProvedoresTest {
     private fun status(codigo: Int, vararg cabecalhos: Pair<String, String>, corpo: String = "") =
         MockResponse.Builder().code(codigo).apply { cabecalhos.forEach { (k, v) -> addHeader(k, v) } }.body(corpo).build()
 
-    private fun chamar(tempoRestante: kotlin.time.Duration? = null) =
+    private fun chamar(tempoRestante: Duration? = null) =
         runBlocking { cliente().chamar(Provedor.CODEX, pedido, tempoRestante) }
 
     // -- 429 -----------------------------------------------------------------------
@@ -239,6 +241,36 @@ class ClienteDeProvedoresTest {
         assertContains(resultado.mensagem, "PROVIDER_NETWORK_ERROR")
         assertEquals(1, servidor.requestCount)
         assertTrue(esperas.isEmpty())
+    }
+
+    @Test
+    fun `espera que termina depois do prazo nao manda outra tentativa`() {
+        // A espera cabia quando começou, mas terminou tarde — o aparelho
+        // dormiu, o escalonador atrasou. Sem tempo restante, a tentativa não
+        // sai, e volta a falha que motivou a espera.
+        servidor.enqueue(status(429, "Retry-After" to "0", corpo = """{"error":{"message":"limite"}}"""))
+        servidor.enqueue(ok())
+
+        val resultado = runBlocking {
+            cliente(esperar = { esperas += it; delay(400) }).chamar(Provedor.CODEX, pedido, tempoRestante = 300.milliseconds)
+        }
+
+        val falha = assertIs<Resultado.FalhaHttp>(resultado)
+        assertEquals(429, falha.status)
+        assertContains(falha.mensagem, "limite")
+        assertEquals(listOf(0L), esperas)
+        assertEquals(1, servidor.requestCount)
+    }
+
+    @Test
+    fun `sem tempo restante nenhuma requisicao sai`() {
+        servidor.enqueue(ok())
+
+        for (restante in listOf(Duration.ZERO, (-5).seconds)) {
+            val resultado = assertIs<Resultado.FalhaDeRede>(chamar(tempoRestante = restante))
+            assertContains(resultado.mensagem, "no time left")
+        }
+        assertEquals(0, servidor.requestCount)
     }
 
     // -- Chave e cancelamento ------------------------------------------------------

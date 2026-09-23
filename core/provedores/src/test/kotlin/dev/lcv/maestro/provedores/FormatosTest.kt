@@ -225,6 +225,28 @@ class FormatosTest {
     }
 
     @Test
+    fun `motivo vindo do provedor e saneado antes de ir ao jornal, nos seis`() {
+        // Quebra de linha escapada forjaria linha no jornal; texto longo o
+        // encheria. Vale para todo campo do provedor que chega ao motivo.
+        val hostil = "x\\ny" + "a".repeat(400)
+        val incompletas = mapOf(
+            Provedor.CLAUDE to """{"content":[],"stop_reason":"$hostil"}""",
+            Provedor.CODEX to """{"status":"incomplete","incomplete_details":{"reason":"$hostil"},"output":[]}""",
+            Provedor.GEMINI to """{"status":"$hostil","steps":[]}""",
+            Provedor.DEEPSEEK to """{"choices":[{"finish_reason":"$hostil","message":{"content":""}}]}""",
+            Provedor.GROK to """{"status":"$hostil","output":[]}""",
+            Provedor.PERPLEXITY to """{"status":"$hostil","output":[]}""",
+        )
+        val recusa = """{"status":"completed","output":[{"type":"message","content":[{"type":"refusal","refusal":"$hostil"}]}]}"""
+        for ((provedor, corpo) in incompletas.entries.map { it.key to it.value } + (Provedor.CODEX to recusa)) {
+            val (resultado, _) = chamarERegistrar(provedor, corpo)
+            val motivo = (resultado as? Resultado.Incompleta ?: error("$provedor: $resultado")).motivo
+            assertFalse(motivo.any { Character.isISOControl(it) }, "$provedor: $motivo")
+            assertTrue(motivo.codePointCount(0, motivo.length) <= 180, "$provedor: ${motivo.length}")
+        }
+    }
+
+    @Test
     fun `recusa na Responses API nao passa por resposta concluida`() {
         val (resultado, _) = chamarERegistrar(
             Provedor.CODEX,
