@@ -29,6 +29,17 @@ import com.fasterxml.jackson.databind.JsonNode
  * - Os dois ramos do canônico que recusam bloco vazio depois de extraído não
  *   têm caminho: `extract_tagged_block` já devolve ausência para bloco vazio, e
  *   a recusa acontece como bloco ausente.
+ *
+ * **Este objeto valida a forma do turno, não decide o que fazer com ele.**
+ * `NOT_READY` com custódia inalterada e sem mudanças passa aqui, como passa
+ * no canônico, mas **não** é pausa por evidência do operador: a camada de
+ * decisão do canônico (`not_ready_unchanged_release_audit_failure` e
+ * `unrevised_serial_turn_runtime_action`) sempre manda o mesmo revisor
+ * corrigir, até esgotar as tentativas, sem pausar. Os testes canônicos
+ * dizem isso no nome: `..._retries_then_exhausts_without_pause` e
+ * `..._cannot_pause_for_operator_evidence`. Essa camada chama a auditoria do
+ * candidato final e é portada com ela (MAEANDR-18). O prompt de revisão diz o
+ * mesmo ao agente.
  */
 public object TurnoSerial {
 

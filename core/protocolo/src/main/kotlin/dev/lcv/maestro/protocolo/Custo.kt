@@ -86,8 +86,8 @@ public object Custo {
     /**
      * `calculateObservedCost`. Custo em dólar informado pelo provedor vale
      * como está, se não for negativo. Senão, cada contagem de tokens que o
-     * provedor não devolveu é estimada pelo tamanho do texto. `null` quando
-     * falta taxa e o provedor não informou custo.
+     * provedor não devolveu, ou devolveu negativa, é estimada pelo tamanho do
+     * texto. `null` quando falta taxa e o provedor não informou custo.
      */
     public fun observar(
         taxas: Taxas,
@@ -102,14 +102,18 @@ public object Custo {
         }
         val entrada = taxaValida(taxas.entradaPorMilhao) ?: return null
         val saida = taxaValida(taxas.saidaPorMilhao) ?: return null
+        // Contagem negativa é resposta malformada, não desconto: somada, ela
+        // baixaria o acumulado e deixaria passar chamadas que o teto barraria.
+        val entradaDoProvedor = tokensDeEntrada?.takeIf { it >= 0 }
+        val saidaDoProvedor = tokensDeSaida?.takeIf { it >= 0 }
         val valor = calcular(
-            tokensDeEntrada ?: tokensEstimados(promptEnviado),
-            tokensDeSaida ?: tokensEstimados(textoRecebido),
+            entradaDoProvedor ?: tokensEstimados(promptEnviado),
+            saidaDoProvedor ?: tokensEstimados(textoRecebido),
             entrada,
             saida,
             taxas,
         )
-        val fonte = if (tokensDeEntrada != null && tokensDeSaida != null) {
+        val fonte = if (entradaDoProvedor != null && saidaDoProvedor != null) {
             Fonte.PROVEDOR
         } else {
             Fonte.ESTIMATIVA

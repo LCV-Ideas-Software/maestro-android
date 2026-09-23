@@ -46,6 +46,14 @@ class PromptsDaSessaoTest {
     }
 
     @Test
+    fun `revisao nao promete auditoria de links que ainda nao existe`() {
+        // A frase do web volta quando a auditoria entrar (MAEANDR-18); antes
+        // disso, o agente contaria com uma checagem ausente.
+        assertFalse(revisao().contains("audits public links"))
+        assertContains(revisao(), "Do not fabricate URLs.")
+    }
+
+    @Test
     fun `revisao leva o manifesto do texto atual`() {
         assertContains(revisao(), TravaDeConteudo.formatarManifestoParaPrompt(textoAtual))
     }
