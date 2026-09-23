@@ -7,6 +7,9 @@ escolha precise ser redescoberta ou relitigada.
 
 Toda verificação de documentação de provedor citada aqui foi feita em
 **21/09/2026**, na documentação oficial do próprio provedor, e não de memória.
+A única exceção é a linha do `grok` na seção 5.1, reconfirmada na documentação
+oficial da xAI em **22/09/2026**; as dos outros cinco provedores continuam com a
+data de 21/09.
 
 ## 1. Do que se trata
 
@@ -425,7 +428,7 @@ revogada no mesmo dia, depois que o changelog oficial mostrou que o V4 Pro não
 foi descontinuado: *"In response to user demand, we have decided to continue
 providing API services for DeepSeek V4 Pro after September 14, 2026."*
 
-### 5.1 O quadro, verificado em 21/09/2026
+### 5.1 O quadro, verificado em 21/09/2026 (a linha do `grok`, reconfirmada em 22/09/2026)
 
 | Agente | Modelo | Transporte | Controle de raciocínio |
 | --- | --- | --- | --- |
@@ -433,13 +436,23 @@ providing API services for DeepSeek V4 Pro after September 14, 2026."*
 | `codex` | `gpt-6-astra` | `POST https://api.openai.com/v1/responses` | `reasoning.effort`: `low`…`max` |
 | `gemini` | `gemini-3.1-pro-preview` | `POST https://generativelanguage.googleapis.com/v1beta2/interactions` | `generation_config.thinking_level`: `low`, `medium`, `high` (padrão `high`) |
 | `deepseek` | `deepseek-v4-pro` | `POST https://api.deepseek.com/chat/completions` | — |
-| `grok` | `grok-4.7` | `POST https://api.x.ai/v1/responses` | `reasoning.effort` |
+| `grok` | `grok-4.7` | `POST https://api.x.ai/v1/responses` | `reasoning.effort`: `low`, `medium`, `high`, `xhigh` (padrão `high`) |
 | `perplexity` | `perplexity/sonar-reasoning-pro` | `POST https://api.perplexity.ai/v1/agent` | `reasoning.effort`: `minimal`…`max` |
 
 Três escolhas são do operador — `claude-fable-5-1`, `gemini-3.1-pro-preview` e o
 uso da API geral do Gemini. As outras decorrem da regra: `gpt-6-astra` é o
 modelo de raciocínio corrente da OpenAI, `grok-4.7` é o Grok corrente, e
 `deepseek-v4-pro` é o único não-Flash que a DeepSeek oferece.
+
+**Grok, reconfirmado em 22/09/2026, quando o operador anunciou o lançamento.** A
+página oficial de modelos lista `grok-4.7` e o descreve como *"the most capable
+model we've built"*, com 500 mil de contexto; as notas de versão registram
+*"now available on the xAI API as `grok-4.7`"* e o esforço de raciocínio em
+*"low, medium, high (default), and xhigh"* — valores que esta tabela ainda não
+trazia. Nenhum modelo de texto do Grok aparece como descontinuado. As notas de
+versão agrupam as entradas por mês, sem dia, e `grok-4.7` e `grok-4.6` aparecem
+ambos em setembro: pela documentação não se prova se, em 21/09, o `grok-4.7` já
+estava publicado quando esta tabela o registrou.
 
 **Perplexity, uma linha de justificativa.** O peer é `sonar-reasoning-pro` e não
 `sonar-deep-research`. A recusa é por **forma**, não por capacidade: *Deep
