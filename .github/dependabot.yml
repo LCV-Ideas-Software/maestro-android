@@ -53,9 +53,9 @@ updates:
     # versao que traga as bibliotecas atualizadas -- e o AGP permanece sob
     # atualizacao automatica por esta mesma entrada.
     #
-    # ATENCAO: a linha do kotlin-gradle-plugin deve ser REMOVIDA assim que o KGP
-    # for declarado explicitamente no projeto, ou seja, quando houver codigo Kotlin.
-    # A partir dai ele passa a ser dependencia direta e atualizavel.
+    # A linha do kotlin-gradle-plugin saiu daqui em 21/09/2026, quando o KGP
+    # passou a ser declarado no catalogo de versoes junto com o primeiro Kotlin
+    # (MAEANDR-14). A partir dai ele e dependencia direta e atualizavel.
     ignore:
       - dependency-name: "org.apache.commons:commons-lang3"
       - dependency-name: "org.apache.httpcomponents:httpclient"
@@ -63,7 +63,6 @@ updates:
       - dependency-name: "org.bouncycastle:bcpkix-jdk18on"
       - dependency-name: "org.bouncycastle:bcprov-jdk18on"
       - dependency-name: "org.jdom:jdom2"
-      - dependency-name: "org.jetbrains.kotlin:kotlin-gradle-plugin"
     groups:
       security-updates:
         applies-to: security-updates

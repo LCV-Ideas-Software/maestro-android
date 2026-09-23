@@ -96,6 +96,41 @@ alterou os blocos que declarou ter alterado. É lógica de texto pura, sem
 Android e sem rede — e por isso é o primeiro candidato a viver num módulo
 testável na JVM.
 
+**Só que a fonte canônica desta unidade não é o web, e a frase da seção 1 não
+vale aqui.** O `content-lock.ts` se declara, na primeira linha, *"byte-exact
+port of maestro-app (canonical) src-tauri/src/editorial_content_lock.rs"* — o
+web é ele próprio um porte, e aponta o Rust como canônico. O arquivo Rust tem
+**959 linhas: 607 de implementação e 352 de testes**, contra 526 do porte web,
+e este declara um desvio: chaveia igualdade de bloco pelo texto normalizado em
+vez do SHA-256.
+
+Portar o TypeScript seria portar um porte, herdando o desvio e inventando do
+zero uma suíte que já existe. **Decisão do operador em 21/09/2026: o Kotlin
+porta do Rust**, com o TypeScript como conferência cruzada, e a suíte canônica
+vem junto. Isso não contradiz a regra de que o produto vem do web — contradiz
+apenas a suposição de que *toda* unidade vem de lá, que este caso desmente.
+
+A mesma pergunta deve ser feita a cada unidade antes de portá-la: **de onde ela
+é canônica?** Uma unidade que o web tenha escrito primeiro vem do web; esta não
+é uma delas.
+
+**E o contrato do relatório muda aqui — decisão do operador de 22/09/2026.** No
+canônico, um bloco editado e movido é indistinguível de um acréscimo: os dois
+textos não dizem se ele moveu, e `changed_blocks` só carrega `block_id` da
+custódia recebida. Três heurísticas de pareamento foram escritas e derrubadas
+em revisão, uma por rodada. O Android passa a exigir, quando o texto revisado
+tem bloco que não é cópia intacta de um recebido, a seção
+`revised_block_origins`: uma entrada por bloco revisado, na ordem do texto, com
+o começo do bloco como conferência e o `block_id` de origem ou `addition`. E o
+relatório passa a ser lido como JSON estrito, o que o prompt canônico já pedia.
+
+O que isso **não** fecha fica escrito: a declaração pode mentir. O ganho é que
+o movimento silencioso deixa de existir — escondê-lo passa a exigir uma
+afirmação falsa, atribuível e justificada. Registro completo na
+[Discussion #41](https://github.com/LCV-Ideas-Software/maestro-android/discussions/41).
+A mesma lacuna existe no canônico e no `admin-app` (MAESTRO-30, ADMIAPP-29); a
+adoção lá é decisão de cada repositório.
+
 ### 2.3 O cliente web
 
 `MaestroAiModule.tsx` (1.443 linhas) tem 31 unidades de estado, 5 efeitos e 20

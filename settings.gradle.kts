@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 rootProject.name = "maestro-android"
 
 include(":app")
+include(":core:protocolo")
