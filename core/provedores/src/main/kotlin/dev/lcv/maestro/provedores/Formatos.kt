@@ -286,11 +286,10 @@ private fun concluida(texto: String, uso: Uso): Resultado =
 
 /**
  * O motivo carrega texto do provedor — `status`, `stop_reason`, a recusa — e
- * vai ao jornal da sessão. Passa pelo mesmo saneamento das mensagens de erro:
- * caractere de controle vira espaço, para não forjar linha, e o tamanho tem
- * teto.
+ * sai daqui cru. Quem o saneia é o `ClienteDeProvedores`, com a chave da
+ * chamada, que o leitor não conhece.
  */
-private fun incompleta(motivo: String, uso: Uso): Resultado = Resultado.Incompleta(Erros.sanear(motivo, 180), uso)
+private fun incompleta(motivo: String, uso: Uso): Resultado = Resultado.Incompleta(motivo, uso)
 
 private fun JsonNode.texto(campo: String): String? = get(campo)?.takeIf { it.isTextual }?.textValue()
 
