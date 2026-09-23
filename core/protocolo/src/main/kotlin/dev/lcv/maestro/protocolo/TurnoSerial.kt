@@ -19,11 +19,15 @@ import com.fasterxml.jackson.databind.JsonNode
  * - O relatório é lido pelo mesmo leitor estrito da trava
  *   ([LeituraDoRelatorio.LEITOR]), e o erro do parser aparece pela primeira
  *   linha, como lá. O texto do erro é do Jackson, não do serde.
- * - Aqui se leem só os três campos que o turno usa — `custody`, `changes` e
- *   `operator_evidence_required` —, com a tipagem que o serde aplica a eles:
- *   nome exato, `custody` texto ou nulo, as duas listas ausentes ou lista. A
- *   tipagem de `changed_blocks` é da trava, e a diferença com a v00.05.65 do
- *   canônico está na MAEANDR-17.
+ * - Os três campos que o turno usa — `custody`, `changes` e
+ *   `operator_evidence_required` — são lidos com a tipagem que o serde aplica
+ *   a eles: nome exato, `custody` texto ou nulo, as duas listas ausentes ou
+ *   lista. A forma de `changed_blocks` e do registro vem do mesmo leitor da
+ *   trava ([LeituraDoRelatorio.ler]) e é conferida em todo turno. Esse leitor
+ *   é um pouco mais estrito que o `serde` do canônico, que no turno só confere
+ *   tipos: aqui um `block_id` malformado, um `change_type` vazio ou repetido e
+ *   um bloco declarado duas vezes já recusam o turno, mesmo sem texto
+ *   revisado. O canônico só os recusa quando a trava roda.
  * - Os marcadores de eco incluem o cabeçalho do prompt deste aplicativo
  *   ([PromptsDaSessao]), que o canônico não conhece.
  * - Os dois ramos do canônico que recusam bloco vazio depois de extraído não
@@ -95,6 +99,16 @@ public object TurnoSerial {
         val campos = when (val lido = lerCampos(relatorio)) {
             is Campos.Falha -> return Resultado.Violado(lido.motivo)
             is Campos.Lidos -> lido
+        }
+        // A forma de `changed_blocks` e do registro vale em todo turno, com ou
+        // sem texto revisado: no canônico o `parse_revision_report` tipado roda
+        // antes de qualquer decisão.
+        when (val declaracoes = LeituraDoRelatorio.ler(relatorio)) {
+            is LeituraDoRelatorio.Leitura.Invalida ->
+                return Resultado.Violado("approved-content lock violation: ${declaracoes.motivo}")
+            is LeituraDoRelatorio.Leitura.Ambigua ->
+                return Resultado.Violado("approved-content lock violation: ${declaracoes.motivo}")
+            else -> Unit
         }
         val textoFinal = extrairBloco(stdout, TAG_DO_TEXTO_FINAL)
         val custodiaRevisada = campos.custodia == "revised"

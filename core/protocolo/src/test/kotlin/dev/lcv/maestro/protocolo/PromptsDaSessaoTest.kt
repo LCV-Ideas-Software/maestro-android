@@ -54,6 +54,19 @@ class PromptsDaSessaoTest {
     }
 
     @Test
+    fun `revisao diz a forma que a trava cobra`() {
+        // A trava recusa token que não é exato, lista vazia ou repetida e ID
+        // reescrito. O agente precisa saber disso antes de gastar uma nova
+        // tentativa paga numa regra que ninguém lhe disse.
+        assertContains(revisao(), "exactly as the manifest shows it")
+        assertContains(
+            revisao(),
+            "change_type is one exact token or a non-empty list of distinct tokens; " +
+                "only \"addition\", \"split\" and \"reorder\" grant permission.",
+        )
+    }
+
+    @Test
     fun `revisao leva o manifesto do texto atual`() {
         assertContains(revisao(), TravaDeConteudo.formatarManifestoParaPrompt(textoAtual))
     }
