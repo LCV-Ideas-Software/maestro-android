@@ -9,7 +9,12 @@ All material changes to Maestro Android are recorded here.
 - Add `:core:provedores`, the second delivery of the native port (MAEANDR-19):
   the six AI providers as pure Kotlin on the JVM, with no Android dependency.
   The API key is requested through `FonteDeChave`, which `:core:seguranca`
-  will implement over the Keystore.
+  will implement over the Keystore. The source answers with one of four
+  readings — the key, no key, authentication required, or a secret that can no
+  longer be decrypted — and each unavailable reading is its own outcome, with
+  no request sent: section 4.2 of the specification separates the three causes
+  of a failed read, and merging them would ask the user to retype a key that is
+  intact. The key's text representation never shows its value.
 
   **The request body of each provider comes from its official documentation,
   reconfirmed on 23/09/2026.** Neither canonical source uses the new
@@ -48,7 +53,8 @@ All material changes to Maestro Android are recorded here.
     has left, which the session passes in; a wait that does not fit in that
     time ends the call with the failure that caused it, instead of starting a
     paid attempt past the limit, and no attempt starts once that time is
-    gone, even when a wait that fitted ended late;
+    gone, even when a wait that fitted ended late; whether a wait fits is
+    decided right before it starts, after the response body has been read;
   - waits, in-flight calls and body reads stop on cancellation.
 
   **OkHttp never repeats a request on its own.** Every attempt is a paid call,
@@ -69,19 +75,25 @@ All material changes to Maestro Android are recorded here.
   text, and a refusal from the Responses API, are incomplete outcomes. The
   reason an incomplete outcome carries comes from the provider (`status`,
   `stop_reason`, the refusal text) and goes through the same redaction,
-  control-character replacement and length cap as error messages.
+  control-character replacement and length cap as error messages, the exact
+  key included — redacted before the cap, so a key at the cut leaves no
+  fragment behind. A response body larger than 8 MiB is refused without being
+  loaded whole; the largest expected answer, 64 000 output tokens plus JSON and
+  sources, stays far below that.
 
   A pasted key is trimmed. A key with a character that cannot go in an HTTP
   header is refused before any request, as its own outcome: OkHttp would
   otherwise throw with the header value, the key itself, in its message.
 
-  The module has 47 tests against a fake HTTP server; none talks to a real
-  provider or carries a key-shaped value. Forty-two deliberate mutations each
+  The module has 53 tests against a fake HTTP server; none talks to a real
+  provider or carries a key-shaped value. Fifty deliberate mutations each
   make them fail, with a green control run before and after. The per-call
   deadline at maximum effort, and charging the estimate for a call that timed
-  out, are recorded as an open item for `:core:sessao` in section 11. `THIRDPARTY.md` records
-  the new runtime dependencies, the Public Suffix List (MPL-2.0) bundled inside
-  OkHttp, and `kotlin-stdlib`, which the inventory had been missing.
+  out, are recorded as an open item for `:core:sessao` in section 11.
+  `THIRDPARTY.md` records the new runtime dependencies, the Public Suffix List
+  (MPL-2.0) bundled inside OkHttp, and `kotlin-stdlib`, which the inventory had
+  been missing. OkHttp is exported as `api`, because the public constructor
+  takes an `OkHttpClient`.
 
 - Raise the Gradle baseline and land `:core:protocolo`, the first module of the
   native port (MAEANDR-14). The project moves to `compileSdk`/`targetSdk` 37 and

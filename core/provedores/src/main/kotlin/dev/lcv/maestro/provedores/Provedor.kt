@@ -42,11 +42,46 @@ public enum class Provedor(
  * De onde vem a chave de API de cada provedor. Este módulo não conhece o
  * Android Keystore: quem implementa esta interface sobre ele é o
  * `:core:seguranca`, e em teste ela é um valor em memória (seção 4).
- *
- * `null` ou texto só com espaço é "não há chave configurada", e nenhuma
- * requisição é feita. Espaço nas pontas é descartado; caractere que não pode
- * ir num cabeçalho HTTP devolve [Resultado.ChaveInvalida].
  */
 public fun interface FonteDeChave {
-    public suspend fun chaveDe(provedor: Provedor): String?
+    public suspend fun chaveDe(provedor: Provedor): LeituraDaChave
+}
+
+/**
+ * O que a fonte encontrou. "Não consegui a chave" não é um caso só: a seção
+ * 4.2 da especificação separa três causas, com três respostas ao usuário, e
+ * juntá-las mandaria redigitar uma chave que está intacta. Em nenhuma das três
+ * alguma requisição é feita.
+ */
+public sealed interface LeituraDaChave {
+
+    /**
+     * A chave, em claro. Só existe em memória, durante a montagem da chamada.
+     * Espaço nas pontas é descartado, e texto só com espaço conta como
+     * [Ausente]; caractere que não pode ir num cabeçalho HTTP devolve
+     * [Resultado.ChaveInvalida].
+     */
+    public class Presente(public val valor: String) : LeituraDaChave {
+        /** Nunca o valor: o objeto pode acabar num registro ou numa mensagem. */
+        override fun toString(): String = "Presente(<redacted>)"
+    }
+
+    /**
+     * Não há chave configurada, ou o cifrado ficou órfão — o caso do backup
+     * restaurado em outro aparelho. Vira [Resultado.SemChave].
+     */
+    public data object Ausente : LeituraDaChave
+
+    /**
+     * A janela de autenticação expirou (`UserNotAuthenticatedException`). A
+     * chave está intacta. Vira [Resultado.ExigeAutenticacao].
+     */
+    public data object ExigeAutenticacao : LeituraDaChave
+
+    /**
+     * A chave do Keystore foi invalidada em definitivo
+     * (`KeyPermanentlyInvalidatedException`), e o segredo cifrado com ela não
+     * volta mais. Vira [Resultado.SegredoIrrecuperavel].
+     */
+    public data object Irrecuperavel : LeituraDaChave
 }

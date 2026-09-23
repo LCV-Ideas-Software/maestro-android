@@ -39,6 +39,11 @@ class ClienteDeProvedoresTest {
     private val servidor = MockWebServer()
     private val esperas = mutableListOf<Long>()
     private var chave: String? = "chave-de-teste"
+
+    /** Quando não nula, é o que a fonte devolve, em vez de [chave]. */
+    private var leitura: LeituraDaChave? = null
+
+    private val fonte = FonteDeChave { leitura ?: chave?.let { LeituraDaChave.Presente(it) } ?: LeituraDaChave.Ausente }
     private val agora = Instant.parse("2026-09-23T12:00:00Z")
 
     @BeforeTest fun subir() = servidor.start()
@@ -47,7 +52,7 @@ class ClienteDeProvedoresTest {
 
     private fun cliente(esperar: suspend (Long) -> Unit = { esperas += it }) = ClienteDeProvedores(
         OkHttpClient(),
-        { chave },
+        fonte,
         { servidor.url("/${it.agente}").toString() },
         esperar,
         { agora },
@@ -224,7 +229,7 @@ class ClienteDeProvedoresTest {
         // opção desligada é a segunda camada, e só é observável aqui.
         val recebido = OkHttpClient.Builder().retryOnConnectionFailure(true).followRedirects(true)
             .followSslRedirects(true).build()
-        val http = ClienteDeProvedores(recebido) { chave }.http
+        val http = ClienteDeProvedores(recebido, fonte).http
 
         assertFalse(http.retryOnConnectionFailure)
         assertFalse(http.followRedirects)
@@ -282,6 +287,28 @@ class ClienteDeProvedoresTest {
         chave = "   "
         assertEquals(Resultado.SemChave, chamar())
         assertEquals(0, servidor.requestCount)
+    }
+
+    @Test
+    fun `cada causa de chave indisponivel tem o proprio resultado, e nada e enviado`() {
+        // Seção 4.2: janela de autenticação expirada pede autenticação, nunca
+        // a chave; chave do Keystore invalidada pede a chave de novo, dizendo
+        // por quê; cifrado órfão é "não há chave". Juntar as três mandaria o
+        // usuário redigitar uma chave intacta.
+        for ((daFonte, esperado) in listOf(
+            LeituraDaChave.Ausente to Resultado.SemChave,
+            LeituraDaChave.ExigeAutenticacao to Resultado.ExigeAutenticacao,
+            LeituraDaChave.Irrecuperavel to Resultado.SegredoIrrecuperavel,
+        )) {
+            leitura = daFonte
+            assertEquals(esperado, chamar(), "$daFonte")
+        }
+        assertEquals(0, servidor.requestCount)
+    }
+
+    @Test
+    fun `a chave lida nao aparece no texto do objeto`() {
+        assertFalse(LeituraDaChave.Presente("chave-de-teste").toString().contains("chave-de-teste"))
     }
 
     @Test
@@ -365,6 +392,68 @@ class ClienteDeProvedoresTest {
         val mensagem = assertIs<Resultado.FalhaHttp>(chamar()).mensagem
         assertFalse(mensagem.contains("chave-de-teste"))
         assertContains(mensagem, "<redacted>")
+    }
+
+    @Test
+    fun `a chave ecoada no motivo de resposta incompleta e apagada, mesmo na borda do teto`() {
+        // O teto de 180 corta o motivo. Se o corte viesse antes de apagar a
+        // chave, a chave na borda deixaria um pedaço dela no motivo.
+        val recheio = "x".repeat(165)
+        servidor.enqueue(
+            MockResponse.Builder().body(
+                """{"status":"completed","output":[{"type":"message","content":[{"type":"refusal","refusal":"$recheio chave-de-teste"}]}]}""",
+            ).build(),
+        )
+
+        // "refusal: " + 165 + espaço deixa só 5 posições para a chave: cortar
+        // antes de apagar deixaria "chave"; apagar antes deixa o começo de
+        // "<redacted>".
+        val motivo = assertIs<Resultado.Incompleta>(chamar()).motivo
+        assertFalse(motivo.contains("chave"), motivo)
+        assertTrue(motivo.endsWith(" <reda"), motivo)
+    }
+
+    @Test
+    fun `espera do 429 e reavaliada depois de ler o corpo`() {
+        // Os cabeçalhos chegam logo e o corpo demora. A espera que cabia antes
+        // da leitura já não cabe depois dela.
+        servidor.enqueue(
+            MockResponse.Builder().code(429).addHeader("Retry-After", "1")
+                .body("""{"error":{"message":"limite"}}""").bodyDelay(600, TimeUnit.MILLISECONDS).build(),
+        )
+        servidor.enqueue(ok())
+
+        val resultado = runBlocking { cliente().chamar(Provedor.CODEX, pedido, tempoRestante = 1_400.milliseconds) }
+
+        val falha = assertIs<Resultado.FalhaHttp>(resultado)
+        assertEquals(429, falha.status)
+        assertContains(falha.mensagem, "limite")
+        assertTrue(esperas.isEmpty())
+        assertEquals(1, servidor.requestCount)
+    }
+
+    @Test
+    fun `corpo acima do teto nao e carregado inteiro`() {
+        // Com ou sem `Content-Length`, e em sucesso ou erro: um corpo sem fim
+        // esgotaria a memória do aplicativo antes de qualquer validação.
+        val grande = "a".repeat((ClienteDeProvedores.TETO_DO_CORPO_BYTES + 1).toInt())
+        servidor.enqueue(MockResponse.Builder().body(grande).build())
+        servidor.enqueue(MockResponse.Builder().chunkedBody(grande, 64 * 1024).build())
+        servidor.enqueue(MockResponse.Builder().code(500).chunkedBody(grande, 64 * 1024).build())
+
+        assertContains(assertIs<Resultado.RespostaInvalida>(chamar()).mensagem, "larger than")
+        assertContains(assertIs<Resultado.RespostaInvalida>(chamar()).mensagem, "larger than")
+        val erro = assertIs<Resultado.FalhaHttp>(chamar())
+        assertEquals(500, erro.status)
+        assertContains(erro.mensagem, "larger than")
+    }
+
+    @Test
+    fun `corpo exatamente no teto e lido`() {
+        // O par do teste acima: no limite, o corpo passa e chega à leitura.
+        servidor.enqueue(MockResponse.Builder().body("a".repeat(ClienteDeProvedores.TETO_DO_CORPO_BYTES.toInt())).build())
+
+        assertContains(assertIs<Resultado.RespostaInvalida>(chamar()).mensagem, "not a JSON object")
     }
 
     @Test

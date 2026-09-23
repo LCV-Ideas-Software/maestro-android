@@ -13,7 +13,10 @@ kotlin {
 }
 
 dependencies {
-    implementation(libs.okhttp)
+    // `api`, e não `implementation`: o construtor público do
+    // `ClienteDeProvedores` recebe um `OkHttpClient`, e quem usa o módulo
+    // precisa do tipo para chamá-lo.
+    api(libs.okhttp)
     implementation(libs.okhttp.coroutines)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.jackson.databind)

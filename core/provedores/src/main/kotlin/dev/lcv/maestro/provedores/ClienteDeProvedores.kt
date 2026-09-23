@@ -91,8 +91,12 @@ public class ClienteDeProvedores internal constructor(
         // OkHttp lançar exceção **com o valor do cabeçalho na mensagem** —
         // medido: `x-api-key value: <chave>` —, e por isso é recusado aqui,
         // antes de montar a requisição, sem citar o valor.
-        val chave = fonte.chaveDe(provedor)?.trim()?.takeUnless { it.isEmpty() }
-            ?: return Resultado.SemChave
+        val chave = when (val leitura = fonte.chaveDe(provedor)) {
+            is LeituraDaChave.Presente -> leitura.valor.trim().takeUnless { it.isEmpty() } ?: return Resultado.SemChave
+            LeituraDaChave.Ausente -> return Resultado.SemChave
+            LeituraDaChave.ExigeAutenticacao -> return Resultado.ExigeAutenticacao
+            LeituraDaChave.Irrecuperavel -> return Resultado.SegredoIrrecuperavel
+        }
         if (chave.any { it.code !in 0x21..0x7e }) return Resultado.ChaveInvalida
         val formato = Formato.de(provedor)
         val corpo = Json.LEITOR.writeValueAsBytes(formato.corpo(pedido, provedor.modelo))
@@ -136,7 +140,7 @@ public class ClienteDeProvedores internal constructor(
             }
             val espera429 = if (resposta.code == 429 && tentativa < MAX_TENTATIVAS) {
                 ((segundosDeRetryAfter(resposta.headers) ?: ESPERA_PADRAO_429_S)
-                    .coerceAtMost(TETO_DE_ESPERA_429_S)).seconds.takeIf { cabe(it) }
+                    .coerceAtMost(TETO_DE_ESPERA_429_S)).seconds
             } else {
                 null
             }
@@ -152,12 +156,20 @@ public class ClienteDeProvedores internal constructor(
                 ""
             }
             if (!resposta.isSuccessful) {
-                val falha = Resultado.FalhaHttp(resposta.code, Erros.mensagemHttp(resposta.code, corpoDaResposta, chave))
-                if (espera429 == null) return falha
+                val falha = Resultado.FalhaHttp(
+                    resposta.code,
+                    Erros.mensagemHttp(resposta.code, corpoDaResposta ?: CORPO_ACIMA_DO_TETO, chave),
+                )
+                // Se a espera cabe só se decide agora, depois da leitura do
+                // corpo, que também consome o tempo restante.
+                if (espera429 == null || !cabe(espera429)) return falha
                 falhaAnterior = falha
                 esperar(espera429.inWholeMilliseconds)
                 tentativa++
                 continue
+            }
+            if (corpoDaResposta == null) {
+                return Resultado.RespostaInvalida("${provedor.agente} returned a 2xx $CORPO_ACIMA_DO_TETO")
             }
             val json = try {
                 Json.LEITOR.readTree(corpoDaResposta)
@@ -167,7 +179,14 @@ public class ClienteDeProvedores internal constructor(
             if (json == null || !json.isObject) {
                 return Resultado.RespostaInvalida("${provedor.agente} returned a 2xx body that is not a JSON object")
             }
-            return formato.ler(json)
+            // O motivo de uma resposta incompleta é texto do provedor e vai ao
+            // jornal. É saneado aqui, com a chave da chamada, e não no
+            // leitor: apagar a chave depois de cortar no teto deixaria um
+            // pedaço dela quando ela cai na borda do corte.
+            return when (val lida = formato.ler(json)) {
+                is Resultado.Incompleta -> lida.copy(motivo = Erros.sanear(lida.motivo, 180, chave))
+                else -> lida
+            }
         }
     }
 
@@ -177,8 +196,12 @@ public class ClienteDeProvedores internal constructor(
      * do corpo é bloqueante, e sem isto a sessão só pararia quando o corpo
      * acabasse ou o prazo vencesse. O vigia cancela a chamada se a corrotina
      * for cancelada no meio.
+     *
+     * Devolve `null` quando o corpo passa de [TETO_DO_CORPO_BYTES], sem
+     * carregá-lo inteiro: um corpo sem fim, de proxy ou de erro, esgotaria a
+     * memória do aplicativo antes de qualquer validação.
      */
-    private suspend fun lerCorpo(chamada: Call, resposta: Response): String = coroutineScope {
+    private suspend fun lerCorpo(chamada: Call, resposta: Response): String? = coroutineScope {
         var lido = false
         val vigia = launch(start = CoroutineStart.UNDISPATCHED) {
             try {
@@ -188,7 +211,11 @@ public class ClienteDeProvedores internal constructor(
             }
         }
         try {
-            withContext(Dispatchers.IO) { resposta.body.string() }.also { lido = true }
+            withContext(Dispatchers.IO) {
+                // `request` lê até haver o número pedido de bytes no buffer, ou
+                // até o corpo acabar; o `string` seguinte lê do mesmo buffer.
+                if (resposta.body.source().request(TETO_DO_CORPO_BYTES + 1)) null else resposta.body.string()
+            }.also { lido = true }
         } finally {
             vigia.cancel()
         }
@@ -231,6 +258,14 @@ public class ClienteDeProvedores internal constructor(
         internal const val ESPERA_APOS_ERRO_DE_REDE_MS = 1_500L
         internal const val ESPERA_PADRAO_429_S = 30L
         internal const val TETO_DE_ESPERA_429_S = 120L
+
+        /**
+         * Teto do corpo de uma resposta: 8 MiB. A maior resposta esperada —
+         * 64 mil tokens de saída, uns 256 KB de texto, mais o JSON e as
+         * fontes da Perplexity — fica muito abaixo dele.
+         */
+        internal const val TETO_DO_CORPO_BYTES = 8L * 1024 * 1024
+        private const val CORPO_ACIMA_DO_TETO = "response body larger than $TETO_DO_CORPO_BYTES bytes"
 
         private val JSON = "application/json".toMediaType()
     }

@@ -33,7 +33,7 @@ class FormatosTest {
 
     private fun cliente() = ClienteDeProvedores(
         OkHttpClient(),
-        { chave },
+        { LeituraDaChave.Presente(chave) },
         { servidor.url("/${it.agente}").toString() },
         { },
         { Instant.EPOCH },

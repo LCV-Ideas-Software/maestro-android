@@ -60,6 +60,21 @@ public sealed interface Resultado {
     public data object SemChave : Resultado
 
     /**
+     * A janela de autenticação do usuário expirou, e nada foi enviado. A chave
+     * está intacta: a sessão pausa aguardando autenticação (seção 6.2), e
+     * nunca pede a chave de API.
+     */
+    public data object ExigeAutenticacao : Resultado
+
+    /**
+     * A chave do Keystore que cifrava o segredo foi invalidada em definitivo,
+     * tipicamente por mudança da trava de tela, e nada foi enviado. O segredo
+     * não volta: o usuário precisa informar a chave de API de novo, e a tela
+     * diz por quê.
+     */
+    public data object SegredoIrrecuperavel : Resultado
+
+    /**
      * A chave configurada tem caractere que não pode ir num cabeçalho HTTP
      * (controle, espaço no meio, fora do ASCII). Nada foi enviado, e o valor
      * não aparece em lugar nenhum: o usuário precisa colar a chave de novo.

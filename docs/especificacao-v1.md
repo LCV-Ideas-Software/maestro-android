@@ -394,6 +394,13 @@ Só a terceira linha era o que este documento dizia, como regra geral; as duas
 primeiras entraram depois de a revisão apontar que a regra geral engolia a
 primeira e mandava o usuário redigitar chave boa.
 
+A separação atravessa a fronteira da seção 4: `FonteDeChave` devolve uma
+`LeituraDaChave` — `Presente`, `Ausente`, `ExigeAutenticacao` ou
+`Irrecuperavel` —, e o `:core:provedores` transforma cada uma das três últimas
+num resultado próprio (`SemChave`, `ExigeAutenticacao`,
+`SegredoIrrecuperavel`), sem fazer requisição. Uma interface que devolvesse só
+"a chave ou nada" apagaria a distinção antes de ela chegar à sessão.
+
 A segunda causa tem mitigação própria e a v1 a usa:
 `setInvalidatedByBiometricEnrollment(false)` mantém a chave válida quando uma
 biometria nova é cadastrada. Cadastrar um dedo novo não é motivo para alguém
