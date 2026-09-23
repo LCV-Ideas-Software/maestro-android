@@ -62,6 +62,17 @@ from: without it, an edited block that moved is indistinguishable from an
 added one. The operator's decision, and the residual it does not close, are
 recorded in [Discussion #41](https://github.com/LCV-Ideas-Software/maestro-android/discussions/41).
 
+The same module holds the rest of the protocol that decides whether a turn
+counts. It covers the serial turn's output contract, the bibliographic
+integrity gate and the anti-impoverishment quality guard, all ported from the
+desktop's Rust. It also covers the draft
+and revision prompts and the per-call cost in `BigDecimal`, both ported from
+the web, which has the API-only prompts and the three per-provider rates. The
+revision prompt asks for exactly what the lock enforces. The cost cap follows
+section 7.1 of the specification: amounts are summed and compared at eight
+decimals, and a call is allowed when the running total plus its estimate does
+not exceed the cap.
+
 The native port is specified in
 [`docs/especificacao-v1.md`](docs/especificacao-v1.md) (in Portuguese), written
 before any Kotlin, as `calculadora-android` did. It fixes the scope unit by

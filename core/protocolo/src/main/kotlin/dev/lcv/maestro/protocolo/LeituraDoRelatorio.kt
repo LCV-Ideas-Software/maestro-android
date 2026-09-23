@@ -71,8 +71,12 @@ internal object LeituraDoRelatorio {
      * Leitor único e imutável. `ObjectMapper` é documentado como seguro para
      * uso concorrente depois de configurado, e reconfigurá-lo por chamada é o
      * que a FasterXML desaconselha.
+     *
+     * Visível no módulo porque [TurnoSerial] lê o mesmo relatório. Dois leitores
+     * com configurações diferentes poderiam aceitar num caminho o relatório que
+     * o outro recusa.
      */
-    private val LEITOR: JsonMapper = JsonMapper.builder()
+    internal val LEITOR: JsonMapper = JsonMapper.builder()
         .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
         // Sem isto, o leitor casa o primeiro valor e **ignora o que vier
         // depois**: `{"changed_blocks":[...]} {"changed_blocks":[]}` passaria
@@ -100,10 +104,13 @@ internal object LeituraDoRelatorio {
         setOf("reorder", "reordered", "move", "moved", "reposition", "repositioned")
 
     /**
-     * Nomes aceitos para a seção, na ordem de preferência do canônico
-     * (`find_first_report_field_key(&lower, &["changed_blocks", "changes"])`).
+     * Nome da seção. O canônico antigo também aceitava `changes`
+     * (`find_first_report_field_key(&lower, &["changed_blocks", "changes"])`),
+     * mas desde a v00.05.65 `changes` é outra lista: a dos trechos alterados,
+     * que [TurnoSerial] lê. Com o apelido, a mesma lista valeria pelas duas
+     * coisas.
      */
-    private val NOMES_DA_SECAO = listOf("changed_blocks", "changes")
+    private val NOMES_DA_SECAO = listOf("changed_blocks")
 
     /** Nome da seção que declara a procedência dos blocos revisados. */
     internal const val NOME_DO_REGISTRO = "revised_block_origins"
@@ -418,7 +425,7 @@ internal object LeituraDoRelatorio {
      * relatório pode conter o texto em custódia, que não deve vazar para o
      * histórico de erro.
      */
-    private fun primeiraLinha(erro: JacksonException): String {
+    internal fun primeiraLinha(erro: JacksonException): String {
         val mensagem = erro.originalMessage ?: return "malformed JSON"
         val corte = mensagem.indexOf('\n')
         val linha = if (corte < 0) mensagem else mensagem.substring(0, corte)
