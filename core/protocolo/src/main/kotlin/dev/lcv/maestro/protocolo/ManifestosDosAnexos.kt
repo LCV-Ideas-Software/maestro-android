@@ -5,6 +5,9 @@ import com.fasterxml.jackson.core.StreamReadFeature
 import com.fasterxml.jackson.databind.DeserializationFeature
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.json.JsonMapper
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
 import java.util.Locale
 
 /**
@@ -78,8 +81,9 @@ public object ManifestosDosAnexos {
             } catch (erro: Exception) {
                 return Saida.Recusados("failed to read citation manifest attachment: ${erro.message}")
             }
-            val raiz = lerJson(bytes)
-            if (raiz == null) {
+            val texto = utf8Estrito(bytes)
+            val raiz = texto?.let(::lerJson)
+            if (texto == null || raiz == null) {
                 if (nomeExplicito) return Saida.Recusados("citation manifest attachment is not valid JSON")
                 continue
             }
@@ -92,7 +96,7 @@ public object ManifestosDosAnexos {
                 }
                 continue
             }
-            val manifesto = when (val lido = lerManifesto(bytes)) {
+            val manifesto = when (val lido = lerManifesto(texto)) {
                 is Leitura.Ok -> lido.manifesto
                 is Leitura.Erro -> return Saida.Recusados("citation manifest payload is invalid: ${lido.motivo}")
             }
@@ -109,16 +113,30 @@ public object ManifestosDosAnexos {
     }
 
     /**
+     * Os bytes como UTF-8 estrito, ou `null`. O `serde_json::from_slice` só lê
+     * UTF-8 válido; o Jackson, lendo bytes, detecta sozinho UTF-16 e UTF-32 e
+     * leria um manifesto que o canônico recusa. Por isso o anexo é decodificado
+     * aqui, recusando sequência malformada, e o Jackson lê o texto.
+     */
+    private fun utf8Estrito(bytes: ByteArray): String? = try {
+        Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes))
+            .toString()
+    } catch (erro: CharacterCodingException) {
+        null
+    }
+
+    /**
      * `serde_json::from_slice::<Value>`: JSON estrito, sem texto depois do
      * valor. A marca BOM no começo o `serde_json` recusa, e o Jackson aceitaria
      * em silêncio; aqui é recusada como no canônico.
      */
-    private fun lerJson(bytes: ByteArray): JsonNode? {
-        if (bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()) {
-            return null
-        }
+    private fun lerJson(texto: String): JsonNode? {
+        if (texto.startsWith('\uFEFF')) return null
         return try {
-            LEITOR_DE_CLASSIFICACAO.readTree(bytes)?.takeUnless { it.isMissingNode }
+            LEITOR_DE_CLASSIFICACAO.readTree(texto)?.takeUnless { it.isMissingNode }
         } catch (erro: JacksonException) {
             null
         }
@@ -130,9 +148,9 @@ public object ManifestosDosAnexos {
     }
 
     /** Leitura estrita do manifesto, com as regras do `serde` descritas no topo. */
-    internal fun lerManifesto(bytes: ByteArray): Leitura {
+    internal fun lerManifesto(texto: String): Leitura {
         val raiz = try {
-            LEITOR_ESTRITO.readTree(bytes)
+            LEITOR_ESTRITO.readTree(texto)
         } catch (erro: JacksonException) {
             return Leitura.Erro(LeituraDoRelatorio.primeiraLinha(erro))
         }

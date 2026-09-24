@@ -41,16 +41,43 @@ All material changes to Maestro Android are recorded here.
 
   The citation manifest is read with `serde`'s rules: a missing required
   field, `null` in a non-optional field, a `null` list and an unknown enum
-  variant are errors; unknown fields are ignored. A manifest with a repeated
-  key is refused — deliberately stricter than the canonical, which reads it as
-  a `Value` first and keeps the last value.
+  variant are errors; unknown fields are ignored; the attachment must be valid
+  UTF-8, as `serde_json::from_slice` requires (Jackson reading bytes would
+  detect and accept UTF-16 or UTF-32). A manifest with a repeated key is
+  refused — deliberately stricter than the canonical, which reads it as a
+  `Value` first and keeps the last value.
+
+  Five more places are deliberately stricter than the canonical. Each fixes a
+  defect Codex found in review that is also present in `68528f9`:
+  - a link is accepted only if its mechanical check passed. The canonical
+    checked only the HTTP status, so a captcha, login or paywall page, or
+    blocked evidence, served with 200 could be accepted as support. Each row
+    keeps its mechanical classification (`mechanical_classification`) apart
+    from the one the review sets, and an earlier acceptance is preserved only
+    while the new check still passes;
+  - a URL that sanitization would change (over 1,000 code points, or holding a
+    secret pattern) is blocked. The canonical stored the sanitized URL and
+    fetched it, so a review could approve evidence for a different target;
+  - without a manifest, footnote markers, `<cite>`, `<blockquote>`, `<q>` and
+    `apud`, `ibid.`, `op. cit.` block delivery even in a text with no
+    author-date citation; the canonical checked them only with a manifest;
+  - beyond 500 citations, quotes, signals of one kind or references, the text
+    is refused; the canonical stopped reading at the limit and ignored the
+    rest;
+  - the helpers for a serial turn that did not revise the text take the
+    session's citation context. The canonical audits them without a manifest,
+    so on session resume a `READY` reviewer of a text with a valid manifest
+    stopped counting as a stable approval.
 
   The canonical suites for these units are ported where they need no network:
   8 ABNT cases, the 7 link-integrity cases (two of them against a stand-in
   URL parser until the real one arrives), the blocked ranges of
   `link_audit_blocks_local_and_private_targets`, and 5 final-audit and
-  serial-turn cases. 73 tests in the new files; two deliberate-mutation runs,
-  9 mutations each, all caught, with a green control run before and after.
+  serial-turn cases. 81 tests in the new files, plus 8 in
+  `ProtocoloNoAparelhoTest`, which runs on the `:core:seguranca` emulator in CI
+  to prove the regular expressions and the UTF-8 decoder on Android's ICU
+  rather than the JVM's. Three deliberate-mutation runs (9, 9 and 15
+  mutations) were all caught, with a green control run before and after.
 
 - Add `:core:seguranca`, the Android library that keeps each provider's API key
   on this device only (MAEANDR-19, specification section 6). The key is

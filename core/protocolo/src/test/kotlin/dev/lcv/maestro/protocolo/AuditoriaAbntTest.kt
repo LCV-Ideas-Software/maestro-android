@@ -8,6 +8,58 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
+/** O manifesto e o texto verificados, também usados por [AuditoriaFinalTest]. */
+internal fun manifestoVerificado(): ManifestoDeCitacoes = ManifestoDeCitacoes(
+    versaoDoEsquema = AuditoriaAbnt.ESQUEMA_DO_MANIFESTO,
+    hashDoProtocolo = "protocol-sha256",
+    citacoes = listOf(
+        Citacao(
+            versaoDoEsquema = AuditoriaAbnt.ESQUEMA_DA_CITACAO,
+            claimId = "claim-1",
+            tipo = TipoDeCitacao.CITACAO_DIRETA,
+            autorExibido = "Silva, Maria",
+            chaveDoAutor = "SILVA",
+            ano = "2026",
+            localizador = "p. 12",
+            fonteId = "source-1",
+            acesso = AcessoAFonte.DOCUMENTO_INTEGRAL_ABERTO,
+            verificacao = StatusDeVerificacao.VERIFICADA,
+            riscoSeErrada = RiscoSeErrada.MEDIO,
+            textoOriginal = "(Silva, 2026, p. 12)",
+            textoNormalizado = null,
+            notaNormalizada = null,
+        ),
+    ),
+    fontes = listOf(
+        Fonte(
+            fonteId = "source-1",
+            tipo = TipoDeFonte.LIVRO,
+            autores = listOf(AutorDaFonte("Silva, Maria", "SILVA")),
+            titulo = "Obra",
+            subtitulo = null,
+            edicao = null,
+            local = "Sao Paulo",
+            editora = "Editora",
+            ano = "2026",
+            tituloDoConjunto = null,
+            volume = null,
+            numero = null,
+            paginas = null,
+            url = null,
+            doi = null,
+            acessadoEm = null,
+            sha256DaVerificacao = "a".repeat(64),
+            verificacao = StatusDeVerificacao.VERIFICADA,
+            proibida = false,
+            motivoDaQuarentena = null,
+        ),
+    ),
+)
+
+internal val textoVerificado =
+    "“Trecho direto com mais de quatro palavras” (Silva, 2026, p. 12).\n\n## Referencias\n" +
+        "SILVA, Maria. Obra. Sao Paulo: Editora, 2026."
+
 /**
  * A suíte canônica de `abnt_citation.rs` (linhas 1599–1769 em `68528f9`),
  * portada caso a caso, e depois os casos que ela não cobre porque é toda ASCII
@@ -28,57 +80,6 @@ class AuditoriaAbntTest {
     }
 
     private fun ResultadoAbnt.temBloqueio(codigo: String) = bloqueios.any { it.codigo == codigo }
-
-    private fun manifestoVerificado(): ManifestoDeCitacoes = ManifestoDeCitacoes(
-        versaoDoEsquema = AuditoriaAbnt.ESQUEMA_DO_MANIFESTO,
-        hashDoProtocolo = "protocol-sha256",
-        citacoes = listOf(
-            Citacao(
-                versaoDoEsquema = AuditoriaAbnt.ESQUEMA_DA_CITACAO,
-                claimId = "claim-1",
-                tipo = TipoDeCitacao.CITACAO_DIRETA,
-                autorExibido = "Silva, Maria",
-                chaveDoAutor = "SILVA",
-                ano = "2026",
-                localizador = "p. 12",
-                fonteId = "source-1",
-                acesso = AcessoAFonte.DOCUMENTO_INTEGRAL_ABERTO,
-                verificacao = StatusDeVerificacao.VERIFICADA,
-                riscoSeErrada = RiscoSeErrada.MEDIO,
-                textoOriginal = "(Silva, 2026, p. 12)",
-                textoNormalizado = null,
-                notaNormalizada = null,
-            ),
-        ),
-        fontes = listOf(
-            Fonte(
-                fonteId = "source-1",
-                tipo = TipoDeFonte.LIVRO,
-                autores = listOf(AutorDaFonte("Silva, Maria", "SILVA")),
-                titulo = "Obra",
-                subtitulo = null,
-                edicao = null,
-                local = "Sao Paulo",
-                editora = "Editora",
-                ano = "2026",
-                tituloDoConjunto = null,
-                volume = null,
-                numero = null,
-                paginas = null,
-                url = null,
-                doi = null,
-                acessadoEm = null,
-                sha256DaVerificacao = "a".repeat(64),
-                verificacao = StatusDeVerificacao.VERIFICADA,
-                proibida = false,
-                motivoDaQuarentena = null,
-            ),
-        ),
-    )
-
-    private val textoVerificado =
-        "“Trecho direto com mais de quatro palavras” (Silva, 2026, p. 12).\n\n## Referencias\n" +
-            "SILVA, Maria. Obra. Sao Paulo: Editora, 2026."
 
     // ── a suíte canônica ─────────────────────────────────────────────────────
 
@@ -164,6 +165,42 @@ class AuditoriaAbntTest {
     }
 
     @Test
+    fun `sem manifesto nota, cite e apud bloqueiam mesmo sem citacao autor-data`() {
+        // Divergência do canônico: lá estes sinais só eram conferidos com
+        // manifesto, e sem ele o texto saía pronto.
+        for (texto in listOf(
+            "Texto com nota bibliografica[^1].\n\n[^1]: Fonte consultada.",
+            "Texto com <cite>Obra</cite> citada.",
+            "Como afirma o autor apud outro, a tese vale.",
+        )) {
+            val resultado = auditar(texto)
+            assertTrue(resultado.citacoes.isEmpty(), texto)
+            assertTrue(resultado.temBloqueio("unstructured_citation_signal"), texto)
+            assertTrue(AuditoriaAbnt.bloqueiaLiberacao(resultado), texto)
+        }
+        // Controle: o mesmo texto sem o sinal está pronto.
+        assertEquals(StatusDoParMaestro.PRONTO, auditar("Como afirma o autor, a tese vale.").statusDoParMaestro)
+    }
+
+    @Test
+    fun `mais de 500 citacoes, aspas, notas ou referencias reprovam em vez de sumir`() {
+        // Divergência do canônico: lá o que passava de 500 era ignorado em
+        // silêncio. Cada caso tem o controle em exatamente 500.
+        fun citacoes(n: Int) = (1..n).joinToString(" ") { "Frase (Silva, 2020)." }
+        fun aspas(n: Int) = (1..n).joinToString("\n") { "\"um trecho com quatro palavras\"" }
+        fun notas(n: Int) = (1..n).joinToString(" ") { "nota[^$it]" }
+        fun referencias(n: Int) =
+            "Texto.\n\n## Referencias\n" + (1..n).joinToString("\n") { "SILVA, Ana. Obra $it. Rio: Editora, 2020." }
+        for (gerar in listOf(::citacoes, ::aspas, ::notas, ::referencias)) {
+            assertFalse(AuditoriaAbnt.excedeCapacidade(gerar(500)), gerar(1))
+            assertTrue(AuditoriaAbnt.excedeCapacidade(gerar(501)), gerar(1))
+        }
+        val resultado = auditar(citacoes(501), "protocol-sha256", AuditoriaAbnt.manifestoVazio("protocol-sha256"))
+        assertTrue(resultado.temBloqueio("citation_capacity_exceeded"))
+        assertEquals(StatusDoParMaestro.NAO_PRONTO, resultado.statusDoParMaestro)
+    }
+
+    @Test
     fun `claim_id mede posicao em bytes UTF-8 como o Rust`() {
         // "Ação " tem 5 unidades UTF-16 e 7 bytes UTF-8.
         val citacao = AuditoriaAbnt.citacoesBrutas("Ação (Silva, 2020).").single()
@@ -174,7 +211,7 @@ class AuditoriaAbntTest {
     @Test
     fun `espaco Unicode dentro da citacao casa como no Rust`() {
         // O `\s` do Rust inclui o NBSP; o da JVM sem classe explícita, não.
-        val citacao = AuditoriaAbnt.citacoesBrutas("Ver (Silva, 2020).").single()
+        val citacao = AuditoriaAbnt.citacoesBrutas("Ver (Silva,\u00A02020).").single()
         assertEquals("2020", citacao.ano)
     }
 
@@ -241,7 +278,7 @@ class AuditoriaAbntTest {
         for (sim in listOf("a", "ç", "漢", "́", "٣", "_", "‍")) {
             assertTrue(palavra.matches(sim), "deveria ser palavra: U+%04X".format(sim.codePointAt(0)))
         }
-        for (nao in listOf(".", " ", "-", " ", "’")) {
+        for (nao in listOf(".", " ", "-", "\u00A0", "’")) {
             assertFalse(palavra.matches(nao), "não deveria ser palavra: U+%04X".format(nao.codePointAt(0)))
         }
     }

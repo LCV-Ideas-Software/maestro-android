@@ -211,37 +211,71 @@ public object AuditoriaFinal {
     /** A decisão, o motivo e o contexto. */
     public data class Decisao(val decisao: DecisaoDoTurnoSemRevisao, val motivo: String, val contexto: ValorJson)
 
-    /** `ready_unchanged_release_audit_failure`. */
+    /**
+     * O que a sessão sabe das citações: o hash do protocolo e os manifestos
+     * anexados. Sem anexo, a sessão do canônico usa um manifesto vazio preso
+     * ao hash do protocolo ([AuditoriaAbnt.manifestoVazio]).
+     *
+     * Divergência do canônico, corrigindo uma falha dele: lá os auxiliares
+     * abaixo chamam `final_release_audit_failure`, que audita **sem
+     * manifesto**, e um revisor `READY` sem mudança sobre texto com manifesto
+     * válido é recusado por `structured_manifest_missing`. O laço principal do
+     * canônico escapa porque passa o resultado já calculado com o manifesto
+     * ([decisaoComFalhaDaLiberacao]); a retomada da sessão
+     * (`restore_circular_resume_progress`) não escapa. Aqui os auxiliares
+     * recebem este contexto.
+     */
+    public data class ContextoDeCitacoes(
+        val hashDoProtocolo: String?,
+        val manifesto: ManifestoDeCitacoes?,
+        val manifestoAnterior: ManifestoDeCitacoes?,
+    )
+
+    private fun falhaNoContexto(texto: String, citacoes: ContextoDeCitacoes, motor: MotorDeLinks, agora: Instant) =
+        falhaComCitacoes(texto, citacoes.hashDoProtocolo, citacoes.manifesto, citacoes.manifestoAnterior, motor, agora)
+
+    /** `ready_unchanged_release_audit_failure`, com as citações da sessão. */
     public fun falhaDeProntoSemMudanca(
         status: String,
         saida: TurnoSerial.Saida,
         rascunhoAtual: String,
+        citacoes: ContextoDeCitacoes,
         motorDeLinks: MotorDeLinks,
         agora: Instant,
-    ): Falha? = if (status == "READY" && saida.textoFinal == null) falha(rascunhoAtual, motorDeLinks, agora) else null
+    ): Falha? = if (status == "READY" && saida.textoFinal == null) {
+        falhaNoContexto(rascunhoAtual, citacoes, motorDeLinks, agora)
+    } else {
+        null
+    }
 
-    /** `not_ready_unchanged_release_audit_failure`. */
+    /** `not_ready_unchanged_release_audit_failure`, com as citações da sessão. */
     public fun falhaDeNaoProntoSemMudanca(
         status: String,
         saida: TurnoSerial.Saida,
         rascunhoAtual: String,
+        citacoes: ContextoDeCitacoes,
         motorDeLinks: MotorDeLinks,
         agora: Instant,
     ): Falha? {
         if (status != "NOT_READY" || saida.textoFinal != null) return null
-        return falha(rascunhoAtual, motorDeLinks, agora)
+        return falhaNoContexto(rascunhoAtual, citacoes, motorDeLinks, agora)
             ?: Falha(MOTIVO_NAO_PRONTO_SEM_MUDANCA, contextoNaoProntoSemMudanca(status, saida))
     }
 
-    /** `unrevised_serial_turn_audit_decision`. */
+    /** `unrevised_serial_turn_audit_decision`, com as citações da sessão. */
     public fun decisaoDoTurnoSemRevisao(
         status: String,
         saida: TurnoSerial.Saida,
         rascunhoAtual: String,
+        citacoes: ContextoDeCitacoes,
         motorDeLinks: MotorDeLinks,
         agora: Instant,
     ): Decisao? {
-        val falhaDaLiberacao = if (saida.textoFinal == null) falha(rascunhoAtual, motorDeLinks, agora) else null
+        val falhaDaLiberacao = if (saida.textoFinal == null) {
+            falhaNoContexto(rascunhoAtual, citacoes, motorDeLinks, agora)
+        } else {
+            null
+        }
         return decisaoComFalhaDaLiberacao(status, saida, falhaDaLiberacao)
     }
 
@@ -261,14 +295,15 @@ public object AuditoriaFinal {
         return null
     }
 
-    /** `serial_turn_counts_as_valid_round_agent`. */
+    /** `serial_turn_counts_as_valid_round_agent`, com as citações da sessão. */
     public fun contaComoAgenteValidoDaRodada(
         status: String,
         saida: TurnoSerial.Saida,
         rascunhoAtual: String,
+        citacoes: ContextoDeCitacoes,
         motorDeLinks: MotorDeLinks,
         agora: Instant,
     ): Boolean =
-        falhaDeProntoSemMudanca(status, saida, rascunhoAtual, motorDeLinks, agora) == null &&
-            falhaDeNaoProntoSemMudanca(status, saida, rascunhoAtual, motorDeLinks, agora) == null
+        falhaDeProntoSemMudanca(status, saida, rascunhoAtual, citacoes, motorDeLinks, agora) == null &&
+            falhaDeNaoProntoSemMudanca(status, saida, rascunhoAtual, citacoes, motorDeLinks, agora) == null
 }

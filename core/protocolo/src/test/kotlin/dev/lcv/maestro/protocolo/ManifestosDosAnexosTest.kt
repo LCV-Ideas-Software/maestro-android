@@ -132,9 +132,32 @@ class ManifestosDosAnexosTest {
     fun `marca BOM e recusada como no serde_json`() {
         assertEquals(
             "citation manifest attachment is not valid JSON",
-            recusa(anexo("citation-manifest.json", "﻿" + exemplo)),
+            recusa(anexo("citation-manifest.json", "\uFEFF" + exemplo)),
         )
     }
+
+    @Test
+    fun `so UTF-8 valido e lido, como no serde_json`() {
+        fun bruto(nome: String, conteudo: ByteArray) = ManifestosDosAnexos.Anexo(nome, "application/json") { conteudo }
+        val invalido = "citation manifest attachment is not valid JSON"
+        // UTF-16 e UTF-32 sem BOM: o Jackson, lendo bytes, os detectaria e leria.
+        for (charset in listOf(Charsets.UTF_16LE, Charsets.UTF_16BE, Charsets.UTF_32LE, Charsets.UTF_32BE)) {
+            assertEquals(invalido, recusa(bruto("citation-manifest.json", exemplo.toByteArray(charset))), charset.name())
+        }
+        // Sequ\u00EAncias que o UTF-8 pro\u00EDbe, dentro de um texto do manifesto:
+        // surrogate codificado (CESU-8), forma longa demais e byte de
+        // continua\u00E7\u00E3o solto.
+        val (antes, depois) = exemplo.split("Obra de exemplo").map { it.toByteArray(Charsets.UTF_8) }
+        for (sequencia in listOf(bytes(0xED, 0xA0, 0x80), bytes(0xC0, 0xAF), bytes(0x80))) {
+            assertEquals(invalido, recusa(bruto("citation-manifest.json", antes + sequencia + depois)))
+        }
+        // Com nome comum, o anexo ileg\u00EDvel \u00E9 ignorado, como o JSON inv\u00E1lido.
+        assertNull(lidos(bruto("dados.json", exemplo.toByteArray(Charsets.UTF_16LE))).atual)
+        // Controle: os mesmos bytes em UTF-8 s\u00E3o lidos.
+        assertEquals("Obra de exemplo", lidos(bruto("citation-manifest.json", exemplo.toByteArray())).atual?.fontes?.single()?.titulo)
+    }
+
+    private fun bytes(vararg valores: Int) = ByteArray(valores.size) { valores[it].toByte() }
 
     @Test
     fun `texto depois do valor e JSON invalido`() {

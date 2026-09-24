@@ -43,4 +43,8 @@ dependencies {
 
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)
+    // Só para os testes: este é o único módulo com emulador na CI, e as
+    // expressões regulares do `:core:protocolo` precisam ser provadas na ICU
+    // do aparelho, não só na JVM (ProtocoloNoAparelhoTest).
+    androidTestImplementation(project(":core:protocolo"))
 }

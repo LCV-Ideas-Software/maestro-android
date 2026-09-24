@@ -31,6 +31,12 @@ public object IntegridadeDeLinks {
     private const val MAXIMO_DA_NOTA = 1200
     private const val MAXIMO_DA_LISTAGEM = 100
 
+    /** As classificações mecânicas de link que passou, as únicas que o aceite admite. */
+    private val ACEITAVEIS = setOf(ClassificacaoDoLink.VERIFICADO_MAS_FRACO, ClassificacaoDoLink.REDIRECIONADO_VERIFICADO)
+
+    private const val URL_ALTERADA_PELO_SANEAMENTO =
+        "URL longa demais ou com padrao de segredo; a auditoria nao busca uma URL diferente da do texto"
+
     /** Revisores aceitos por `review_link_integrity`. */
     private val REVISORES = setOf("operator", "claude", "codex", "gemini", "agy", "deepseek", "grok", "perplexity")
 
@@ -284,6 +290,7 @@ public object IntegridadeDeLinks {
         verificadoEm = TextoRust.rfc3339(agora),
         sustentaAfirmacao = null,
         classificacao = ClassificacaoDoLink.VERIFICADO_MAS_FRACO,
+        classificacaoMecanica = ClassificacaoDoLink.VERIFICADO_MAS_FRACO,
         candidatosDeCorrecao = emptyList(),
         statusDaRevisao = StatusDaRevisao.PENDENTE,
         decisaoDeRevisao = null,
@@ -356,6 +363,7 @@ public object IntegridadeDeLinks {
         classeDeFalhaMecanica(evidencia)?.let { classe ->
             return comEvidencia.copy(
                 classificacao = classe,
+                classificacaoMecanica = classe,
                 statusDaRevisao = StatusDaRevisao.PENDENTE,
                 status = evidencia.status?.let { "HTTP $it" } ?: "falha mecanica",
                 invalidade = evidencia.notas.lastOrNull()?.let { Saneamento.texto(it, 180) }
@@ -366,18 +374,21 @@ public object IntegridadeDeLinks {
         if (tipoDivergente(comEvidencia.urlNormalizada, comEvidencia.tipoDeConteudo, analisador)) {
             return comEvidencia.copy(
                 classificacao = ClassificacaoDoLink.TIPO_DE_CONTEUDO_DIVERGENTE,
+                classificacaoMecanica = ClassificacaoDoLink.TIPO_DE_CONTEUDO_DIVERGENTE,
                 status = comEvidencia.statusHttp?.let { "HTTP $it" } ?: "tipo divergente",
                 invalidade = "o tipo de conteudo nao corresponde ao destino declarado",
                 tom = "error",
             )
         }
         val redirecionado = comEvidencia.urlFinal?.let { it != comEvidencia.urlNormalizada } ?: false
+        val passou = if (redirecionado) {
+            ClassificacaoDoLink.REDIRECIONADO_VERIFICADO
+        } else {
+            ClassificacaoDoLink.VERIFICADO_MAS_FRACO
+        }
         return comEvidencia.copy(
-            classificacao = if (redirecionado) {
-                ClassificacaoDoLink.REDIRECIONADO_VERIFICADO
-            } else {
-                ClassificacaoDoLink.VERIFICADO_MAS_FRACO
-            },
+            classificacao = passou,
+            classificacaoMecanica = passou,
             statusDaRevisao = StatusDaRevisao.PENDENTE,
             status = comEvidencia.statusHttp?.let { "HTTP $it" } ?: "acessivel",
             invalidade = if (redirecionado) {
@@ -419,8 +430,34 @@ public object IntegridadeDeLinks {
     }
 
     /**
+     * As condições mecânicas do aceite: o motivo da recusa, ou `null` se o
+     * link pode ser aceito.
+     */
+    private fun motivoParaNaoAceitar(linha: LinhaDeLink): String? {
+        val alcancavel = linha.statusHttp?.let { it in 200..299 } ?: false
+        if (!alcancavel && !linha.urlNormalizada.startsWith("mailto:")) {
+            return "cannot accept a link that did not pass mechanical validation"
+        }
+        if (linha.classificacaoMecanica == ClassificacaoDoLink.TIPO_DE_CONTEUDO_DIVERGENTE) {
+            return "content-type mismatch must be corrected before acceptance"
+        }
+        // Divergência do canônico, corrigindo uma falha dele: o Rust só
+        // conferia o código HTTP, e captcha, login, paywall ou evidência
+        // bloqueada servidos com 200 podiam ser aceitos como suporte.
+        if (linha.classificacaoMecanica !in ACEITAVEIS) {
+            return "cannot accept a link that did not pass mechanical validation"
+        }
+        return null
+    }
+
+    /**
      * `apply_preserved_review`: a revisão anterior só vale se origem, contexto,
      * âncora, URL normalizada e hash do conteúdo forem exatamente os mesmos.
+     *
+     * Divergência do canônico: um aceite só é preservado se a verificação nova
+     * ainda cumprir as condições do aceite ([motivoParaNaoAceitar]). O Rust o
+     * preservava só pelo hash, e um link que agora responde com erro ou captcha
+     * voltaria aceito sem revisão.
      */
     internal fun preservarRevisao(linha: LinhaDeLink, anterior: LinhaDeLink): LinhaDeLink {
         val decisao = anterior.decisaoDeRevisao
@@ -429,7 +466,8 @@ public object IntegridadeDeLinks {
             anterior.textoDaAncora != linha.textoDaAncora ||
             anterior.urlNormalizada != linha.urlNormalizada ||
             anterior.sha256 != linha.sha256 ||
-            decisao == null
+            decisao == null ||
+            (decisao == DecisaoDeRevisao.ACEITAR && motivoParaNaoAceitar(linha) != null)
         ) {
             return linha
         }
@@ -455,6 +493,7 @@ public object IntegridadeDeLinks {
     ): LinhaDeLink = linhaBase(extraido, impressaoDaOrigem, extraido.urlOriginal, emptyList(), ocorrencia, agora)
         .copy(
             classificacao = ClassificacaoDoLink.MALFORMADO,
+            classificacaoMecanica = ClassificacaoDoLink.MALFORMADO,
             status = "URL invalida",
             invalidade = Saneamento.texto(erro, 180),
             tom = "blocked",
@@ -498,7 +537,20 @@ public object IntegridadeDeLinks {
             )
         }
         for (extraido in extraidos) {
-            val normalizacao = normalizar(extraido.urlOriginal, analisador)
+            val normalizacao = normalizar(extraido.urlOriginal, analisador).let { lida ->
+                // Divergência do canônico, corrigindo uma falha dele: o Rust
+                // guarda a URL normalizada saneada (cortada em 1.000 pontos de
+                // código, com padrão de segredo trocado por `<redacted>`) e
+                // coleta essa URL alterada — a revisão aprovaria evidência de
+                // outro destino. Aqui a URL que o saneamento alteraria é
+                // recusada: o que se coleta, o que se revisa e o que está no
+                // texto são a mesma URL.
+                if (lida is Normalizacao.Normalizada && Saneamento.texto(lida.url, 1000) != lida.url) {
+                    Normalizacao.Recusada(URL_ALTERADA_PELO_SANEAMENTO)
+                } else {
+                    lida
+                }
+            }
             val chave = (normalizacao as? Normalizacao.Normalizada)?.url ?: extraido.urlOriginal
             val ocorrencia = (ocorrencias[chave] ?: 0) + 1
             ocorrencias[chave] = ocorrencia
@@ -529,14 +581,15 @@ public object IntegridadeDeLinks {
                 } catch (erro: Falha) {
                     val mensagem = erro.message.orEmpty()
                     val minuscula = EspacoUnicode.caixaBaixaAscii(mensagem)
+                    val classe = when {
+                        minuscula.contains("timeout") -> ClassificacaoDoLink.TEMPO_ESGOTADO
+                        minuscula.contains("dns") || minuscula.contains("resolve") -> ClassificacaoDoLink.ERRO_DE_DNS
+                        minuscula.contains("tls") || minuscula.contains("certificate") -> ClassificacaoDoLink.ERRO_DE_TLS
+                        else -> ClassificacaoDoLink.SUSPEITA_DE_ALUCINACAO
+                    }
                     linha.copy(
-                        classificacao = when {
-                            minuscula.contains("timeout") -> ClassificacaoDoLink.TEMPO_ESGOTADO
-                            minuscula.contains("dns") || minuscula.contains("resolve") -> ClassificacaoDoLink.ERRO_DE_DNS
-                            minuscula.contains("tls") || minuscula.contains("certificate") ->
-                                ClassificacaoDoLink.ERRO_DE_TLS
-                            else -> ClassificacaoDoLink.SUSPEITA_DE_ALUCINACAO
-                        },
+                        classificacao = classe,
+                        classificacaoMecanica = classe,
                         status = "falha mecanica",
                         invalidade = Saneamento.texto(mensagem, 180),
                         tom = "error",
@@ -634,13 +687,7 @@ public object IntegridadeDeLinks {
                 throw Falha("link URL or content hash changed since it was read; reload before reviewing")
             }
             if (pedido.decisao == DecisaoDeRevisao.ACEITAR) {
-                val alcancavel = linha.statusHttp?.let { it in 200..299 } ?: false
-                if (!alcancavel && !linha.urlNormalizada.startsWith("mailto:")) {
-                    throw Falha("cannot accept a link that did not pass mechanical validation")
-                }
-                if (linha.classificacao == ClassificacaoDoLink.TIPO_DE_CONTEUDO_DIVERGENTE) {
-                    throw Falha("content-type mismatch must be corrected before acceptance")
-                }
+                motivoParaNaoAceitar(linha)?.let { throw Falha(it) }
             }
             aplicarDecisao(
                 linha.copy(

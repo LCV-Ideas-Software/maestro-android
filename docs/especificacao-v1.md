@@ -163,6 +163,33 @@ escolheu os cinco. O que a escolha pede, e como fica:
 - **Onde mora cada parte:** regras puras no `:core:protocolo`; rede (parser de
   URL, DNS, coleta, busca) no `:core:provedores`.
 
+Onde o porte é **mais estrito que o canônico**, de propósito. Os cinco
+primeiros pontos corrigem defeitos que a revisão do Codex achou na PR #57 e
+que também estão no Rust em `68528f9`:
+
+- **só se aceita link cuja verificação mecânica passou.** O Rust só conferia o
+  código HTTP: página de captcha, de login ou de paywall, ou evidência
+  bloqueada, servida com 200, podia ser aceita como suporte. Cada linha guarda
+  a classificação mecânica à parte da que a revisão escreve
+  (`mechanical_classification`), e um aceite anterior só é preservado enquanto
+  a verificação nova ainda passar;
+- **URL que o saneamento alteraria fica bloqueada.** O Rust guarda a URL
+  normalizada já saneada — cortada em 1.000 pontos de código, com padrão de
+  segredo trocado por `<redacted>` — e coleta essa URL alterada: a revisão
+  aprovaria evidência de outro destino;
+- **sem manifesto, nota de rodapé, `<cite>`, `<blockquote>`, `<q>` e `apud`,
+  `ibid.`, `op. cit.` bloqueiam** mesmo num texto sem citação autor-data; no
+  Rust esses sinais só eram conferidos com manifesto;
+- **acima de 500 citações, aspas, sinais de um tipo ou referências, o texto é
+  recusado.** O Rust para de ler no limite e ignora o excedente em silêncio;
+- **os auxiliares do turno que não revisou o texto recebem o contexto de
+  citações da sessão.** No Rust eles auditam sem manifesto, e na retomada da
+  sessão (`restore_circular_resume_progress`) um revisor `READY` sobre texto
+  com manifesto válido deixava de contar como aprovação estável;
+- **manifesto com chave JSON repetida é recusado** (decisão do operador de
+  24/09/2026). O Rust o lê primeiro como `Value` e fica com o último valor:
+  dois leitores do mesmo arquivo veriam manifestos diferentes.
+
 ### 2.3 O cliente web
 
 `MaestroAiModule.tsx` (1.443 linhas) tem 31 unidades de estado, 5 efeitos e 20
@@ -849,7 +876,10 @@ de teste, porque compra confiança sem entregá-la.
   em bytes. As expressões regulares não usam `\s`, `\d`, `\w`, `\b` nem
   `(?U)`: no Android o `java.util.regex` é a ICU, em que
   `UNICODE_CHARACTER_CLASS` lança exceção, e na JVM dos testes aquelas classes
-  são ASCII.
+  são ASCII. Como a JVM não prova o que a ICU faz, o emulador do
+  `:core:seguranca` (abaixo) roda também casos do `:core:protocolo` pela API
+  pública (`ProtocoloNoAparelhoTest`): as expressões regulares e o
+  decodificador de UTF-8 dos anexos, que no Android também não é o do OpenJDK.
 - **`:core:provedores`, na JVM, com servidor HTTP de mentira.** Roda sem
   emulador e sem Robolectric porque o módulo é Kotlin puro e a chave chega por
   `FonteDeChave` (seção 4), satisfeita em teste por um valor em memória. Um

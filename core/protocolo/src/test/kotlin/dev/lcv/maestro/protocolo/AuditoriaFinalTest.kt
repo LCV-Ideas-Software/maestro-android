@@ -63,24 +63,29 @@ class AuditoriaFinalTest {
 
     private val pendente = "Texto ainda contem [EVIDENCIA_PENDENTE]."
 
+    /** A sessão sem manifesto: a auditoria de `final_release_audit_failure`. */
+    private val semCitacoes = AuditoriaFinal.ContextoDeCitacoes(null, null, null)
+
     private fun gate(falha: AuditoriaFinal.Falha): String =
         ((falha.contexto as ValorJson.Objeto).campos["gate"] as ValorJson.Texto).valor
 
+    private fun prontoSemMudanca(): TurnoSerial.Saida = saida(
+        "MAESTRO_STATUS: READY\n<maestro_revision_report>\n" +
+            "{ \"reviewer\": \"grok\", \"status\": \"READY\", \"custody\": \"unchanged\", \"changes\": [] }\n" +
+            "</maestro_revision_report>",
+        "READY",
+    )
+
     @Test
     fun `READY sem mudanca com rascunho bloqueado nao conta como agente valido`() {
-        val saida = saida(
-            "MAESTRO_STATUS: READY\n<maestro_revision_report>\n" +
-                "{ \"reviewer\": \"grok\", \"status\": \"READY\", \"custody\": \"unchanged\", \"changes\": [] }\n" +
-                "</maestro_revision_report>",
-            "READY",
-        )
-        val falha = assertNotNull(AuditoriaFinal.falhaDeProntoSemMudanca("READY", saida, pendente, motor, agora))
+        val saida = prontoSemMudanca()
+        val falha = assertNotNull(AuditoriaFinal.falhaDeProntoSemMudanca("READY", saida, pendente, semCitacoes, motor, agora))
         assertTrue(falha.motivo.contains("bibliographic integrity"))
-        assertNull(AuditoriaFinal.falhaDeProntoSemMudanca("READY", saida, "Texto limpo.", motor, agora))
-        assertNull(AuditoriaFinal.falhaDeProntoSemMudanca("NOT_READY", saida, pendente, motor, agora))
-        assertFalse(AuditoriaFinal.contaComoAgenteValidoDaRodada("READY", saida, pendente, motor, agora))
-        assertTrue(AuditoriaFinal.contaComoAgenteValidoDaRodada("READY", saida, "Texto limpo.", motor, agora))
-        assertFalse(AuditoriaFinal.contaComoAgenteValidoDaRodada("NOT_READY", saida, pendente, motor, agora))
+        assertNull(AuditoriaFinal.falhaDeProntoSemMudanca("READY", saida, "Texto limpo.", semCitacoes, motor, agora))
+        assertNull(AuditoriaFinal.falhaDeProntoSemMudanca("NOT_READY", saida, pendente, semCitacoes, motor, agora))
+        assertFalse(AuditoriaFinal.contaComoAgenteValidoDaRodada("READY", saida, pendente, semCitacoes, motor, agora))
+        assertTrue(AuditoriaFinal.contaComoAgenteValidoDaRodada("READY", saida, "Texto limpo.", semCitacoes, motor, agora))
+        assertFalse(AuditoriaFinal.contaComoAgenteValidoDaRodada("NOT_READY", saida, pendente, semCitacoes, motor, agora))
     }
 
     @Test
@@ -91,14 +96,30 @@ class AuditoriaFinalTest {
                 "\"operator_evidence_required\": [] }\n</maestro_revision_report>",
             "NOT_READY",
         )
-        val bloqueada = assertNotNull(AuditoriaFinal.falhaDeNaoProntoSemMudanca("NOT_READY", saida, pendente, motor, agora))
+        val bloqueada = assertNotNull(AuditoriaFinal.falhaDeNaoProntoSemMudanca("NOT_READY", saida, pendente, semCitacoes, motor, agora))
         assertTrue(bloqueada.motivo.contains("bibliographic integrity"))
-        val limpa = assertNotNull(AuditoriaFinal.falhaDeNaoProntoSemMudanca("NOT_READY", saida, "Texto limpo.", motor, agora))
+        val limpa = assertNotNull(AuditoriaFinal.falhaDeNaoProntoSemMudanca("NOT_READY", saida, "Texto limpo.", semCitacoes, motor, agora))
         assertTrue(limpa.motivo.contains("NOT_READY unchanged"))
-        assertFalse(AuditoriaFinal.contaComoAgenteValidoDaRodada("NOT_READY", saida, pendente, motor, agora))
-        assertFalse(AuditoriaFinal.contaComoAgenteValidoDaRodada("NOT_READY", saida, "Texto limpo.", motor, agora))
-        val decisao = assertNotNull(AuditoriaFinal.decisaoDoTurnoSemRevisao("NOT_READY", saida, "Texto limpo.", motor, agora))
+        assertFalse(AuditoriaFinal.contaComoAgenteValidoDaRodada("NOT_READY", saida, pendente, semCitacoes, motor, agora))
+        assertFalse(AuditoriaFinal.contaComoAgenteValidoDaRodada("NOT_READY", saida, "Texto limpo.", semCitacoes, motor, agora))
+        val decisao = assertNotNull(AuditoriaFinal.decisaoDoTurnoSemRevisao("NOT_READY", saida, "Texto limpo.", semCitacoes, motor, agora))
         assertEquals(AuditoriaFinal.DecisaoDoTurnoSemRevisao.REPETICAO_CORRETIVA_EXIGIDA, decisao.decisao)
+    }
+
+    @Test
+    fun `READY sem mudanca com manifesto valido conta como agente valido`() {
+        // Divergência do canônico: lá os auxiliares auditavam sem manifesto, e
+        // este revisor era recusado por `structured_manifest_missing`.
+        val saida = prontoSemMudanca()
+        val citacoes = AuditoriaFinal.ContextoDeCitacoes("protocol-sha256", manifestoVerificado(), null)
+        assertNull(AuditoriaFinal.falhaDeProntoSemMudanca("READY", saida, textoVerificado, citacoes, motor, agora))
+        assertTrue(AuditoriaFinal.contaComoAgenteValidoDaRodada("READY", saida, textoVerificado, citacoes, motor, agora))
+        assertNull(AuditoriaFinal.decisaoDoTurnoSemRevisao("READY", saida, textoVerificado, citacoes, motor, agora))
+        // Controle: sem o manifesto, o mesmo texto é recusado no estágio ABNT.
+        val recusa = assertNotNull(
+            AuditoriaFinal.falhaDeProntoSemMudanca("READY", saida, textoVerificado, semCitacoes, motor, agora),
+        )
+        assertEquals("abnt_citation", gate(recusa))
     }
 
     @Test

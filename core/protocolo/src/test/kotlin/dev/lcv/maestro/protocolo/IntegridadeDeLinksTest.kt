@@ -57,14 +57,21 @@ class IntegridadeDeLinksTest {
         override fun todos(): List<LinhaDeLink> = linhas.values.toList()
     }
 
-    private fun evidencia(url: String, status: Int? = 200, sha: String? = "sha-1", tipo: String? = "text/html") =
+    private fun evidencia(
+        url: String,
+        status: Int? = 200,
+        sha: String? = "sha-1",
+        tipo: String? = "text/html",
+        estado: EstadoDaEvidencia = EstadoDaEvidencia.PRONTA,
+        interacao: EstadoDeInteracao = EstadoDeInteracao.NENHUMA,
+    ) =
         RegistroDeEvidencia(
-            id = "ev-${url.hashCode()}", versaoDoEsquema = "web_evidence.v1", estado = EstadoDaEvidencia.PRONTA,
+            id = "ev-${url.hashCode()}", versaoDoEsquema = "web_evidence.v1", estado = estado,
             url = url, metodo = MetodoHttp.GET, modoDeAcesso = ModoDeAcesso.COLETA_HTTP, status = status,
             urlFinal = url, titulo = null, tipoDeConteudo = tipo, sha256 = sha, coletadaEm = "2026-09-24T12:00:00+00:00",
             expiraEm = null, validadeDoCache = "P30D", estadoDoCache = EstadoDoCache.FRESCO,
             estadoDoRobots = EstadoDoRobots.PERMITIDO, estadoDosDireitos = EstadoDosDireitos.DESCONHECIDO,
-            estadoDeInteracao = EstadoDeInteracao.NENHUMA, resolvidaPorPessoa = false, bytes = 10, duracaoMs = 5,
+            estadoDeInteracao = interacao, resolvidaPorPessoa = false, bytes = 10, duracaoMs = 5,
             cadeiaDeRedirecionamento = emptyList(), comandoCurl = null, provedor = null, consulta = null,
             nomeDoArtefato = null, notas = emptyList(), criadaEm = "2026-09-24T12:00:00+00:00",
             atualizadaEm = "2026-09-24T12:00:00+00:00",
@@ -261,6 +268,84 @@ class IntegridadeDeLinksTest {
             )
         }
         assertEquals("cannot accept a link that did not pass mechanical validation", erro.message)
+    }
+
+    private fun aceitar(linha: LinhaDeLink, registro: RegistroEmMemoria) = IntegridadeDeLinks.revisar(
+        IntegridadeDeLinks.PedidoDeRevisao(
+            linha.linkId, DecisaoDeRevisao.ACEITAR, "fonte oficial confere", "operator", linha.urlNormalizada, linha.sha256,
+        ),
+        registro,
+        agora,
+    )
+
+    @Test
+    fun `captcha, login, paywall e evidencia bloqueada servidos com 200 nao sao aceitos`() {
+        // Divergência do canônico: lá o aceite só conferia o código HTTP.
+        val casos = listOf(
+            evidencia("https://example.com/a", interacao = EstadoDeInteracao.EXIGE_CAPTCHA),
+            evidencia("https://example.com/a", interacao = EstadoDeInteracao.EXIGE_LOGIN),
+            evidencia("https://example.com/a", interacao = EstadoDeInteracao.PAYWALL),
+            evidencia("https://example.com/a", estado = EstadoDaEvidencia.BLOQUEADA),
+        )
+        for (caso in casos) {
+            val registro = RegistroEmMemoria()
+            val linha = IntegridadeDeLinks.auditar("Ver [x](https://example.com/a).", analisador, { caso }, registro) {
+                agora
+            }.linhas.single()
+            assertEquals(200, linha.statusHttp)
+            val erro = assertFailsWith<IntegridadeDeLinks.Falha>(caso.toString()) { aceitar(linha, registro) }
+            assertEquals("cannot accept a link that did not pass mechanical validation", erro.message)
+        }
+        // Controle: a mesma página sem interação pendente é aceita, inclusive
+        // depois de uma quarentena, que troca a classificação exibida mas não
+        // a mecânica.
+        val registro = RegistroEmMemoria()
+        val limpa = auditar("Ver [x](https://example.com/a).", registro).linhas.single()
+        IntegridadeDeLinks.revisar(
+            IntegridadeDeLinks.PedidoDeRevisao(
+                limpa.linkId, DecisaoDeRevisao.QUARENTENA, "conferir depois", "operator", limpa.urlNormalizada, limpa.sha256,
+            ),
+            registro,
+            agora,
+        )
+        assertEquals(StatusDaRevisao.ACEITA, aceitar(limpa, registro).statusDaRevisao)
+    }
+
+    @Test
+    fun `aceite anterior nao e preservado se a verificacao nova deixou de passar`() {
+        val registro = RegistroEmMemoria()
+        var interacao = EstadoDeInteracao.NENHUMA
+        val coletorMutavel = IntegridadeDeLinks.ColetorDeEvidencia { url -> evidencia(url, interacao = interacao) }
+        val texto = "Ver [x](https://example.com/a)."
+        fun rodar() = IntegridadeDeLinks.auditar(texto, analisador, coletorMutavel, registro) { agora }
+        aceitar(rodar().linhas.single(), registro)
+        assertEquals("ok", rodar().linhas.single().tom)
+        // O mesmo hash de conteúdo, agora atrás de um captcha.
+        interacao = EstadoDeInteracao.EXIGE_CAPTCHA
+        val depois = rodar()
+        assertEquals(StatusDaRevisao.PENDENTE, depois.linhas.single().statusDaRevisao)
+        assertEquals(ClassificacaoDoLink.EXIGE_CAPTCHA, depois.linhas.single().classificacao)
+        assertTrue(IntegridadeDeLinks.exigeResolucaoEditorial(depois))
+    }
+
+    @Test
+    fun `URL que o saneamento alteraria fica bloqueada e nao e coletada`() {
+        // Divergência do canônico: lá a URL cortada ou com `<redacted>` era a
+        // que se coletava, e a revisão aprovaria outro destino.
+        val longa = "https://example.com/" + "a".repeat(1000)
+        val comSegredo = "https://example.com/x?chave=sk-" + "a".repeat(12)
+        val resultado = auditar("Ver $longa e tambem $comSegredo agora.")
+        assertEquals(2, resultado.linhas.size)
+        for (linha in resultado.linhas) {
+            assertEquals(ClassificacaoDoLink.MALFORMADO, linha.classificacao)
+            assertEquals("blocked", linha.tom)
+        }
+        assertTrue(coletadas.isEmpty(), coletadas.toString())
+        assertTrue(IntegridadeDeLinks.exigeResolucaoEditorial(resultado))
+        // Controle: no limite exato, a URL passa e é coletada.
+        val noLimite = "https://example.com/" + "a".repeat(1000 - "https://example.com/".length)
+        assertEquals(ClassificacaoDoLink.VERIFICADO_MAS_FRACO, auditar("Ver $noLimite agora.").linhas.single().classificacao)
+        assertEquals(listOf(noLimite), coletadas)
     }
 
     @Test

@@ -106,6 +106,14 @@ public data class LinhaDeLink(
     val verificadoEm: String,
     val sustentaAfirmacao: Boolean?,
     val classificacao: ClassificacaoDoLink,
+    /**
+     * A classificação da verificação mecânica, que a revisão **não**
+     * sobrescreve. Não existe no canônico: lá a revisão troca a classificação,
+     * e o aceite só conferia o código HTTP — uma página de captcha ou de login
+     * servida com 200 podia ser aceita como suporte. O aceite exige que esta
+     * classificação seja de link que passou.
+     */
+    val classificacaoMecanica: ClassificacaoDoLink,
     val candidatosDeCorrecao: List<CandidatoDeCorrecao>,
     val statusDaRevisao: StatusDaRevisao,
     val decisaoDeRevisao: DecisaoDeRevisao?,
@@ -136,6 +144,7 @@ public data class LinhaDeLink(
         "checked_at" to ValorJson.texto(verificadoEm),
         "claim_supported" to ValorJson.logico(sustentaAfirmacao),
         "classification" to ValorJson.texto(classificacao.json),
+        "mechanical_classification" to ValorJson.texto(classificacaoMecanica.json),
         "correction_candidates" to ValorJson.Lista(candidatosDeCorrecao.map { it.json() }),
         "cross_review_status" to ValorJson.texto(statusDaRevisao.json),
         "review_decision" to ValorJson.texto(decisaoDeRevisao?.json),

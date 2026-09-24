@@ -80,7 +80,9 @@ ported: bibliographic integrity, the ABNT citation gate, a 30-link capacity,
 the link-integrity engine, and the rule that no link is released without an
 explicit review against its current URL and content hash. Without a structured
 citation manifest (`citation_manifest.v1`, attached to the session), every
-citation the ABNT gate detects blocks delivery, as on the desktop. What needs
+citation the ABNT gate detects blocks delivery, as on the desktop. In a few
+places it is deliberately stricter than the desktop, fixing defects the desktop
+shares; section 2.2 of the specification lists them. What needs
 the network or the device reaches the module through interfaces: URL parsing,
 name resolution, fetching and search belong to `:core:provedores`, and the link
 review records to `:core:sessao`. Its regular expressions use explicit

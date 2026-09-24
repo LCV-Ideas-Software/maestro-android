@@ -92,7 +92,32 @@ public object AuditoriaAbnt {
                     "error", null, null, null, true,
                 )
             }
+            // Divergência do canônico, corrigindo uma falha dele: sem manifesto, o
+            // Rust só confere estes sinais dentro de `validate_manifest`, e um
+            // texto com nota bibliográfica, `<cite>` ou `apud` — e nenhuma
+            // citação autor-data — saía pronto. Sem manifesto, nenhum sinal pode
+            // estar representado, e todos bloqueiam.
+            for (sinal in sinaisDeCitacaoSemEstrutura(texto)) {
+                bloqueios += bloqueio(
+                    "unstructured_citation_signal",
+                    "Foi detectada citacao em nota ou HTML sem manifesto estruturado que a represente.",
+                    "error", null, null, sinal, true,
+                )
+            }
             referenciasNormalizadas = emptyList()
+        }
+        // Divergência do canônico, corrigindo uma falha dele: o Rust para de
+        // ler em 500 citações, 500 aspas, 500 sinais por padrão e 500
+        // referências, e ignora o resto em silêncio — uma citação sem suporte
+        // depois da 500ª nunca era comparada com o manifesto. Aqui o excesso
+        // reprova o texto.
+        if (excedeCapacidade(texto)) {
+            bloqueios += bloqueio(
+                "citation_capacity_exceeded",
+                "O texto excede o limite seguro de citacoes, aspas, notas ou referencias auditaveis; o " +
+                    "excedente nao pode ser verificado.",
+                "error", null, null, null, false,
+            )
         }
         if (temLacunaLegada(texto)) {
             bloqueios += bloqueio(
@@ -317,7 +342,7 @@ public object AuditoriaAbnt {
      * `(?im)^#{1,6}\s*(?:refer[eê]ncias(?:\s+bibliogr[aá]ficas)?|bibliografia)\s*$`
      * `(?i)\b((?:18|19|20)\d{2}[a-z]?)\b`
      */
-    internal fun secaoDeReferencias(texto: String): List<ReferenciaBruta> {
+    internal fun secaoDeReferencias(texto: String, limite: Int = MAXIMO_DE_FONTES): List<ReferenciaBruta> {
         val achado = CABECALHO_DE_REFERENCIAS.find(texto) ?: return emptyList()
         val corpo = texto.substring(achado.range.last + 1)
         val referencias = mutableListOf<ReferenciaBruta>()
@@ -327,7 +352,7 @@ public object AuditoriaAbnt {
             if (linha.isEmpty()) continue
             val semMarcador = EspacoUnicode.aparar(linha.trimStart('-', '*'))
             if (semMarcador.isEmpty()) continue
-            if (referencias.size >= MAXIMO_DE_FONTES) break
+            if (referencias.size >= limite) break
             val autor = semMarcador.substringBefore('.')
             val chave = antesDaVirgula(autor)
             referencias += ReferenciaBruta(
@@ -415,6 +440,23 @@ public object AuditoriaAbnt {
             RegexOption.IGNORE_CASE,
         ),
     )
+
+    /**
+     * Se o texto tem mais citações, aspas, sinais ou referências do que os
+     * leitores acima examinam. Conta até um além do limite, sem cortar.
+     */
+    internal fun excedeCapacidade(texto: String): Boolean {
+        val trechos = HashSet<Pair<Int, Int>>()
+        for (padrao in PADROES_DE_CITACAO) {
+            for (achado in padrao.findAll(texto)) {
+                trechos += achado.range.first to achado.range.last + 1
+                if (trechos.size > MAXIMO_DE_CITACOES) return true
+            }
+        }
+        if (ASPAS.findAll(texto).take(MAXIMO_DE_CITACOES + 1).count() > MAXIMO_DE_CITACOES) return true
+        if (SINAIS.any { it.findAll(texto).take(MAXIMO_DE_CITACOES + 1).count() > MAXIMO_DE_CITACOES }) return true
+        return secaoDeReferencias(texto, MAXIMO_DE_FONTES + 1).size > MAXIMO_DE_FONTES
+    }
 
     /** `document_policy_blockers`. */
     private fun bloqueiosDePolitica(texto: String, citacoes: List<Citacao>): List<BloqueioDeCitacao> {
