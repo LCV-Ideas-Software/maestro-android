@@ -80,8 +80,18 @@ reasoning at the provider's maximum and a 64 000-token output ceiling. Four of
 them get `store: false`; the other two have no such field. The network policy
 comes from the canonical desktop: two attempts at most, and a wait on HTTP 429
 that honours `Retry-After`. The module reads the API key through an interface
-and never touches the Android Keystore; that implementation arrives with
+and never touches the Android Keystore; that implementation is
 `:core:seguranca`.
+
+The third module, `:core:seguranca`, is an Android library that keeps each
+provider's API key on this device only. The key is encrypted with AES-256-GCM
+by a key generated inside the Android Keystore, which cannot be exported:
+StrongBox when the device has it, the trusted environment when it does not.
+The ciphertext lives in the app's DataStore. Using that key requires the user
+to have authenticated within a fixed time window, not once per call. Its tests
+are instrumented, because the Keystore exists only on a device or an emulator.
+Four of the five cases run on an emulator in CI on every pull request; the
+fifth needs StrongBox hardware and runs on a device that has it.
 
 The native port is specified in
 [`docs/especificacao-v1.md`](docs/especificacao-v1.md) (in Portuguese), written
@@ -104,7 +114,9 @@ analysis for now.
 - The `CI` workflow compiles, analyzes and tests the project on every pull
   request and every push to `main`: Gradle wrapper validation, `assembleDebug`,
   `lintDebug` and unit tests — including those of `:core:protocolo`, which run
-  on the JVM — with the same JDK the publishing workflow uses.
+  on the JVM — with the same JDK the publishing workflow uses. A separate job
+  runs the instrumented tests of `:core:seguranca` on an emulator managed by
+  the Android Gradle Plugin (Gradle Managed Devices).
 - GitHub CodeQL Default setup analyzes the supported content. The duplicate
   advanced-setup workflow is not maintained in this repository.
 - Dependency Review evaluates pull requests to `main`.

@@ -6,6 +6,61 @@ All material changes to Maestro Android are recorded here.
 
 ### Added
 
+- Add `:core:seguranca`, the Android library that keeps each provider's API key
+  on this device only (MAEANDR-19, specification section 6). The key is
+  encrypted with AES-256-GCM by a key generated inside the Android Keystore,
+  which cannot be exported, and the ciphertext lives in the app's DataStore.
+  The provider's name is authenticated data, so one provider's ciphertext does
+  not open as another's. `CofreDeChaves` implements the `FonteDeChave` of
+  `:core:provedores`, which stays pure Kotlin.
+
+  The operator's decisions of 21/09/2026 are written into the key when it is
+  generated, because they cannot change afterwards: StrongBox when the device
+  has it, falling back to the trusted environment when it does not, with the
+  level in use read from the Keystore itself (`KeyInfo`); user authentication
+  by time, not per operation, with a fixed window; and enrolling a new
+  biometric does not invalidate the key. The window is a parameter: the value
+  the product adopts has to come from real sessions (section 11, item 3). A
+  failed read maps to the three causes of section 4.2 — an expired window asks
+  for authentication, a permanently invalidated key is a lost secret, and
+  anything else is "no key configured".
+
+  The Keystore key is one for all providers, so saving is serialized
+  process-wide: two saves on first use would otherwise each generate a key,
+  and the second would delete the first's with its ciphertext already
+  written. When a new key replaces a lost one — screen lock removed, key
+  invalidated — every earlier ciphertext is deleted, since none opens again
+  and none may keep showing as configured. The window must be finite and fit
+  in the whole seconds the Keystore takes. `:app` now declares
+  `dataExtractionRules`, excluding the vault's DataStore file from both cloud
+  backup and device transfer, as section 4.2 requires.
+
+  The tests are instrumented, because the Keystore exists only on a device or
+  an emulator. The operator decided on 23/09/2026 that four of the five cases
+  in section 8 run in CI on every pull request, on an emulator managed by the
+  Android Gradle Plugin (Gradle Managed Devices), in a job of their own; the
+  first case needs StrongBox hardware, which the emulator lacks, and runs on a
+  device that has it. That decision was checked on an Android 17 emulator
+  first: the emulator has no StrongBox, so the fallback case runs against a
+  real absence of the hardware; the test sets a screen PIN and
+  re-authenticates without a screen; and the window expires as documented.
+  The same measurement found that removing the screen lock deletes the
+  Keystore key rather than invalidating it, which section 4.2 now records.
+
+  That finding also sets a rule for the tests: clearing the lock of a real
+  device would delete the authentication-bound keys of every app on it. The
+  tests that set and clear a screen PIN therefore run only on a device with no
+  screen lock at all, such as the CI emulator, and skip on any device that has
+  one. The StrongBox case never touches the lock: it needs a device that
+  already has one and was unlocked in the previous five minutes.
+
+  `THIRDPARTY.md` records the module's runtime dependencies, measured from the
+  resolved classpath: DataStore, which repackages Protocol Buffers under
+  BSD-3-Clause, and `kotlinx-serialization`; and, because the classpath is now
+  an Android one, the Android variant of OkHttp that `:core:provedores`
+  resolves to, with the `androidx` libraries it brings. `org.jetbrains:
+  annotations`, missing for `:core:provedores` too, is added.
+
 - Add `:core:provedores`, the second delivery of the native port (MAEANDR-19):
   the six AI providers as pure Kotlin on the JVM, with no Android dependency.
   The API key is requested through `FonteDeChave`, which `:core:seguranca`

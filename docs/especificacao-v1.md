@@ -394,6 +394,12 @@ Só a terceira linha era o que este documento dizia, como regra geral; as duas
 primeiras entraram depois de a revisão apontar que a regra geral engolia a
 primeira e mandava o usuário redigitar chave boa.
 
+**Remover a trava de tela apaga a chave**, medido num emulador Android 17 em
+23/09/2026: o alias some do Keystore, em vez de a chave passar a lançar
+`KeyPermanentlyInvalidatedException`. O caso cai na terceira linha — cifrado
+órfão, "não há chave configurada" —, e a tela precisa dizer por quê só se a
+trava tiver sido removida, o que ela pode conferir no `KeyguardManager`.
+
 A separação atravessa a fronteira da seção 4: `FonteDeChave` devolve uma
 `LeituraDaChave` — `Presente`, `Ausente`, `ExigeAutenticacao` ou
 `Irrecuperavel` —, e o `:core:provedores` transforma cada uma das três últimas
@@ -814,6 +820,32 @@ de teste, porque compra confiança sem entregá-la.
      operador não está provada;
   5. **depois de a janela expirar, a decifra é recusada** e o estado observável
      é `pausada_aguardando_autenticacao`, não uma exceção crua.
+
+  **Onde rodam, decisão do operador de 23/09/2026:** os casos 2 a 5 rodam na CI
+  em toda PR, num emulador do Gradle Managed Devices (a solução oficial do
+  Google), em job próprio; o caso 1 roda num aparelho com StrongBox, e o
+  resultado é registrado na PR. A decisão foi conferida antes num emulador
+  Android 17 (API 37), em 23/09/2026:
+  - o emulador não tem StrongBox (`FEATURE_STRONGBOX_KEYSTORE` falso, geração
+    com `StrongBoxUnavailableException`), então no caso 2 a ausência do
+    hardware é **real**, e não encenada; num aparelho com StrongBox o caso 2
+    pula, e o caso 1 roda;
+  - sem trava de tela o Keystore não gera chave presa à autenticação, então o
+    teste define um PIN antes de cada caso (`locksettings set-pin`) — o que
+    conta como autenticação — e autentica de novo sem tela
+    (`locksettings verify`). Os casos 3 a 5 esperam a janela vencer de
+    verdade, com janela de 3 s em teste.
+  - **remover a trava de um aparelho de verdade apagaria as chaves presas à
+    autenticação de todos os aplicativos dele.** Por isso os testes que
+    definem e removem o PIN só rodam em aparelho sem trava nenhuma, como o
+    emulador, e pulam em qualquer aparelho que já tenha uma; o caso 1 não
+    toca na trava: exige aparelho já travado e desbloqueado nos cinco minutos
+    anteriores.
+
+  O caso 5 prova aqui o resultado tipado (`LeituraDaChave.ExigeAutenticacao`)
+  e que a chave continua intacta depois de autenticar de novo; o estado
+  `pausada_aguardando_autenticacao` que ele alimenta é do `:core:sessao`, e se
+  prova lá.
 - **`:core:sessao`, com Room em arquivo temporário.** Retomada depois de morte
   de processo é o caso que mais importa, e ele **não** pode usar banco em
   memória: banco em memória morre com o processo, então o teste estaria

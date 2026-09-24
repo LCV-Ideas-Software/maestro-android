@@ -18,3 +18,4 @@ rootProject.name = "maestro-android"
 include(":app")
 include(":core:protocolo")
 include(":core:provedores")
+include(":core:seguranca")

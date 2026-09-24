@@ -1,7 +1,8 @@
 # Third-party inventory
 
 This repository's production-runtime dependencies are recorded under [Runtime
-dependencies](#runtime-dependencies); none is Android-specific. The table
+dependencies](#runtime-dependencies); those of `:core:seguranca` are
+Android-specific. The table
 below records the direct automation dependencies. The current immutable pins
 are the full commit SHAs in each workflow's `uses:` references. Transitive
 Action dependencies remain defined by those pinned upstream actions.
@@ -13,7 +14,7 @@ Action dependencies remain defined by those pinned upstream actions.
 | `actions/dependency-review-action` | v5.0.0 | `a1d282b36b6f3519aa1f3fc636f609c47dddb294` | [MIT](https://github.com/actions/dependency-review-action/blob/a1d282b36b6f3519aa1f3fc636f609c47dddb294/LICENSE) | Review dependency changes in pull requests |
 | `zizmorcore/zizmor-action` | v0.6.4 | `cc914d7f3750a2d13d75c7f184a1060aa0e9d482` | [MIT](https://github.com/zizmorcore/zizmor-action/blob/cc914d7f3750a2d13d75c7f184a1060aa0e9d482/LICENSE) | Audit GitHub Actions and upload SARIF |
 | `ossf/scorecard-action` | v2.4.4 | `2d1146689b8cda280b9bc96326124645441f03bc` | [Apache-2.0](https://github.com/ossf/scorecard-action/blob/2d1146689b8cda280b9bc96326124645441f03bc/LICENSE) | Assess supply-chain posture |
-| `actions/upload-artifact` | v7.0.1 | `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | [MIT](https://github.com/actions/upload-artifact/blob/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/LICENSE) | Retain the Scorecard SARIF; carry the Play-signed APK to the release job |
+| `actions/upload-artifact` | v7.0.1 | `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | [MIT](https://github.com/actions/upload-artifact/blob/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/LICENSE) | Retain the Scorecard SARIF and the instrumented test results; carry the Play-signed APK to the release job |
 | `actions/download-artifact` | v8.0.1 | `3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` | [MIT](https://github.com/actions/download-artifact/blob/3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c/LICENSE) | Fetch the Play-signed APK in the release job |
 | `actions/attest` | v4.2.2 | `1e69f48acb82d1966a394da916b4c1698aa569d6` | [MIT](https://github.com/actions/attest/blob/1e69f48acb82d1966a394da916b4c1698aa569d6/LICENSE) | Build provenance attestation for the released APK |
 | `actions/setup-java` | v6.0.1 | `de7274f081f381c8f8158605e0321c36c376e2e6` | [MIT](https://github.com/actions/setup-java/blob/de7274f081f381c8f8158605e0321c36c376e2e6/LICENSE) | Provide the JDK the Android build requires |
@@ -101,6 +102,38 @@ has to carry that notice along with the Apache-2.0 text.
 
 Test-only dependencies (`mockwebserver3`, `kotlinx-coroutines-test`, JUnit and
 `kotlin-test`) never reach a distributed binary and are not listed.
+
+### `:core:seguranca`
+
+| Component | Version | License | Purpose |
+| --- | --- | --- | --- |
+| `androidx.datastore:datastore-preferences` and the DataStore artifacts it brings (`datastore`, `datastore-core`, `datastore-core-okio`, `datastore-preferences-core`, `datastore-preferences-proto`) | 1.2.1 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Keep each provider's encrypted API key in the app's DataStore |
+| `androidx.datastore:datastore-preferences-external-protobuf` | 1.2.1 | BSD-3-Clause, as its `META-INF/androidx/datastore/datastore-preferences-external-protobuf/LICENSE.txt` states | Protocol Buffers, repackaged by DataStore under `androidx.datastore.preferences.protobuf`, for the file format |
+| `org.jetbrains.kotlinx:kotlinx-serialization-core` and `-json` (`-jvm`) | 1.7.3 | [Apache-2.0](https://github.com/Kotlin/kotlinx.serialization/blob/v1.7.3/LICENSE.txt) | Transitive of `datastore-core-okio` |
+| `com.squareup.okhttp3:okhttp-android` | 5.5.0 | [Apache-2.0](https://github.com/square/okhttp/blob/parent-5.5.0/LICENSE.txt) | The Android variant of OkHttp that `:core:provedores` resolves to on Android, in place of `okhttp-jvm`; it carries the same Public Suffix List, as `assets/PublicSuffixDatabase.list` |
+| `androidx.annotation:annotation` (`-jvm`) | 1.10.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of `okhttp-android` and DataStore |
+| `androidx.startup:startup-runtime` | 1.2.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of `okhttp-android` |
+| `androidx.tracing:tracing` | 1.0.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of `androidx.startup` |
+| `org.jetbrains:annotations` | 23.0.0 | [Apache-2.0](https://github.com/JetBrains/java-annotations/blob/master/LICENSE.txt) | Transitive of `kotlin-stdlib` and `kotlinx-coroutines-core`; it was missing from this inventory for `:core:provedores` too |
+
+The module also uses `:core:provedores`, recorded above. The rows come from the
+resolved `releaseRuntimeClasspath` of the module, measured on 23/09/2026, and
+the licences from each artifact's POM. The BSD-3-Clause row's POM declares
+that licence, and the licence file inside the jar confirms it; what the POM
+does not show is that the code is Protocol Buffers, which the jar's package,
+`androidx.datastore.preferences.protobuf`, does. Measured size of each artifact, before shrinking: 27 KB,
+205 KB, 31 KB, 36 KB and 29 KB for the DataStore artifacts plus 18 KB for
+`datastore-preferences`; 1 026 KB for the repackaged Protocol Buffers; 381 KB
+and 264 KB for `kotlinx-serialization`; 924 KB for `okhttp-android`; 60 KB,
+23 KB, 4 KB and 28 KB for the last four rows.
+
+The first APK that includes the module has to carry, besides what the sections
+above already list, the BSD-3-Clause notice of the repackaged Protocol
+Buffers: its licence requires reproducing the copyright notice and conditions
+in the documentation or other materials distributed with the binary.
+
+Test-only dependencies (`androidx.test:runner`, `androidx.test.ext:junit`)
+never reach a distributed binary and are not listed.
 
 ## Accepted upstream constraints
 
