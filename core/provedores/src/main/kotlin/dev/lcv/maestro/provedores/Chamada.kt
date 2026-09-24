@@ -75,6 +75,13 @@ public sealed interface Resultado {
     public data object SegredoIrrecuperavel : Resultado
 
     /**
+     * A chave não pôde ser lida agora, por falha passageira do aparelho, e
+     * nada foi enviado. Ela não se perdeu: vale tentar de novo, sem pedir a
+     * chave de API ao usuário.
+     */
+    public data object ChaveIndisponivel : Resultado
+
+    /**
      * A chave configurada tem caractere que não pode ir num cabeçalho HTTP
      * (controle, espaço no meio, fora do ASCII). Nada foi enviado, e o valor
      * não aparece em lugar nenhum: o usuário precisa colar a chave de novo.

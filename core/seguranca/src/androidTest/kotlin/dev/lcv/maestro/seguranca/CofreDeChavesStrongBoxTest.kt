@@ -2,7 +2,6 @@ package dev.lcv.maestro.seguranca
 
 import android.app.KeyguardManager
 import android.content.pm.PackageManager
-import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.lcv.maestro.provedores.LeituraDaChave
@@ -23,8 +22,9 @@ import org.junit.runner.RunWith
 
 /**
  * O caso 1 da seção 8: com StrongBox, o segredo cifrado volta em claro. Exige o
- * hardware, que o emulador não tem, e por isso roda num aparelho que o tenha
- * (decisão do operador de 23/09/2026); no emulador, pula.
+ * hardware, que o emulador não tem. Não há aparelho com ele disponível, e o
+ * operador decidiu em 23/09/2026 que o caso não será rodado; o teste fica,
+ * para rodar em qualquer aparelho que tenha o hardware. No emulador, pula.
  *
  * **Não toca na trava de tela.** Num aparelho de verdade, remover a trava
  * apagaria as chaves presas à autenticação de todos os aplicativos. O caso
@@ -34,15 +34,17 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class CofreDeChavesStrongBoxTest {
 
+    private val trava get() = contexto.getSystemService(KeyguardManager::class.java)
     private val contexto = InstrumentationRegistry.getInstrumentation().targetContext
     private val escopo = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val alias = "teste_${System.nanoTime()}"
     private val arquivo = File(contexto.cacheDir, "$alias.preferences_pb")
     private val cofre = CofreDeChaves(
-        contexto,
-        PreferenceDataStoreFactory.create(scope = escopo) { arquivo },
+        trava,
+        CofreDeChaves.armazemDoCofre(arquivo, escopo),
         JANELA,
         alias,
+        temStrongBox = true,
     )
 
     @After

@@ -96,6 +96,7 @@ public class ClienteDeProvedores internal constructor(
             LeituraDaChave.Ausente -> return Resultado.SemChave
             LeituraDaChave.ExigeAutenticacao -> return Resultado.ExigeAutenticacao
             LeituraDaChave.Irrecuperavel -> return Resultado.SegredoIrrecuperavel
+            LeituraDaChave.Indisponivel -> return Resultado.ChaveIndisponivel
         }
         if (chave.any { it.code !in 0x21..0x7e }) return Resultado.ChaveInvalida
         val formato = Formato.de(provedor)

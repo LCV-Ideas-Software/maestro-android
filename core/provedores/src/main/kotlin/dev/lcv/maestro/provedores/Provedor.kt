@@ -84,4 +84,11 @@ public sealed interface LeituraDaChave {
      * volta mais. Vira [Resultado.SegredoIrrecuperavel].
      */
     public data object Irrecuperavel : LeituraDaChave
+
+    /**
+     * A fonte não conseguiu ler a chave agora — Keystore ocupado, falha do
+     * disco ou do próprio Keystore —, sem sinal de que ela se perdeu. Vira
+     * [Resultado.ChaveIndisponivel]: tentar de novo, e nunca pedir a chave.
+     */
+    public data object Indisponivel : LeituraDaChave
 }
