@@ -73,6 +73,22 @@ section 7.1 of the specification: amounts are summed and compared at eight
 decimals, and a call is allowed when the running total plus its estimate does
 not exceed the cap.
 
+Since MAEANDR-18 the module also holds the final-release audit, the gate that
+decides whether a text may be delivered. By the operator's decision of
+24/09/2026 it ports the desktop's current five stages, not the three the web
+ported: bibliographic integrity, the ABNT citation gate, a 30-link capacity,
+the link-integrity engine, and the rule that no link is released without an
+explicit review against its current URL and content hash. Without a structured
+citation manifest (`citation_manifest.v1`, attached to the session), every
+citation the ABNT gate detects blocks delivery, as on the desktop. In a few
+places it is deliberately stricter than the desktop, fixing defects the desktop
+shares; section 2.2 of the specification lists them. What needs
+the network or the device reaches the module through interfaces: URL parsing,
+name resolution, fetching and search belong to `:core:provedores`, and the link
+review records to `:core:sessao`. Its regular expressions use explicit
+character classes and flags passed as options, because Android runs
+`java.util.regex` on ICU, where the JVM's `UNICODE_CHARACTER_CLASS` throws.
+
 The second module is `:core:provedores`, also pure Kotlin and tested on the
 JVM against a fake HTTP server. It holds the six AI providers, each built from
 its official API documentation, reconfirmed on 23/09/2026. Every request uses

@@ -80,6 +80,17 @@ internal object EspacoUnicode {
         return texto.substring(inicio)
     }
 
+    /** Equivalente do `str::trim_end` do Rust. */
+    fun apararFim(texto: String): String {
+        var fim = texto.length
+        while (fim > 0) {
+            val pontoDeCodigo = texto.codePointBefore(fim)
+            if (!ehEspaco(pontoDeCodigo)) break
+            fim -= Character.charCount(pontoDeCodigo)
+        }
+        return texto.substring(0, fim)
+    }
+
     /** Verdadeiro quando o texto só tem espaço em branco, ou nada. */
     fun soEspaco(texto: String): Boolean = aparar(texto).isEmpty()
 
