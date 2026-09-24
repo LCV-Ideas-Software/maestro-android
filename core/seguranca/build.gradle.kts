@@ -19,8 +19,9 @@ android {
     // aparelho ou emulador. O emulador é gerenciado pelo próprio Android
     // Gradle Plugin (Gradle Managed Devices, a solução oficial do Google), e é
     // o mesmo na CI e na máquina de quem desenvolve. Decisão do operador de
-    // 23/09/2026: os casos 2 a 5 da seção 8 rodam aqui, em toda PR; o caso 1,
-    // que exige o hardware de StrongBox, roda num aparelho que o tenha.
+    // 23/09/2026: os casos 2 a 5 da seção 8 rodam aqui, em toda PR. O caso 1
+    // exige o hardware de StrongBox, que o emulador não tem, e não há aparelho
+    // com ele disponível; o teste existe e só roda onde houver o hardware.
     testOptions {
         managedDevices {
             localDevices {

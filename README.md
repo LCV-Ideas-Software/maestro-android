@@ -90,8 +90,9 @@ StrongBox when the device has it, the trusted environment when it does not.
 The ciphertext lives in the app's DataStore. Using that key requires the user
 to have authenticated within a fixed time window, not once per call. Its tests
 are instrumented, because the Keystore exists only on a device or an emulator.
-Four of the five cases run on an emulator in CI on every pull request; the
-fifth needs StrongBox hardware and runs on a device that has it.
+Four of the five cases run on an emulator in CI on every pull request, as a
+required check; the fifth needs StrongBox hardware, which no available device
+has, and its test runs only where that hardware exists.
 
 The native port is specified in
 [`docs/especificacao-v1.md`](docs/especificacao-v1.md) (in Portuguese), written
@@ -116,7 +117,8 @@ analysis for now.
   `lintDebug` and unit tests — including those of `:core:protocolo`, which run
   on the JVM — with the same JDK the publishing workflow uses. A separate job
   runs the instrumented tests of `:core:seguranca` on an emulator managed by
-  the Android Gradle Plugin (Gradle Managed Devices).
+  the Android Gradle Plugin (Gradle Managed Devices). Both jobs are required
+  checks in the repository ruleset.
 - GitHub CodeQL Default setup analyzes the supported content. The duplicate
   advanced-setup workflow is not maintained in this repository.
 - Dependency Review evaluates pull requests to `main`.

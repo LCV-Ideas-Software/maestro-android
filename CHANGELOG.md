@@ -25,22 +25,95 @@ All material changes to Maestro Android are recorded here.
   for authentication, a permanently invalidated key is a lost secret, and
   anything else is "no key configured".
 
-  The Keystore key is one for all providers, so saving is serialized
-  process-wide: two saves on first use would otherwise each generate a key,
-  and the second would delete the first's with its ciphertext already
-  written. When a new key replaces a lost one — screen lock removed, key
-  invalidated — every earlier ciphertext is deleted, since none opens again
-  and none may keep showing as configured. The window must be finite and fit
-  in the whole seconds the Keystore takes. `:app` now declares
-  `dataExtractionRules`, excluding the vault's DataStore file from both cloud
-  backup and device transfer, as section 4.2 requires.
+  The vault's state is the Keystore key plus the ciphertexts in DataStore, so
+  every public operation runs under one process-wide lock and off the main
+  thread: no read sees half of a key replacement, and two saves on first use
+  cannot each generate a key. An indeterminate failure never deletes anything:
+  a save that meets one returns `Guarda.Falhou`, and a read returns
+  `Indisponivel`, never "no key". Only what is confirmed lost is deleted: a
+  ciphertext whose key is gone and a value that is not bytes; and, when a lost
+  key is replaced, every ciphertext of the old one, before the new key is
+  generated. A Keystore key that is gone takes every record with it on the
+  first read that finds it gone, since it encrypted all six. A record whose GCM
+  tag fails, or that carries the provider's header but is too short to hold a
+  ciphertext, is moved out of the provider's name — where it would count as
+  configured — to a separate entry with its bytes intact, because neither
+  proves that the bytes are lost, only that they are not that provider's
+  record; a failed tag is remembered, byte for byte, before the move starts, so
+  neither a disk that refuses the move, a read cancelled halfway nor a later
+  transient Keystore failure brings it back as configured, and the move is
+  retried on every read. Every deletion or move happens only if the record is
+  still the one that was read, so a save that finished writing afterwards is
+  never removed in its place. `apagar` also removes the provider's moved
+  records. A key permanently invalidated, while reading or at any point of an
+  encryption, is remembered for every record, since the six providers share it,
+  until its replacement succeeds, and takes precedence over a missing
+  authentication. The marks live in memory: with the window expired the
+  Keystore decrypts nothing, so after a restart any well-formed record, altered
+  or not, counts as configured until the next authenticated read — a limit of
+  user authentication itself, which a mark in another file would not lift,
+  since the case is a disk refusing writes. Each record starts with a version
+  mark and the provider's name, so a record that is not that provider's —
+  another provider's ciphertext, arbitrary bytes — is recognised without
+  authentication, before any decryption and before its size is judged; it does
+  not count as that provider's key, but it is kept, because the header is not
+  authenticated and one changed byte in it does not prove the ciphertext is
+  lost. Only a Keystore entry with exactly the shape the vault generates counts
+  as its key, checked in every attribute its `KeyInfo` reports: generated
+  inside the Keystore, not imported with material known outside it, a 256-bit
+  AES key for encryption and decryption only, in GCM without padding, bound to
+  user authentication for a time window by the same means, with no validity
+  dates, no usage limit, no invalidation by a new biometric and none of the
+  on-body, presence or confirmation requirements. Any other entry under the
+  alias is treated as lost and replaced by the next save, rather than used
+  without the promised protection or leaving the vault stuck with it; only this
+  module writes that alias, in a Keystore private to the app, and replacing it
+  is the operator's decision of 24/09/2026. A key with a character outside
+  `0x21..0x7E` is refused before anything is written (`Guarda.ChaveInvalida`),
+  by the same rule `:core:provedores` applies before sending, so a lone
+  surrogate half cannot be stored as a different key. The name is also the
+  GCM's authenticated data, which rejects a record whose header was swapped.
+  `configurada` runs the same read as `chaveDe` and answers from its outcome,
+  so a record that does not open — an invalidated key with its alias still
+  present, a tampered tag, a value of the wrong type — does not show as
+  configured, while an expired window still does; a disk that cannot be read or
+  a Keystore that fails in an indeterminate way answers neither yes nor no
+  (`null`), the operator's "could not verify now" state. `apagar` reports
+  whether the record was removed. An authentication or invalidation cause is
+  found even when the Keystore wraps it in another exception, of any type, and
+  takes precedence over a tag mismatch; a busy Keystore is retried. A corrupted
+  DataStore file is copied, byte for byte, to a quarantine file of its own that
+  no later corruption overwrites, and the file and its directory entry are
+  synced to disk, and only then becomes an empty vault through DataStore's own
+  corruption handler; if the copy fails, the file is left as it is and the read
+  is unavailable. StrongBox is only requested when the device declares the
+  feature, and only `StrongBoxUnavailableException` falls back to the trusted
+  environment; any other failure is reported, never silently downgraded.
+  `criar` returns the process's single vault, because DataStore refuses two
+  instances over the same file, and the vault holds the `KeyguardManager`
+  rather than a `Context`. The window must be finite, a whole number of seconds
+  and fit in what the Keystore takes.
+
+  The vault's DataStore file lives under `noBackupFilesDir`, which Android
+  always excludes from both cloud backup and device transfer, together with
+  the temporary file DataStore writes next to it, so no path rule in `:app` is
+  needed.
 
   The tests are instrumented, because the Keystore exists only on a device or
   an emulator. The operator decided on 23/09/2026 that four of the five cases
   in section 8 run in CI on every pull request, on an emulator managed by the
-  Android Gradle Plugin (Gradle Managed Devices), in a job of their own; the
-  first case needs StrongBox hardware, which the emulator lacks, and runs on a
-  device that has it. That decision was checked on an Android 17 emulator
+  Android Gradle Plugin (Gradle Managed Devices), in a job of their own that is
+  a required check in the repository ruleset, alongside `Build, lint and test`,
+  which was missing from it; on the CI emulator a skipped test is a failure,
+  and a step the operator authorized reads the official result file and fails
+  the job unless it holds exactly the `@Test` methods of the instrumented
+  sources, except the first case's class, each without a failure, error or
+  skip: neither Gradle Managed Devices nor the test runner fails a run in
+  which a filter matched nothing, or matched a single case.
+  The first case needs StrongBox hardware, which the emulator lacks, and no
+  device with it is available, so the operator decided the case is not run;
+  its test stays and runs on any device that has the hardware. That decision
+  was checked on an Android 17 emulator
   first: the emulator has no StrongBox, so the fallback case runs against a
   real absence of the hardware; the test sets a screen PIN and
   re-authenticates without a screen; and the window expires as documented.
@@ -64,12 +137,12 @@ All material changes to Maestro Android are recorded here.
 - Add `:core:provedores`, the second delivery of the native port (MAEANDR-19):
   the six AI providers as pure Kotlin on the JVM, with no Android dependency.
   The API key is requested through `FonteDeChave`, which `:core:seguranca`
-  will implement over the Keystore. The source answers with one of four
-  readings — the key, no key, authentication required, or a secret that can no
-  longer be decrypted — and each unavailable reading is its own outcome, with
-  no request sent: section 4.2 of the specification separates the three causes
-  of a failed read, and merging them would ask the user to retype a key that is
-  intact. The key's text representation never shows its value.
+  will implement over the Keystore. The source answers with one of five
+  readings — the key, no key, authentication required, a secret that can no
+  longer be decrypted, or a key that cannot be read right now — and each
+  unavailable reading is its own outcome, with no request sent: section 4.2 of
+  the specification separates the causes of a failed read, and merging them
+  would ask the user to retype a key that is intact. The key's text representation never shows its value.
 
   **The request body of each provider comes from its official documentation,
   reconfirmed on 23/09/2026.** Neither canonical source uses the new

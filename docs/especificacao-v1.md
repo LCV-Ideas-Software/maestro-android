@@ -371,8 +371,12 @@ exatamente o banco do Room com o texto das sessões e o DataStore com o segredo
 cifrado. Sem recorte, o conteúdo do usuário sobe para o serviço de backup
 configurado no aparelho, o que contradiz a promessa da seção 6.
 
-O aplicativo declara `android:dataExtractionRules` (API 31+) **excluindo o banco
-do Room e o DataStore do segredo**, nos dois domínios que a regra separa —
+**O segredo cifrado fica em `noBackupFilesDir`**, que o Android exclui sempre
+do backup e da transferência entre aparelhos — "mesmo se você tentar
+incluí-los", diz a documentação do Auto Backup —, com o temporário que o
+DataStore grava ao lado do arquivo junto; a exclusão não depende de regra de
+caminho. **O banco do Room**, quando existir, é excluído por
+`android:dataExtractionRules` (API 31+), nos dois domínios que a regra separa —
 `cloud-backup` e `device-transfer`. A exclusão é do conteúdo, não do
 aplicativo: preferência de interface pode ser restaurada sem problema.
 
@@ -401,11 +405,18 @@ primeira e mandava o usuário redigitar chave boa.
 trava tiver sido removida, o que ela pode conferir no `KeyguardManager`.
 
 A separação atravessa a fronteira da seção 4: `FonteDeChave` devolve uma
-`LeituraDaChave` — `Presente`, `Ausente`, `ExigeAutenticacao` ou
-`Irrecuperavel` —, e o `:core:provedores` transforma cada uma das três últimas
-num resultado próprio (`SemChave`, `ExigeAutenticacao`,
-`SegredoIrrecuperavel`), sem fazer requisição. Uma interface que devolvesse só
-"a chave ou nada" apagaria a distinção antes de ela chegar à sessão.
+`LeituraDaChave` — `Presente`, `Ausente`, `ExigeAutenticacao`,
+`Irrecuperavel` ou `Indisponivel` —, e o `:core:provedores` transforma cada uma
+das quatro últimas num resultado próprio (`SemChave`, `ExigeAutenticacao`,
+`SegredoIrrecuperavel`, `ChaveIndisponivel`), sem fazer requisição.
+`Indisponivel` é a falha passageira do aparelho — Keystore ocupado, disco que
+não lê —, sem sinal de que a chave se perdeu: pedir a chave de novo, nesse
+caso, seria mandar redigitar uma chave intacta. Uma interface que devolvesse só
+"a chave ou nada" apagaria a distinção antes de ela chegar à sessão. Pela
+mesma razão, disco que não lê e Keystore que falha de forma indeterminada não
+respondem "configurada" nem "não configurada": o cofre devolve que não sabe
+agora, e a tela mostra um terceiro estado — "não foi possível verificar
+agora" —, em vez de afirmar um dos dois (decisão do operador de 23/09/2026).
 
 A segunda causa tem mitigação própria e a v1 a usa:
 `setInvalidatedByBiometricEnrollment(false)` mantém a chave válida quando uma
@@ -821,11 +832,14 @@ de teste, porque compra confiança sem entregá-la.
   5. **depois de a janela expirar, a decifra é recusada** e o estado observável
      é `pausada_aguardando_autenticacao`, não uma exceção crua.
 
-  **Onde rodam, decisão do operador de 23/09/2026:** os casos 2 a 5 rodam na CI
-  em toda PR, num emulador do Gradle Managed Devices (a solução oficial do
-  Google), em job próprio; o caso 1 roda num aparelho com StrongBox, e o
-  resultado é registrado na PR. A decisão foi conferida antes num emulador
-  Android 17 (API 37), em 23/09/2026:
+  **Onde rodam, decisões do operador de 23/09/2026:** os casos 2 a 5 rodam na
+  CI em toda PR, num emulador do Gradle Managed Devices (a solução oficial do
+  Google), em job próprio que é **verificação obrigatória** do ruleset do
+  repositório; no emulador da CI, pular é falha. O caso 1 exige StrongBox, que
+  o emulador não tem, e **não há aparelho com o hardware disponível: o caso não
+  é rodado.** O teste existe e roda em qualquer aparelho que tenha o hardware.
+  A decisão foi conferida antes num emulador Android 17 (API 37), em
+  23/09/2026:
   - o emulador não tem StrongBox (`FEATURE_STRONGBOX_KEYSTORE` falso, geração
     com `StrongBoxUnavailableException`), então no caso 2 a ausência do
     hardware é **real**, e não encenada; num aparelho com StrongBox o caso 2
@@ -891,8 +905,8 @@ Decisões de produto vigentes, no mesmo espírito das da calculadora:
 - a chave nunca é exibida depois de gravada — a tela mostra "configurada" ou
   "não configurada", nunca o valor;
 - o texto do usuário vai aos provedores que ele mesmo escolheu ativar, e a nada
-  mais; o banco local e o segredo cifrado ficam **fora do backup do Android**,
-  por `dataExtractionRules` (seção 4.2).
+  mais; o banco local e o segredo cifrado ficam **fora do backup do Android**
+  (seção 4.2).
 
 A publicação segue a esteira já em paridade (seção 3), com notas de versão em
 `play/release-notes/pt-BR.txt` e o teto de 500 caracteres por idioma verificado

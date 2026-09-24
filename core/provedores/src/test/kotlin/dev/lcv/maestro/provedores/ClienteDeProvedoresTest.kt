@@ -299,6 +299,7 @@ class ClienteDeProvedoresTest {
             LeituraDaChave.Ausente to Resultado.SemChave,
             LeituraDaChave.ExigeAutenticacao to Resultado.ExigeAutenticacao,
             LeituraDaChave.Irrecuperavel to Resultado.SegredoIrrecuperavel,
+            LeituraDaChave.Indisponivel to Resultado.ChaveIndisponivel,
         )) {
             leitura = daFonte
             assertEquals(esperado, chamar(), "$daFonte")

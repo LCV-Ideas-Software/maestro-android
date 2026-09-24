@@ -85,9 +85,10 @@ jobs:
   instrumented:
     # Os testes do `:core:seguranca` só rodam em aparelho ou emulador: o
     # Android Keystore não existe na JVM. Decisão do operador de 23/09/2026:
-    # os casos 2 a 5 da seção 8 da especificação rodam aqui, em toda PR; o
-    # caso 1, que exige o hardware de StrongBox que o emulador não tem, roda
-    # num aparelho que o tenha, e o resultado é registrado na PR.
+    # os casos 2 a 5 da seção 8 da especificação rodam aqui, em toda PR, e
+    # este job é verificação obrigatória do ruleset do repositório. O caso 1
+    # exige o hardware de StrongBox, que o emulador não tem, e não há aparelho
+    # com ele disponível: o teste existe e pula aqui.
     #
     # Job próprio, com prazo próprio, para que o emulador não entre no prazo
     # do job de build.
@@ -108,6 +109,11 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Validate the Gradle wrapper
+        # O mesmo portão do job de build: nenhum `gradlew` roda antes de o
+        # wrapper ser conferido contra as distribuições publicadas do Gradle.
+        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
 
@@ -124,10 +130,59 @@ jobs:
         # O emulador é o do Gradle Managed Devices, declarado em
         # `core/seguranca/build.gradle.kts`. A opção de GPU é a que a
         # documentação do Android manda usar no GitHub Actions, que não tem
-        # renderização por hardware.
+        # renderização por hardware. `emuladorDaCi=true` faz o teste reprovar,
+        # em vez de pular, se o emulador aparecer com trava de tela ou com
+        # StrongBox: pular todos os casos passaria sem ter provado nada.
+        # `notClass` deixa de fora o caso 1, que exige o hardware de StrongBox:
+        # o relatório do Gradle Managed Devices contaria o pulo dele como
+        # falha, e o resultado precisa mostrar só o que rodou de fato.
         run: >-
           ./gradlew :core:seguranca:api37DebugAndroidTest --no-daemon --stacktrace
           -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
+          -Pandroid.testInstrumentationRunnerArguments.emuladorDaCi=true
+          -Pandroid.testInstrumentationRunnerArguments.notClass=dev.lcv.maestro.seguranca.CofreDeChavesStrongBoxTest
+
+      - name: Require that the instrumented cases ran
+        # Autorizado pelo operador em 23/09/2026. Nem o Gradle Managed Devices
+        # nem o executor oficial reprovam uma execução em que nenhum teste
+        # rodou — medido: um filtro que não casa teste nenhum termina com
+        # BUILD SUCCESSFUL e tests="0". Contar não basta: um filtro que
+        # deixasse passar um caso só também daria zero falhas. Este passo lê
+        # o XML oficial do resultado e exige que ele traga exatamente os
+        # métodos `@Test` das fontes instrumentadas — menos a classe do caso
+        # 1, que fica de fora de propósito —, cada um sem falha, erro ou pulo.
+        run: |
+          python3 - <<'EOF'
+          import pathlib
+          import re
+          import sys
+          import xml.etree.ElementTree as ET
+
+          fontes = pathlib.Path("core/seguranca/src/androidTest/kotlin")
+          fora = {"CofreDeChavesStrongBoxTest"}
+          esperados = {
+              (arquivo.stem, nome)
+              for arquivo in fontes.rglob("*.kt")
+              if arquivo.stem not in fora
+              for nome in re.findall(r"@Test\s+fun\s+(\w+)", arquivo.read_text(encoding="utf-8"))
+          }
+          raiz = ET.parse(
+              "core/seguranca/build/outputs/androidTest-results/managedDevice/debug/api37/TEST-api37.xml"
+          ).getroot()
+          rodados = {}
+          for caso in raiz.iter("testcase"):
+              chave = (caso.get("classname").rsplit(".", 1)[-1], caso.get("name"))
+              rodados[chave] = [filho.tag for filho in caso]
+          print(f"expected {len(esperados)}, ran {len(rodados)}")
+          faltando = sorted(esperados - rodados.keys())
+          sobrando = sorted(rodados.keys() - esperados)
+          ruins = sorted(chave for chave, tags in rodados.items() if tags)
+          for rotulo, lista in (("missing", faltando), ("unexpected", sobrando), ("not passing", ruins)):
+              for chave in lista:
+                  print(f"{rotulo}: {chave[0]}.{chave[1]}")
+          if not esperados or faltando or sobrando or ruins:
+              sys.exit("the instrumented results do not show every expected case run and passing")
+          EOF
 
       - name: Keep the instrumented test results
         # O Gradle não imprime no log quantos testes rodaram nem quais pularam.
