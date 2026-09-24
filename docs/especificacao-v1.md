@@ -79,8 +79,8 @@ estimativas.
 | Custo estimado e observado (964–989) | 26 | porta, em `BigDecimal` |
 | Tempo de sessão e tetos (990–1007) | 18 | porta |
 | Protocolo: leitura e validação do relatório do agente (1008–1628) | 621 | porta |
-| Auditoria de links e defesa de SSRF (1629–1935) | 307 | porta, com o modelo de ameaça invertido — seção 5.4 |
-| Auditoria do candidato a release final (1936–1984) | 49 | porta |
+| Auditoria de links e defesa de SSRF (1629–1935) | 307 | porta **do Rust atual**, com o modelo de ameaça invertido — seção 5.4 e o parágrafo abaixo |
+| Auditoria do candidato a release final (1936–1984) | 49 | porta **do Rust atual**, em cinco estágios — parágrafo abaixo |
 | Montagem dos prompts de rascunho e revisão (1985–2210) | 226 | porta |
 | Rede: timeout, retry, tratamento de 429 (2211–2378) | 168 | porta |
 | Resolução de modelo e cliente Vertex (2379–2462) | 84 | **substituída** — API geral, seção 2.4 |
@@ -130,6 +130,38 @@ afirmação falsa, atribuível e justificada. Registro completo na
 [Discussion #41](https://github.com/LCV-Ideas-Software/maestro-android/discussions/41).
 A mesma lacuna existe no canônico e no `admin-app` (MAESTRO-30, ADMIAPP-29); a
 adoção lá é decisão de cada repositório.
+
+**A auditoria do candidato final também vem do Rust — e do Rust atual, que
+cresceu. Decisão do operador de 24/09/2026 (MAEANDR-18).** O próprio
+`sessions.ts` se declara porte do canônico nesse trecho (*"canonical release
+link audit (port of link_audit.rs)"*), mas portou uma versão de três estágios.
+Medido no `maestro-app` em `68528f9`, o Rust tem cinco:
+
+1. integridade bibliográfica (marcador de evidência pendente ou lacuna);
+2. citações ABNT (`abnt_citation.rs`, 1.769 linhas), que **sem manifesto de
+   citações recusa toda citação detectada** (`structured_manifest_missing`);
+3. no máximo 30 ocorrências de link;
+4. o motor de integridade de links (`link_integrity.rs`, 1.069 linhas), que
+   coleta cada link pelo motor de evidências (`web_evidence.rs`, 3.660 linhas);
+5. **nenhum link sai sem revisão explícita** contra a URL e o hash do conteúdo
+   atuais; resposta HTTP bem-sucedida é só `verified_but_weak`.
+
+Perguntado entre os três estágios do web e os cinco do Rust atual, o operador
+escolheu os cinco. O que a escolha pede, e como fica:
+
+- **Manifesto de citações:** entra como anexo JSON da sessão
+  (`citation_manifest.v1`), como no desktop; o `:core:sessao` guarda os
+  anexos e o `:app` oferece a entrada.
+- **Revisão de cada link:** tela no `:app`, registros no Room do
+  `:core:sessao`.
+- **Janela de navegador (WebView2 no desktop):** não é portada. O link abre no
+  navegador do sistema, que já é isolado do aplicativo, e o operador importa o
+  arquivo salvo pelo seletor oficial de arquivos do Android.
+- **Busca de evidências:** só os dois conectores embutidos do canônico,
+  Crossref e OpenAlex, que não usam chave. Os conectores configuráveis ficam
+  como pendência (seção 11).
+- **Onde mora cada parte:** regras puras no `:core:protocolo`; rede (parser de
+  URL, DNS, coleta, busca) no `:core:provedores`.
 
 ### 2.3 O cliente web
 
@@ -208,12 +240,16 @@ A primeira entrega de código traz, na mesma mudança:
 
 ```
 :core:protocolo   Kotlin puro, sem Android — content-lock, leitura de relatório,
-                  auditoria de release, montagem de prompts, custo
+                  auditoria de release (cinco estágios: ABNT e integridade
+                  de links), montagem de prompts, custo
 :core:provedores  Kotlin puro — os seis provedores sobre OkHttp, retry
-                  e uso; lê a chave por uma interface, não pelo Keystore
+                  e uso; lê a chave por uma interface, não pelo Keystore;
+                  parser de URL, DNS, coleta e busca da auditoria de links
 :core:seguranca   Android library — a implementação da chave sobre o Keystore
-:core:sessao      Android library — Room, orquestração da deliberação, retomada
-:app              Compose, WorkManager, injeção que amarra os módulos
+:core:sessao      Android library — Room (inclusive os registros de links e
+                  os anexos da sessão), orquestração da deliberação, retomada
+:app              Compose (inclusive a revisão de links e o manifesto de
+                  citações), WorkManager, injeção que amarra os módulos
 ```
 
 `:core:protocolo` **não depende de Android**, pela mesma razão que fez
@@ -570,11 +606,14 @@ servidor buscar credencial de metadados.
 
 No aparelho isso se inverte. Não há metadados de nuvem a vazar, mas há **a rede
 doméstica do usuário**: um `http://192.168.0.1` auditado a partir do telefone é
-o aplicativo varrendo o roteador de quem o instalou. A unidade porta inteira —
+o aplicativo varrendo o roteador de quem o instalou. ~~A unidade porta inteira —
 `isPrivateIpv4`, `embeddedIpv4FromIpv6`, `isBlockedAuditHost` e a resolução
-prévia de host —, e o motivo de existir passa a ser **proteger a rede do
-usuário**, não a nossa. O comentário no código dirá isso; herdar a defesa sem
-herdar a razão é como ela apodrece.
+prévia de host —~~ A unidade porta do Rust atual (seção 2.2): as faixas
+bloqueadas e a recusa de URL não pública de `link_audit.rs`, e o resolvedor que
+recusa endereço privado na própria conexão, de `web_evidence.rs`. O motivo de
+existir passa a ser **proteger a rede do usuário**, não a nossa. O comentário
+no código diz isso (`RedePublica`); herdar a defesa sem herdar a razão é como
+ela apodrece.
 
 ## 6. A chave é do usuário e fica no aparelho
 
@@ -803,7 +842,14 @@ de teste, porque compra confiança sem entregá-la.
   leitura de relatório e 526 de *content-lock* são funções puras sobre texto.
   Cada regra de validação ganha um par — uma entrada que passa e uma que falha.
   O `validateRevisionContentLock` em particular tem de ter caso em que a revisão
-  mexe em bloco não declarado, e o teste **exige** a recusa.
+  mexe em bloco não declarado, e o teste **exige** a recusa. A auditoria do
+  candidato final porta as suítes do Rust e acrescenta o que elas não cobrem
+  por serem ASCII e só usarem `\n`: posição em bytes UTF-8, `\r` sozinho,
+  espaço e dígito Unicode, fronteira de palavra do Rust, janela de contexto
+  em bytes. As expressões regulares não usam `\s`, `\d`, `\w`, `\b` nem
+  `(?U)`: no Android o `java.util.regex` é a ICU, em que
+  `UNICODE_CHARACTER_CLASS` lança exceção, e na JVM dos testes aquelas classes
+  são ASCII.
 - **`:core:provedores`, na JVM, com servidor HTTP de mentira.** Roda sem
   emulador e sem Robolectric porque o módulo é Kotlin puro e a chave chega por
   `FonteDeChave` (seção 4), satisfeita em teste por um valor em memória. Um
@@ -989,6 +1035,15 @@ medida**: o teto do `dataSync`. Uma versão anterior afirmava que a documentaç�
 não o declarava e mandava medir em aparelho. Declara, na página de mudanças de
 comportamento do Android 15, e agora está na seção 4.1. Ausência de um fato em
 duas páginas não é ausência do fato.
+
+### Aberta, por decisão do operador
+
+- **Conectores extras de busca de evidências.** O desktop aceita, além do
+  Crossref e do OpenAlex, conectores configurados num arquivo JSON, com a
+  chave de API lida de uma variável de ambiente do processo — que o Android
+  não tem. Decisão do operador de 24/09/2026 (MAEANDR-18): a v1 usa só os
+  dois embutidos. Se os extras vierem, a chave de cada um vai para o cofre do
+  `:core:seguranca`, como as dos seis provedores, e uma tela os cadastra.
 
 ### Resolvidas nesta especificação
 

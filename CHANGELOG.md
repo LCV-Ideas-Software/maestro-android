@@ -6,6 +6,52 @@ All material changes to Maestro Android are recorded here.
 
 ### Added
 
+- Add the final-release audit's pure rules to `:core:protocolo` (MAEANDR-18,
+  first of two pull requests). By the operator's decision of 24/09/2026 the
+  audit ports the desktop's current five stages from `maestro-app` `68528f9`,
+  not the three the web ported: bibliographic integrity, the ABNT citation gate
+  (`abnt_citation.rs`), a 30-link capacity, the link-integrity engine
+  (`link_integrity.rs`) and the rule that no link is released without an
+  explicit review against its current URL and content hash. Without a
+  `citation_manifest.v1` attached to the session, every citation the ABNT gate
+  detects blocks delivery, as on the desktop.
+
+  The module stays free of network and Android. URL parsing, name resolution,
+  evidence fetching and search reach it through interfaces; the second pull
+  request implements them in `:core:provedores`, and `:core:sessao` will hold
+  the review records and the session attachments. The blocked address ranges
+  (`link_audit.rs`) are ported as they are, with the threat model inverted as
+  section 5.4 of the specification requires: on the phone they protect the
+  user's home network.
+
+  What a naive port would get wrong, each with a test that fails when the
+  rule is removed:
+  - regular expressions use explicit character classes and flags passed as
+    options, never `\s`, `\d`, `\w`, `\b` or `(?U)`: Android runs
+    `java.util.regex` on ICU4C, where `UNICODE_CHARACTER_CLASS` throws, and the
+    JVM running the tests treats those classes as ASCII;
+  - positions that feed `claim_id` and the link context window are counted in
+    UTF-8 bytes, as in Rust;
+  - lines follow Rust's `str::lines`, where a lone `\r` does not end a line;
+  - text order follows Rust's `BTreeSet` (code point order, not UTF-16);
+  - the manifest hash is taken over the bytes `serde_json` would write, and
+    the gate packet sent to the next prompt uses `to_string_pretty` with
+    sorted keys, since the canonical builds `serde_json` without
+    `preserve_order`.
+
+  The citation manifest is read with `serde`'s rules: a missing required
+  field, `null` in a non-optional field, a `null` list and an unknown enum
+  variant are errors; unknown fields are ignored. A manifest with a repeated
+  key is refused — deliberately stricter than the canonical, which reads it as
+  a `Value` first and keeps the last value.
+
+  The canonical suites for these units are ported where they need no network:
+  8 ABNT cases, the 7 link-integrity cases (two of them against a stand-in
+  URL parser until the real one arrives), the blocked ranges of
+  `link_audit_blocks_local_and_private_targets`, and 5 final-audit and
+  serial-turn cases. 73 tests in the new files; two deliberate-mutation runs,
+  9 mutations each, all caught, with a green control run before and after.
+
 - Add `:core:seguranca`, the Android library that keeps each provider's API key
   on this device only (MAEANDR-19, specification section 6). The key is
   encrypted with AES-256-GCM by a key generated inside the Android Keystore,
