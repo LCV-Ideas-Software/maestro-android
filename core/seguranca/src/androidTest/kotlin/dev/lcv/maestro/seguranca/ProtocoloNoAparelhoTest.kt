@@ -90,6 +90,13 @@ class ProtocoloNoAparelhoTest {
     }
 
     @Test
+    fun aspaSoESaltadaDentroDeTag() {
+        val citacao = "\"esta e uma citacao direta suficientemente longa\""
+        assertTrue(auditar("Sabe-se que 2 < 3 e $citacao sem fonte.").temBloqueio("direct_quote_without_citation"))
+        assertFalse(auditar("Veja <a title=$citacao href=\"#x\">isto</a>.").temBloqueio("direct_quote_without_citation"))
+    }
+
+    @Test
     fun manifestoSoELidoEmUtf8Valido() {
         fun extrair(bytes: ByteArray) = ManifestosDosAnexos.extrair(
             listOf(ManifestosDosAnexos.Anexo("citation-manifest.json", "application/json") { bytes }),

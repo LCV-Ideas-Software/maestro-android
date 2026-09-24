@@ -195,6 +195,18 @@ public object AuditoriaAbnt {
         return construtor.toString()
     }
 
+    /**
+     * Se [valor], dobrado, aparece em [dobrado]. Divergência do canônico,
+     * corrigindo uma falha dele: um valor que dobra para vazio (só pontuação,
+     * ou só letras que o dobramento descarta) nunca aparece. Lá o
+     * `contains("")` é verdadeiro para qualquer texto, e uma citação, uma
+     * referência ou um sinal ausentes passavam por presentes.
+     */
+    private fun contemDobrado(dobrado: String, valor: String): Boolean {
+        val agulha = dobrarAscii(valor)
+        return agulha.isNotEmpty() && dobrado.contains(agulha)
+    }
+
     /** `canonical_author_key`: espaços colapsados e caixa alta. */
     internal fun chaveCanonica(valor: String): String =
         EspacoUnicode.dividirPorEspacos(valor).joinToString(" ").uppercase(Locale.ROOT)
@@ -388,18 +400,15 @@ public object AuditoriaAbnt {
             val inteiro = achado.value
             val inicio = achado.range.first
             val fim = achado.range.last + 1
-            if (inteiro.startsWith('"')) {
-                val antes = texto.substring(0, inicio)
-                val abre = antes.lastIndexOf('<')
-                val fecha = antes.lastIndexOf('>')
-                val dentroDeTag = abre >= 0 && (fecha < 0 || abre > fecha)
-                if (dentroDeTag || EspacoUnicode.apararFim(antes).endsWith('=')) continue
-            }
+            if (inteiro.startsWith('"') && valorDeAtributo(texto, inicio)) continue
             if (EspacoUnicode.dividirPorEspacos(inteiro).size < 4) continue
             val depois = TextoRust.avancarPontosDeCodigo(texto, fim, 220)
             val proximo = texto.substring(fim, depois)
+            // Uma citação cujo texto dobra para vazio não liga aspa nenhuma
+            // (ver [contemDobrado]): `contains("")` é sempre verdadeiro.
             val citado = citacoes.any { citacao ->
-                listOfNotNull(citacao.textoOriginal, citacao.textoNormalizado).any { proximo.contains(it) }
+                listOfNotNull(citacao.textoOriginal, citacao.textoNormalizado)
+                    .any { dobrarAscii(it).isNotEmpty() && proximo.contains(it) }
             }
             if (!citado) {
                 bloqueios += bloqueio(
@@ -413,6 +422,25 @@ public object AuditoriaAbnt {
     }
 
     private val ASPAS = Regex("[“\"]([^“”\"\\n]{12,400})[”\"]")
+
+    /**
+     * Se a aspa reta em [inicio] abre o valor de um atributo HTML: o que vem
+     * desde o último `<` é o começo de uma tag (`<nome`, atributos, `=`).
+     *
+     * Divergência do canônico, corrigindo uma falha dele: lá bastava haver um
+     * `<` sem `>` depois, ou um `=` logo antes. Prosa como `2 < 3 e "..."` ou
+     * `x = "..."` escondia do portão uma citação direta sem fonte.
+     */
+    private fun valorDeAtributo(texto: String, inicio: Int): Boolean {
+        // Busca para trás a partir da aspa, sem copiar o texto antes dela: com
+        // até 500 aspas num texto de 2 milhões de caracteres, a cópia pesaria.
+        val abre = texto.lastIndexOf('<', inicio - 1)
+        return abre >= 0 && abre > texto.lastIndexOf('>', inicio - 1) &&
+            ABERTURA_DE_TAG.matches(texto.subSequence(abre, inicio))
+    }
+
+    private val ABERTURA_DE_TAG =
+        Regex("<[A-Za-z][A-Za-z0-9:-]*(?:${TextoRust.ESPACO}[^<>]*)?=${TextoRust.ESPACO}*")
 
     /**
      * `unstructured_citation_signals`. Rust (linhas 474–476):
@@ -531,7 +559,7 @@ public object AuditoriaAbnt {
             val primeiroToken = EspacoUnicode.dividirPorEspacos(citacao.chaveDoAutor)
                 .firstOrNull()?.let(::dobrarAscii) ?: ""
             val casada = referencias.withIndex().firstOrNull { (_, referencia) ->
-                (referencia.chave.contains(chave) ||
+                ((chave.isNotEmpty() && referencia.chave.contains(chave)) ||
                     (primeiroToken.length >= 4 && referencia.chave.contains(primeiroToken))) &&
                     referencia.ano == citacao.ano
             }
@@ -851,8 +879,8 @@ public object AuditoriaAbnt {
             }
             val normalizada = citacaoNoTexto(citacao, fonte)
             val originalPresente = preenchido(citacao.textoOriginal)
-                ?.let { textoDobrado.contains(dobrarAscii(it)) } ?: false
-            val normalizadaPresente = textoDobrado.contains(dobrarAscii(normalizada))
+                ?.let { contemDobrado(textoDobrado, it) } ?: false
+            val normalizadaPresente = contemDobrado(textoDobrado, normalizada)
             if (!originalPresente && !normalizadaPresente) {
                 bloqueios += bloqueio(
                     "manifest_citation_absent_from_text",
@@ -902,7 +930,7 @@ public object AuditoriaAbnt {
                 )
             }
             val formatada = referenciaFormatada(fonte)
-            if (formatada.isNotEmpty() && !textoDobrado.contains(dobrarAscii(formatada))) {
+            if (formatada.isNotEmpty() && !contemDobrado(textoDobrado, formatada)) {
                 bloqueios += bloqueio(
                     "reference_not_normalized",
                     "A referencia estruturada ainda nao aparece no texto com a forma normalizada gerada " +
@@ -922,14 +950,21 @@ public object AuditoriaAbnt {
                 )
             }
         }
+        // Divergência do canônico, por decisão do operador de 24/09/2026: cada
+        // ocorrência no corpo consome uma entrada própria do manifesto. Lá uma
+        // entrada cobria todas as ocorrências iguais, e a segunda afirmação com
+        // o mesmo autor, ano e localizador saía sem verificação própria.
+        val livres = citacoes.toMutableList()
         for (bruta in citacoesBrutas) {
-            val representada = citacoes.any { estruturada ->
+            val indice = livres.indexOfFirst { estruturada ->
                 dobrarAscii(estruturada.chaveDoAutor) == dobrarAscii(bruta.chaveDoAutor) &&
                     EspacoUnicode.aparar(estruturada.ano) == EspacoUnicode.aparar(bruta.ano) &&
                     (estruturada.localizador?.let(::dobrarAscii) ?: "") ==
                     (bruta.localizador?.let(::dobrarAscii) ?: "")
             }
-            if (!representada) {
+            if (indice >= 0) {
+                livres.removeAt(indice)
+            } else {
                 bloqueios += bloqueio(
                     "body_citation_not_in_manifest",
                     "O texto contem citacao autor-data sem entrada inequivoca no manifesto estruturado.",
@@ -938,10 +973,9 @@ public object AuditoriaAbnt {
             }
         }
         for (sinal in sinaisDeCitacaoSemEstrutura(texto)) {
-            val sinalDobrado = dobrarAscii(sinal)
             val representado = citacoes.any { citacao ->
                 listOfNotNull(citacao.textoOriginal, citacao.textoNormalizado)
-                    .any { dobrarAscii(it).contains(sinalDobrado) }
+                    .any { contemDobrado(dobrarAscii(it), sinal) }
             }
             if (!representado) {
                 bloqueios += bloqueio(

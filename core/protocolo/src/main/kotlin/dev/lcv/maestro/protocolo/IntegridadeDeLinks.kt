@@ -339,9 +339,19 @@ public object IntegridadeDeLinks {
                     else -> ClassificacaoDoLink.SUSPEITA_DE_ALUCINACAO
                 }
             }
+            // Divergência do canônico, corrigindo uma falha dele: lá qualquer
+            // outro estado caía em "passou". Evidência na fila, em coleta,
+            // vencida ou à espera do operador, e interação de consentimento ou
+            // de confirmação de download, não provam nada. Só passa evidência
+            // pronta, sem interação pendente.
+            registro.estado != EstadoDaEvidencia.PRONTA ||
+                registro.estadoDeInteracao !in INTERACOES_CONCLUIDAS -> ClassificacaoDoLink.EM_QUARENTENA
             else -> null
         }
     }
+
+    /** As interações que não deixam nada pendente entre a coleta e o conteúdo. */
+    private val INTERACOES_CONCLUIDAS = setOf(EstadoDeInteracao.NENHUMA, EstadoDeInteracao.RESOLVIDA_POR_PESSOA)
 
     /** `apply_web_evidence`. */
     internal fun aplicarEvidencia(
@@ -434,9 +444,18 @@ public object IntegridadeDeLinks {
      * link pode ser aceito.
      */
     private fun motivoParaNaoAceitar(linha: LinhaDeLink): String? {
+        val correio = linha.urlNormalizada.startsWith("mailto:")
         val alcancavel = linha.statusHttp?.let { it in 200..299 } ?: false
-        if (!alcancavel && !linha.urlNormalizada.startsWith("mailto:")) {
+        if (!alcancavel && !correio) {
             return "cannot accept a link that did not pass mechanical validation"
+        }
+        // Divergência do canônico, corrigindo uma falha dele: sem hash do
+        // conteúdo, o aceite não fica preso a conteúdo nenhum — a revisão
+        // conferia `null` com `null`, e mudar o destino nunca a derrubava. O
+        // hash tem o formato do identificador (64 dígitos hexadecimais
+        // minúsculos). O `mailto:`, que não é coletado, segue sem hash.
+        if (!correio && linha.sha256?.let(::idValido) != true) {
+            return "cannot accept a link without the content hash of its evidence"
         }
         if (linha.classificacaoMecanica == ClassificacaoDoLink.TIPO_DE_CONTEUDO_DIVERGENTE) {
             return "content-type mismatch must be corrected before acceptance"

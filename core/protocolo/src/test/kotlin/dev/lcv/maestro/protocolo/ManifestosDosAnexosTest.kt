@@ -160,6 +160,24 @@ class ManifestosDosAnexosTest {
     private fun bytes(vararg valores: Int) = ByteArray(valores.size) { valores[it].toByte() }
 
     @Test
+    fun `escape de surrogate sem par e recusado como no serde_json`() {
+        // O Jackson aceitaria `\uD800` e devolveria um texto que o UTF-8 não
+        // representa; o `serde_json` recusa o JSON.
+        val invalido = "citation manifest attachment is not valid JSON"
+        for (escape in listOf("\\uD800", "\\uDC00", "\\uDE00\\uD83D", "\\uD83Dx")) {
+            assertEquals(invalido, recusa(anexo("citation-manifest.json", exemploCom("Obra de exemplo", "Obra $escape"))), escape)
+        }
+        // Também numa chave de objeto, que o manifesto ignoraria.
+        assertEquals(
+            invalido,
+            recusa(anexo("citation-manifest.json", exemploCom("\"prohibited\": false", "\"prohibited\": false, \"\\uD800\": 1"))),
+        )
+        // Controle: o par completo é lido.
+        val par = lidos(anexo("citation-manifest.json", exemploCom("Obra de exemplo", "Obra \\uD83D\\uDE00")))
+        assertEquals("Obra \uD83D\uDE00", par.atual?.fontes?.single()?.titulo)
+    }
+
+    @Test
     fun `texto depois do valor e JSON invalido`() {
         assertEquals(
             "citation manifest attachment is not valid JSON",

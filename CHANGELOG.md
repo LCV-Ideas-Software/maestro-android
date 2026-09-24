@@ -43,18 +43,40 @@ All material changes to Maestro Android are recorded here.
   field, `null` in a non-optional field, a `null` list and an unknown enum
   variant are errors; unknown fields are ignored; the attachment must be valid
   UTF-8, as `serde_json::from_slice` requires (Jackson reading bytes would
-  detect and accept UTF-16 or UTF-32). A manifest with a repeated key is
-  refused — deliberately stricter than the canonical, which reads it as a
-  `Value` first and keeps the last value.
+  detect and accept UTF-16 or UTF-32), and an escaped surrogate without its
+  pair (`"\uD800"`) is refused, as `serde_json` refuses it. A manifest with a
+  repeated key is refused — deliberately stricter than the canonical, which
+  reads it as a `Value` first and keeps the last value.
 
-  Five more places are deliberately stricter than the canonical. Each fixes a
+  Each body citation needs a manifest entry of its own, by the operator's
+  decision of 24/09/2026: citing the same author, year and locator twice, for
+  two claims, takes two entries. In the canonical one entry covered every equal
+  occurrence, so the second claim went out without its own verification.
+
+  More places are deliberately stricter than the canonical. Each fixes a
   defect Codex found in review that is also present in `68528f9`:
   - a link is accepted only if its mechanical check passed. The canonical
     checked only the HTTP status, so a captcha, login or paywall page, or
-    blocked evidence, served with 200 could be accepted as support. Each row
-    keeps its mechanical classification (`mechanical_classification`) apart
-    from the one the review sets, and an earlier acceptance is preserved only
-    while the new check still passes;
+    blocked evidence, served with 200 could be accepted as support. Only
+    evidence that is ready, with no interaction pending, passes; queued,
+    collecting, stale or operator-pending evidence, and consent or download
+    prompts, do not. Each row keeps its mechanical classification
+    (`mechanical_classification`) apart from the one the review sets, and an
+    earlier acceptance is preserved only while the new check still passes;
+  - accepting an HTTP(S) link requires the content hash of its evidence. The
+    canonical compared a missing hash with a missing hash, so the acceptance
+    was tied to no content and survived any change at the target;
+  - a value that folds to nothing (only punctuation, or only letters the ASCII
+    fold drops) is never found in the text. The canonical's `contains("")` was
+    true for any text, so an absent citation, reference, footnote marker or
+    author key passed as present;
+  - a straight-quoted passage is skipped only when it is the value of an
+    attribute inside a recognizable HTML tag. The canonical skipped it after any
+    `<` with no `>` after it, or right after an `=`, so prose such as
+    `2 < 3 e "..."` hid an uncited direct quotation;
+  - the IPv6 site-local range (`fec0::/10`) is blocked, and the IPv4 address
+    inside NAT64 (`64:ff9b::/96`) and 6to4 (`2002::/16`) is judged as IPv4.
+    The canonical let all three reach the user's local network;
   - a URL that sanitization would change (over 1,000 code points, or holding a
     secret pattern) is blocked. The canonical stored the sanitized URL and
     fetched it, so a review could approve evidence for a different target;
@@ -73,11 +95,11 @@ All material changes to Maestro Android are recorded here.
   8 ABNT cases, the 7 link-integrity cases (two of them against a stand-in
   URL parser until the real one arrives), the blocked ranges of
   `link_audit_blocks_local_and_private_targets`, and 5 final-audit and
-  serial-turn cases. 81 tests in the new files, plus 8 in
+  serial-turn cases. 87 tests in the new files, plus 9 in
   `ProtocoloNoAparelhoTest`, which runs on the `:core:seguranca` emulator in CI
-  to prove the regular expressions and the UTF-8 decoder on Android's ICU
-  rather than the JVM's. Three deliberate-mutation runs (9, 9 and 15
-  mutations) were all caught, with a green control run before and after.
+  to prove the regular expressions and the UTF-8 decoder on Android rather
+  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 19 mutations)
+  were all caught, with a green control run before and after.
 
 - Add `:core:seguranca`, the Android library that keeps each provider's API key
   on this device only (MAEANDR-19, specification section 6). The key is

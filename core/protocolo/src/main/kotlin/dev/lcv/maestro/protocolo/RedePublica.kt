@@ -88,9 +88,23 @@ public object RedePublica {
         if (segmentos.take(5).all { it == 0 } && segmentos[5] == 0xFFFF) return ipv4Bloqueado(v4())
         // IPv4 compatível (::a.b.c.d), que o canônico também desembrulha.
         if (segmentos.take(5).all { it == 0 } && segmentos[5] == 0) return ipv4Bloqueado(v4())
+        // Divergência do canônico, corrigindo uma falha dele: o IPv4 embutido
+        // no NAT64 (64:ff9b::a.b.c.d, RFC 6052) e no 6to4 (2002:AABB:CCDD::,
+        // RFC 3056) chega ao endereço IPv4, e é julgado como tal. Numa rede
+        // com DNS64 todo site só IPv4 resolve para 64:ff9b::, então o prefixo
+        // não pode ser recusado inteiro.
+        if (segmentos[0] == 0x0064 && segmentos[1] == 0xFF9B && segmentos.slice(2..5).all { it == 0 }) {
+            return ipv4Bloqueado(v4())
+        }
+        if (segmentos[0] == 0x2002) {
+            return ipv4Bloqueado(listOf(bytes[2], bytes[3], bytes[4], bytes[5]).map { it.toInt() and 0xFF })
+        }
         val primeiro = segmentos[0]
         return (primeiro and 0xFE00) == 0xFC00 ||
             (primeiro and 0xFFC0) == 0xFE80 ||
+            // O site-local (fec0::/10), obsoleto mas ainda roteado em redes
+            // antigas; o canônico não o recusa.
+            (primeiro and 0xFFC0) == 0xFEC0 ||
             (primeiro and 0xFF00) == 0xFF00 ||
             (segmentos[0] == 0x2001 && segmentos[1] == 0x0DB8)
     }

@@ -200,6 +200,75 @@ class AuditoriaAbntTest {
         assertEquals(StatusDoParMaestro.NAO_PRONTO, resultado.statusDoParMaestro)
     }
 
+    private fun comOriginal(original: String): ManifestoDeCitacoes = manifestoVerificado().let { base ->
+        base.copy(citacoes = listOf(base.citacoes[0].copy(textoOriginal = original)))
+    }
+
+    @Test
+    fun `texto que dobra para vazio nunca conta como presente`() {
+        // Divergência do canônico: lá `contains("")` era verdadeiro para
+        // qualquer texto, e o que dobrava para vazio passava por presente.
+        val semCitacao = "Texto sem a citacao.\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026."
+        // Citação do manifesto ausente do texto, com `original_text` ".".
+        assertTrue(auditar(semCitacao, "protocol-sha256", comOriginal(".")).temBloqueio("manifest_citation_absent_from_text"))
+        // Aspa seguida só de "." não fica ligada à citação de texto ".".
+        val aspa = "“Trecho direto com mais de quatro palavras”.\n\n## Referencias\n" +
+            "SILVA, Maria. Obra. Sao Paulo: Editora, 2026."
+        assertTrue(auditar(aspa, "protocol-sha256", comOriginal(".")).temBloqueio("direct_quote_without_citation"))
+        // Nota de rodapé cujo marcador dobra para vazio.
+        val comNota = textoVerificado.replace("(Silva, 2026, p. 12).", "(Silva, 2026, p. 12). Nota[^*].")
+        assertTrue(auditar(comNota, "protocol-sha256", manifestoVerificado()).temBloqueio("unstructured_citation_signal"))
+        // Autor que o dobramento esvazia não casa com a referência de outro autor.
+        assertTrue(
+            auditar("Texto (Ωμέγα, 2020).\n\n## Referencias\nSILVA, Ana. Obra. Rio: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+        // Controles: com a citação no texto, nada disso bloqueia.
+        val controle = auditar(textoVerificado, "protocol-sha256", comOriginal("."))
+        assertFalse(controle.temBloqueio("manifest_citation_absent_from_text"))
+        assertFalse(controle.temBloqueio("direct_quote_without_citation"))
+        assertFalse(
+            auditar(textoVerificado, "protocol-sha256", manifestoVerificado()).temBloqueio("unstructured_citation_signal"),
+        )
+        assertFalse(
+            auditar("Texto (Silva, 2020).\n\n## Referencias\nSILVA, Ana. Obra. Rio: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+    }
+
+    @Test
+    fun `cada ocorrencia no corpo consome uma entrada propria do manifesto`() {
+        // Divergência do canônico, por decisão do operador de 24/09/2026: lá
+        // uma entrada cobria todas as ocorrências iguais.
+        val duasVezes = textoVerificado.replace(
+            "(Silva, 2026, p. 12).",
+            "(Silva, 2026, p. 12). Outra afirmacao (Silva, 2026, p. 12).",
+        )
+        assertTrue(auditar(duasVezes, "protocol-sha256", manifestoVerificado()).temBloqueio("body_citation_not_in_manifest"))
+        // Controle: com duas entradas, uma para cada afirmação, passa.
+        val duasEntradas = manifestoVerificado().let { base ->
+            base.copy(citacoes = base.citacoes + base.citacoes[0].copy(claimId = "claim-2"))
+        }
+        val resultado = auditar(duasVezes, "protocol-sha256", duasEntradas)
+        assertFalse(resultado.temBloqueio("body_citation_not_in_manifest"), resultado.bloqueios.toString())
+        assertEquals(StatusDoParMaestro.PRONTO, resultado.statusDoParMaestro, resultado.bloqueios.toString())
+    }
+
+    @Test
+    fun `aspa na prosa depois de menor ou de igual e conferida`() {
+        // Divergência do canônico: lá um `<` sem `>` depois, ou um `=` logo
+        // antes, escondia a aspa do portão.
+        for (texto in listOf(
+            "Sabe-se que 2 < 3 e \"esta e uma citacao direta suficientemente longa\" sem fonte.",
+            "A tese = \"esta e uma citacao direta suficientemente longa\" sem fonte.",
+        )) {
+            assertTrue(auditar(texto).temBloqueio("direct_quote_without_citation"), texto)
+        }
+        // Controle: valor de atributo dentro de uma tag não é citação.
+        val atributo = "Veja <a title=\"esta e uma citacao direta suficientemente longa\" href=\"#x\">isto</a>."
+        assertFalse(auditar(atributo).temBloqueio("direct_quote_without_citation"))
+    }
+
     @Test
     fun `claim_id mede posicao em bytes UTF-8 como o Rust`() {
         // "Ação " tem 5 unidades UTF-16 e 7 bytes UTF-8.

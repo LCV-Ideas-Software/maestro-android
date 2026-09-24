@@ -163,16 +163,22 @@ escolheu os cinco. O que a escolha pede, e como fica:
 - **Onde mora cada parte:** regras puras no `:core:protocolo`; rede (parser de
   URL, DNS, coleta, busca) no `:core:provedores`.
 
-Onde o porte é **mais estrito que o canônico**, de propósito. Os cinco
-primeiros pontos corrigem defeitos que a revisão do Codex achou na PR #57 e
-que também estão no Rust em `68528f9`:
+Onde o porte é **mais estrito que o canônico**, de propósito. Salvo os dois
+últimos, que são decisões do operador, os pontos corrigem defeitos que a
+revisão do Codex achou na PR #57 e depois do merge dela, e que também estão
+no Rust em `68528f9`:
 
 - **só se aceita link cuja verificação mecânica passou.** O Rust só conferia o
   código HTTP: página de captcha, de login ou de paywall, ou evidência
-  bloqueada, servida com 200, podia ser aceita como suporte. Cada linha guarda
-  a classificação mecânica à parte da que a revisão escreve
+  bloqueada, servida com 200, podia ser aceita como suporte. Só passa evidência
+  pronta e sem interação pendente: na fila, em coleta, vencida ou à espera do
+  operador, ou com pedido de consentimento ou de confirmação de download, não.
+  Cada linha guarda a classificação mecânica à parte da que a revisão escreve
   (`mechanical_classification`), e um aceite anterior só é preservado enquanto
   a verificação nova ainda passar;
+- **aceitar link HTTP(S) exige o hash do conteúdo da evidência.** O Rust
+  conferia hash ausente com hash ausente, e o aceite, preso a conteúdo nenhum,
+  sobrevivia a qualquer mudança do destino;
 - **URL que o saneamento alteraria fica bloqueada.** O Rust guarda a URL
   normalizada já saneada — cortada em 1.000 pontos de código, com padrão de
   segredo trocado por `<redacted>` — e coleta essa URL alterada: a revisão
@@ -182,10 +188,29 @@ que também estão no Rust em `68528f9`:
   Rust esses sinais só eram conferidos com manifesto;
 - **acima de 500 citações, aspas, sinais de um tipo ou referências, o texto é
   recusado.** O Rust para de ler no limite e ignora o excedente em silêncio;
+- **valor que dobra para vazio nunca está presente no texto.** Só pontuação,
+  ou só letras que o dobramento ASCII descarta, dobram para vazio, e o
+  `contains("")` do Rust é verdadeiro para qualquer texto: citação,
+  referência, marcador de nota ou chave de autor ausentes passavam por
+  presentes;
+- **aspa reta só é pulada quando é valor de atributo dentro de uma tag HTML
+  reconhecível.** O Rust a pulava depois de qualquer `<` sem `>` adiante, ou
+  logo depois de um `=`, e prosa como `2 < 3 e "..."` escondia uma citação
+  direta sem fonte;
+- **o site-local IPv6 (`fec0::/10`) é recusado, e o IPv4 dentro do NAT64
+  (`64:ff9b::/96`) e do 6to4 (`2002::/16`) é julgado como IPv4.** O Rust
+  deixava os três chegarem à rede local do usuário. O prefixo NAT64 não é
+  recusado inteiro porque, numa rede com DNS64, todo site só IPv4 resolve
+  para ele;
 - **os auxiliares do turno que não revisou o texto recebem o contexto de
   citações da sessão.** No Rust eles auditam sem manifesto, e na retomada da
   sessão (`restore_circular_resume_progress`) um revisor `READY` sobre texto
   com manifesto válido deixava de contar como aprovação estável;
+- **cada citação do corpo consome uma entrada própria do manifesto**
+  (decisão do operador de 24/09/2026). Citar o mesmo autor, ano e localizador
+  duas vezes, para duas afirmações, pede duas entradas. No Rust uma entrada
+  cobria todas as ocorrências iguais, e a segunda afirmação saía sem
+  verificação própria;
 - **manifesto com chave JSON repetida é recusado** (decisão do operador de
   24/09/2026). O Rust o lê primeiro como `Value` e fica com o último valor:
   dois leitores do mesmo arquivo veriam manifestos diferentes.
