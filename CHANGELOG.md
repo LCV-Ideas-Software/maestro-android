@@ -70,10 +70,12 @@ All material changes to Maestro Android are recorded here.
     fold drops) is never found in the text. The canonical's `contains("")` was
     true for any text, so an absent citation, reference, footnote marker or
     author key passed as present;
-  - a straight-quoted passage is skipped only when it is the value of an
-    attribute inside a recognizable HTML tag. The canonical skipped it after any
-    `<` with no `>` after it, or right after an `=`, so prose such as
-    `2 < 3 e "..."` hid an uncited direct quotation;
+  - complete HTML tags are masked before quotes are searched, so an attribute
+    value is neither taken for a quotation nor paired with the quotes of the
+    prose around it. The canonical skipped a straight quote after any `<` with
+    no `>` after it, or right after an `=`: prose such as `2 < 3 e "..."` hid
+    an uncited direct quotation, and the quote closing one attribute could
+    pair with the one opening the next;
   - the IPv6 site-local range (`fec0::/10`) is blocked, and the IPv4 address
     inside NAT64 (`64:ff9b::/96`) and 6to4 (`2002::/16`) is judged as IPv4.
     The canonical let all three reach the user's local network;
@@ -98,7 +100,7 @@ All material changes to Maestro Android are recorded here.
   serial-turn cases. 87 tests in the new files, plus 9 in
   `ProtocoloNoAparelhoTest`, which runs on the `:core:seguranca` emulator in CI
   to prove the regular expressions and the UTF-8 decoder on Android rather
-  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 19 mutations)
+  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 20 mutations)
   were all caught, with a green control run before and after.
 
 - Add `:core:seguranca`, the Android library that keeps each provider's API key

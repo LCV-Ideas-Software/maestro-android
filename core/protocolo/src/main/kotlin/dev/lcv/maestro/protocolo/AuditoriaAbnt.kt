@@ -395,12 +395,10 @@ public object AuditoriaAbnt {
     private fun bloqueiosDeAspas(texto: String, citacoes: List<Citacao>): List<BloqueioDeCitacao> {
         val bloqueios = mutableListOf<BloqueioDeCitacao>()
         var vistos = 0
-        for (achado in ASPAS.findAll(texto)) {
+        for (achado in ASPAS.findAll(semTags(texto))) {
             if (vistos++ >= MAXIMO_DE_CITACOES) break
-            val inteiro = achado.value
-            val inicio = achado.range.first
+            val inteiro = texto.substring(achado.range)
             val fim = achado.range.last + 1
-            if (inteiro.startsWith('"') && valorDeAtributo(texto, inicio)) continue
             if (EspacoUnicode.dividirPorEspacos(inteiro).size < 4) continue
             val depois = TextoRust.avancarPontosDeCodigo(texto, fim, 220)
             val proximo = texto.substring(fim, depois)
@@ -424,23 +422,36 @@ public object AuditoriaAbnt {
     private val ASPAS = Regex("[“\"]([^“”\"\\n]{12,400})[”\"]")
 
     /**
-     * Se a aspa reta em [inicio] abre o valor de um atributo HTML: o que vem
-     * desde o último `<` é o começo de uma tag (`<nome`, atributos, `=`).
+     * O texto com cada tag HTML completa trocada por espaços, do mesmo
+     * tamanho: as aspas dos atributos somem, e as da prosa ficam nas mesmas
+     * posições do texto original.
      *
-     * Divergência do canônico, corrigindo uma falha dele: lá bastava haver um
-     * `<` sem `>` depois, ou um `=` logo antes. Prosa como `2 < 3 e "..."` ou
-     * `x = "..."` escondia do portão uma citação direta sem fonte.
+     * Divergência do canônico, corrigindo uma falha dele: lá a aspa reta era
+     * pulada depois de qualquer `<` sem `>` adiante, ou logo depois de um `=`.
+     * Prosa como `2 < 3 e "..."` ou `x = "..."` escondia uma citação direta
+     * sem fonte; e a aspa que fecha um atributo pareava com a que abre o
+     * seguinte, desalinhando as aspas da prosa que vinham depois da tag.
      */
-    private fun valorDeAtributo(texto: String, inicio: Int): Boolean {
-        // Busca para trás a partir da aspa, sem copiar o texto antes dela: com
-        // até 500 aspas num texto de 2 milhões de caracteres, a cópia pesaria.
-        val abre = texto.lastIndexOf('<', inicio - 1)
-        return abre >= 0 && abre > texto.lastIndexOf('>', inicio - 1) &&
-            ABERTURA_DE_TAG.matches(texto.subSequence(abre, inicio))
+    private fun semTags(texto: String): String {
+        val mascarado = StringBuilder(texto)
+        for (tag in TAG_HTML.findAll(texto)) {
+            for (indice in tag.range) mascarado.setCharAt(indice, ' ')
+        }
+        return mascarado.toString()
     }
 
-    private val ABERTURA_DE_TAG =
-        Regex("<[A-Za-z][A-Za-z0-9:-]*(?:${TextoRust.ESPACO}[^<>]*)?=${TextoRust.ESPACO}*")
+    /**
+     * Uma tag de abertura HTML completa: nome, atributos com valor entre aspas
+     * duplas, simples ou sem aspas, e `>`. Nenhuma parte aceita `<`, para que
+     * a busca que começa num `<` pare no seguinte e o custo fique linear.
+     */
+    private val TAG_HTML = Regex(
+        "<[A-Za-z][A-Za-z0-9:-]*" +
+            "(?:${TextoRust.ESPACO}+[^${TextoRust.ESPACO_CLASSE}\"'<>/=]+" +
+            "(?:${TextoRust.ESPACO}*=${TextoRust.ESPACO}*" +
+            "(?:\"[^\"<]*\"|'[^'<]*'|[^${TextoRust.ESPACO_CLASSE}\"'<>=`]+))?)*" +
+            "${TextoRust.ESPACO}*/?>",
+    )
 
     /**
      * `unstructured_citation_signals`. Rust (linhas 474–476):
@@ -481,7 +492,7 @@ public object AuditoriaAbnt {
                 if (trechos.size > MAXIMO_DE_CITACOES) return true
             }
         }
-        if (ASPAS.findAll(texto).take(MAXIMO_DE_CITACOES + 1).count() > MAXIMO_DE_CITACOES) return true
+        if (ASPAS.findAll(semTags(texto)).take(MAXIMO_DE_CITACOES + 1).count() > MAXIMO_DE_CITACOES) return true
         if (SINAIS.any { it.findAll(texto).take(MAXIMO_DE_CITACOES + 1).count() > MAXIMO_DE_CITACOES }) return true
         return secaoDeReferencias(texto, MAXIMO_DE_FONTES + 1).size > MAXIMO_DE_FONTES
     }

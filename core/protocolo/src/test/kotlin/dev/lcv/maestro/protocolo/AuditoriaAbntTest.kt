@@ -195,6 +195,9 @@ class AuditoriaAbntTest {
             assertFalse(AuditoriaAbnt.excedeCapacidade(gerar(500)), gerar(1))
             assertTrue(AuditoriaAbnt.excedeCapacidade(gerar(501)), gerar(1))
         }
+        // As aspas contam como o leitor as vê, com as tags HTML mascaradas: o
+        // par de aspas entre dois atributos não é uma citação a mais.
+        assertFalse(AuditoriaAbnt.excedeCapacidade(aspas(500) + "\n<a title=\"x\" data-description=\"y\">z</a>"))
         val resultado = auditar(citacoes(501), "protocol-sha256", AuditoriaAbnt.manifestoVazio("protocol-sha256"))
         assertTrue(resultado.temBloqueio("citation_capacity_exceeded"))
         assertEquals(StatusDoParMaestro.NAO_PRONTO, resultado.statusDoParMaestro)
@@ -267,6 +270,12 @@ class AuditoriaAbntTest {
         // Controle: valor de atributo dentro de uma tag não é citação.
         val atributo = "Veja <a title=\"esta e uma citacao direta suficientemente longa\" href=\"#x\">isto</a>."
         assertFalse(auditar(atributo).temBloqueio("direct_quote_without_citation"))
+        // A aspa que fecha um atributo não pareia com a que abre o seguinte: a
+        // citação longa (mais que os 220 caracteres conferidos depois da aspa)
+        // que vem depois da tag continua ligada à fonte logo após ela.
+        val longa = "esta e uma citacao direta muito longa " + "com muitas palavras ".repeat(14)
+        val depoisDaTag = "<a id=\"x\" data-description=\"abc\">Um texto introdutorio \"$longa\" (Silva, 2020)."
+        assertFalse(auditar(depoisDaTag).temBloqueio("direct_quote_without_citation"))
     }
 
     @Test

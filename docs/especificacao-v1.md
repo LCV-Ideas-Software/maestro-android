@@ -193,10 +193,11 @@ no Rust em `68528f9`:
   `contains("")` do Rust é verdadeiro para qualquer texto: citação,
   referência, marcador de nota ou chave de autor ausentes passavam por
   presentes;
-- **aspa reta só é pulada quando é valor de atributo dentro de uma tag HTML
-  reconhecível.** O Rust a pulava depois de qualquer `<` sem `>` adiante, ou
-  logo depois de um `=`, e prosa como `2 < 3 e "..."` escondia uma citação
-  direta sem fonte;
+- **as tags HTML completas são mascaradas antes da busca de aspas.** Valor de
+  atributo não vira citação nem pareia com as aspas da prosa em volta. O Rust
+  pulava a aspa reta depois de qualquer `<` sem `>` adiante, ou logo depois de
+  um `=`: prosa como `2 < 3 e "..."` escondia uma citação direta sem fonte,
+  e a aspa que fecha um atributo pareava com a que abre o seguinte;
 - **o site-local IPv6 (`fec0::/10`) é recusado, e o IPv4 dentro do NAT64
   (`64:ff9b::/96`) e do 6to4 (`2002::/16`) é julgado como IPv4.** O Rust
   deixava os três chegarem à rede local do usuário. O prefixo NAT64 não é
