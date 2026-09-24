@@ -52,6 +52,8 @@ All material changes to Maestro Android are recorded here.
   decision of 24/09/2026: citing the same author, year and locator twice, for
   two claims, takes two entries. In the canonical one entry covered every equal
   occurrence, so the second claim went out without its own verification.
+  Citation-shaped text inside the references section, such as a title, takes
+  no entry: it only has to be represented, as in the canonical.
 
   More places are deliberately stricter than the canonical. Each fixes a
   defect Codex found in review that is also present in `68528f9`:
@@ -70,9 +72,11 @@ All material changes to Maestro Android are recorded here.
     fold drops) is never found in the text. The canonical's `contains("")` was
     true for any text, so an absent citation, reference, footnote marker or
     author key passed as present;
-  - complete HTML tags are masked before quotes are searched, so an attribute
-    value is neither taken for a quotation nor paired with the quotes of the
-    prose around it. The canonical skipped a straight quote after any `<` with
+  - HTML markup (complete start tags, comments, declarations such as
+    `<!DOCTYPE ...>` and processing instructions) is masked before quotes are
+    searched, so markup is neither taken for a quotation nor paired with the
+    quotes of the prose around it; a comment with no `-->` is not masked. The
+    canonical skipped a straight quote after any `<` with
     no `>` after it, or right after an `=`: prose such as `2 < 3 e "..."` hid
     an uncited direct quotation, and the quote closing one attribute could
     pair with the one opening the next;
@@ -97,10 +101,10 @@ All material changes to Maestro Android are recorded here.
   8 ABNT cases, the 7 link-integrity cases (two of them against a stand-in
   URL parser until the real one arrives), the blocked ranges of
   `link_audit_blocks_local_and_private_targets`, and 5 final-audit and
-  serial-turn cases. 87 tests in the new files, plus 9 in
+  serial-turn cases. 89 tests in the new files, plus 9 in
   `ProtocoloNoAparelhoTest`, which runs on the `:core:seguranca` emulator in CI
   to prove the regular expressions and the UTF-8 decoder on Android rather
-  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 20 mutations)
+  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 26 mutations)
   were all caught, with a green control run before and after.
 
 - Add `:core:seguranca`, the Android library that keeps each provider's API key

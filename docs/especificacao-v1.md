@@ -193,8 +193,10 @@ no Rust em `68528f9`:
   `contains("")` do Rust é verdadeiro para qualquer texto: citação,
   referência, marcador de nota ou chave de autor ausentes passavam por
   presentes;
-- **as tags HTML completas são mascaradas antes da busca de aspas.** Valor de
-  atributo não vira citação nem pareia com as aspas da prosa em volta. O Rust
+- **a marcação HTML é mascarada antes da busca de aspas:** tags de abertura
+  completas, comentários, declarações (`<!DOCTYPE ...>`) e instruções de
+  processamento. Marcação não vira citação nem pareia com as aspas da prosa
+  em volta; comentário sem `-->` não é mascarado. O Rust
   pulava a aspa reta depois de qualquer `<` sem `>` adiante, ou logo depois de
   um `=`: prosa como `2 < 3 e "..."` escondia uma citação direta sem fonte,
   e a aspa que fecha um atributo pareava com a que abre o seguinte;
@@ -211,7 +213,9 @@ no Rust em `68528f9`:
   (decisão do operador de 24/09/2026). Citar o mesmo autor, ano e localizador
   duas vezes, para duas afirmações, pede duas entradas. No Rust uma entrada
   cobria todas as ocorrências iguais, e a segunda afirmação saía sem
-  verificação própria;
+  verificação própria. Texto com forma de citação dentro da seção de
+  referências, como um título, não consome entrada: só precisa estar
+  representado, como no Rust;
 - **manifesto com chave JSON repetida é recusado** (decisão do operador de
   24/09/2026). O Rust o lê primeiro como `Value` e fica com o último valor:
   dois leitores do mesmo arquivo veriam manifestos diferentes.

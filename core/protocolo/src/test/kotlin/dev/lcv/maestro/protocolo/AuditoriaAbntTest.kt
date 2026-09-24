@@ -258,6 +258,32 @@ class AuditoriaAbntTest {
     }
 
     @Test
+    fun `citacao dentro da secao de referencias nao consome a entrada do corpo`() {
+        // Um título com a mesma forma da citação do corpo não pede entrada a
+        // mais: só a ocorrência do corpo consome entrada do manifesto.
+        val comTitulo = textoVerificado.replace("SILVA, Maria. Obra.", "SILVA, Maria. Obra (Silva, 2026, p. 12).")
+        assertFalse(auditar(comTitulo, "protocol-sha256", manifestoVerificado()).temBloqueio("body_citation_not_in_manifest"))
+        // Controle: nas referências, citação sem entrada nenhuma continua
+        // bloqueando, como no canônico.
+        val semEntrada = textoVerificado.replace("SILVA, Maria. Obra.", "SILVA, Maria. Obra (Souza, 2020).")
+        assertTrue(auditar(semEntrada, "protocol-sha256", manifestoVerificado()).temBloqueio("body_citation_not_in_manifest"))
+    }
+
+    @Test
+    fun `comentario, declaracao e instrucao de processamento nao sao citacao`() {
+        val citacao = "\"esta e uma citacao direta suficientemente longa\""
+        for (texto in listOf(
+            "Texto <!-- $citacao --> fim.",
+            "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"x\">\nTexto.",
+            "<?xml version=\"1.0\" encoding=\"um texto com quatro palavras\"?>\nTexto.",
+        )) {
+            assertFalse(auditar(texto).temBloqueio("direct_quote_without_citation"), texto)
+        }
+        // Controle: comentário sem `-->` não esconde a aspa que vem depois.
+        assertTrue(auditar("Texto <!-- $citacao fim.").temBloqueio("direct_quote_without_citation"))
+    }
+
+    @Test
     fun `aspa na prosa depois de menor ou de igual e conferida`() {
         // Divergência do canônico: lá um `<` sem `>` depois, ou um `=` logo
         // antes, escondia a aspa do portão.

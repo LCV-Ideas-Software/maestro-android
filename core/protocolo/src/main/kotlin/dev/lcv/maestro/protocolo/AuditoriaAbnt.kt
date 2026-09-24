@@ -422,9 +422,11 @@ public object AuditoriaAbnt {
     private val ASPAS = Regex("[“\"]([^“”\"\\n]{12,400})[”\"]")
 
     /**
-     * O texto com cada tag HTML completa trocada por espaços, do mesmo
-     * tamanho: as aspas dos atributos somem, e as da prosa ficam nas mesmas
-     * posições do texto original.
+     * O texto com a marcação HTML trocada por espaços, do mesmo tamanho: tags
+     * de abertura completas, comentários, declarações (`<!DOCTYPE ...>`) e
+     * instruções de processamento (`<?xml ...?>`). As aspas da marcação somem,
+     * e as da prosa ficam nas mesmas posições do texto original. Comentário sem
+     * `-->` não é mascarado: o que vem depois dele continua conferido.
      *
      * Divergência do canônico, corrigindo uma falha dele: lá a aspa reta era
      * pulada depois de qualquer `<` sem `>` adiante, ou logo depois de um `=`.
@@ -434,23 +436,36 @@ public object AuditoriaAbnt {
      */
     private fun semTags(texto: String): String {
         val mascarado = StringBuilder(texto)
-        for (tag in TAG_HTML.findAll(texto)) {
-            for (indice in tag.range) mascarado.setCharAt(indice, ' ')
+        fun mascarar(faixa: IntRange) {
+            for (indice in faixa) mascarado.setCharAt(indice, ' ')
+        }
+        for (tag in TAG_HTML.findAll(texto)) mascarar(tag.range)
+        // O `-->` é procurado a partir de cada `<!--`, e a busca seguinte
+        // começa depois dele: tempo linear, sem expressão regular preguiçosa.
+        var abre = texto.indexOf("<!--")
+        while (abre >= 0) {
+            val fecha = texto.indexOf("-->", abre + 4)
+            if (fecha < 0) break
+            mascarar(abre until fecha + 3)
+            abre = texto.indexOf("<!--", fecha + 3)
         }
         return mascarado.toString()
     }
 
     /**
-     * Uma tag de abertura HTML completa: nome, atributos com valor entre aspas
-     * duplas, simples ou sem aspas, e `>`. Nenhuma parte aceita `<`, para que
-     * a busca que começa num `<` pare no seguinte e o custo fique linear.
+     * Uma tag de abertura HTML completa (nome, atributos com valor entre aspas
+     * duplas, simples ou sem aspas, e `>`), uma declaração ou uma instrução de
+     * processamento. Nenhuma parte aceita `<`, para que a busca que começa num
+     * `<` pare no seguinte e o custo fique linear.
      */
     private val TAG_HTML = Regex(
         "<[A-Za-z][A-Za-z0-9:-]*" +
             "(?:${TextoRust.ESPACO}+[^${TextoRust.ESPACO_CLASSE}\"'<>/=]+" +
             "(?:${TextoRust.ESPACO}*=${TextoRust.ESPACO}*" +
             "(?:\"[^\"<]*\"|'[^'<]*'|[^${TextoRust.ESPACO_CLASSE}\"'<>=`]+))?)*" +
-            "${TextoRust.ESPACO}*/?>",
+            "${TextoRust.ESPACO}*/?>" +
+            "|<![A-Za-z][^<>]*>" +
+            "|<\\?[^<>]*>",
     )
 
     /**
@@ -964,18 +979,31 @@ public object AuditoriaAbnt {
         // Divergência do canônico, por decisão do operador de 24/09/2026: cada
         // ocorrência no corpo consome uma entrada própria do manifesto. Lá uma
         // entrada cobria todas as ocorrências iguais, e a segunda afirmação com
-        // o mesmo autor, ano e localizador saía sem verificação própria.
+        // o mesmo autor, ano e localizador saía sem verificação própria. A
+        // ocorrência dentro da seção de referências (num título, por exemplo)
+        // não consome entrada: só precisa estar representada, como no canônico.
+        // As do corpo são as lidas só no texto antes do cabeçalho; o
+        // `claim_id` depende da posição, e o começo do texto não muda.
+        val cabecalho = CABECALHO_DE_REFERENCIAS.find(texto)
+        val doCorpo = cabecalho?.let { achado ->
+            this.citacoesBrutas(texto.substring(0, achado.range.first)).mapTo(HashSet()) { it.claimId }
+        }
         val livres = citacoes.toMutableList()
         for (bruta in citacoesBrutas) {
-            val indice = livres.indexOfFirst { estruturada ->
+            val casa = { estruturada: Citacao ->
                 dobrarAscii(estruturada.chaveDoAutor) == dobrarAscii(bruta.chaveDoAutor) &&
                     EspacoUnicode.aparar(estruturada.ano) == EspacoUnicode.aparar(bruta.ano) &&
                     (estruturada.localizador?.let(::dobrarAscii) ?: "") ==
                     (bruta.localizador?.let(::dobrarAscii) ?: "")
             }
-            if (indice >= 0) {
-                livres.removeAt(indice)
+            val representada = if (doCorpo == null || bruta.claimId in doCorpo) {
+                val indice = livres.indexOfFirst(casa)
+                if (indice >= 0) livres.removeAt(indice)
+                indice >= 0
             } else {
+                citacoes.any(casa)
+            }
+            if (!representada) {
                 bloqueios += bloqueio(
                     "body_citation_not_in_manifest",
                     "O texto contem citacao autor-data sem entrada inequivoca no manifesto estruturado.",
