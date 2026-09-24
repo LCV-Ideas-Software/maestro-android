@@ -163,10 +163,16 @@ esquecimento em auditoria futura.
 A `calculadora-android` já pagou por estas lições. Elas entram por herança, com
 a evidência de origem, e **não voltam a ser investigadas**.
 
-- **`java-kotlin` continua fora do CodeQL.** Não por falta de Kotlin, mas porque
+- ~~**`java-kotlin` continua fora do CodeQL.** Não por falta de Kotlin, mas porque
   o CodeQL não suporta o Kotlin 2.4.20 da frota — medido em 18/09/2026 e
-  rastreado pela CALANDR-14. O `quality/code-quality-probe.js` permanece como
-  *placeholder* e é a única fonte JavaScript do repositório.
+  rastreado pela CALANDR-14.~~ **Superado em 24/09/2026 (MAEANDR-16):** o CodeQL
+  2.27.1 suporta o Kotlin 2.4.20, e a configuração padrão analisa `java-kotlin`
+  com *autobuild*. O `quality/code-quality-probe.js` permanece como
+  *placeholder* e é a única fonte JavaScript do repositório, agora por causa do
+  Code Quality: a análise por regras dele cobre C#, Go, Java, JavaScript,
+  Python, Ruby e TypeScript, e o modo `none` com que ele compila não extrai
+  Kotlin. Por decisão do operador em 24/09/2026, o placeholder fica até o Code
+  Quality cobrir Kotlin (MAEANDR-20).
 - **`androidx.security:security-crypto` está morto.** Todas as APIs foram
   depreciadas em 1.1.0-beta01 (04/06/2025) *"in favour of existing platform APIs
   and direct use of Android Keystore"*, e assim seguem no estável 1.1.0. Não

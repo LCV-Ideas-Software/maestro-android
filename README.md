@@ -106,9 +106,13 @@ its first code change, and MAEANDR-14 reached it.
 The inert [`quality/code-quality-probe.js`](quality/code-quality-probe.js)
 exists solely to give GitHub Code Quality a deterministic supported-language
 target. It is not loaded by Pages or any runtime and does not represent Kotlin
-coverage — and it still cannot be removed, because CodeQL does not support the
-Kotlin 2.4.20 this project is pinned to, so `java-kotlin` stays out of the
-analysis for now.
+coverage. Kotlin is covered by CodeQL code scanning: since 24/09/2026 the
+Default setup analyzes `java-kotlin`, built with autobuild, on CodeQL 2.27.1,
+the first version that supports the Kotlin 2.4.20 this project is pinned to
+(MAEANDR-16). Code Quality does not cover it: its rule-based analysis supports
+C#, Go, Java, JavaScript, Python, Ruby and TypeScript, and its `none` build mode
+cannot extract Kotlin. So the placeholder is still the only source Code Quality
+analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
 
 ## Automation baseline
 
