@@ -661,6 +661,18 @@ All material changes to Maestro Android are recorded here.
   a vendored proprietary component — rather than flattened to MIT, which is why
   GitHub classifies that repository as `NOASSERTION`.
 
+- Record that CodeQL now analyzes the Kotlin code (MAEANDR-16). On 24/09/2026
+  the Default setup added `java-kotlin`, built with autobuild, on CodeQL 2.27.1,
+  the first version that supports Kotlin 2.4.20; the first analysis on `main`
+  finished green with no alerts. The `README.md` and section 3 of the
+  specification still said `java-kotlin` stayed out of CodeQL, and now say it
+  is in. They also correct why `quality/code-quality-probe.js` stays, and so
+  does the placeholder's own comment, which still called this a
+  pre-implementation repository. The reason is no longer CodeQL but Code
+  Quality: its rule-based analysis does not cover Kotlin, and its `none` build
+  mode cannot extract it. The placeholder remains, by the operator's decision
+  of 24/09/2026, until Code Quality covers Kotlin (MAEANDR-20).
+
 ### Changed
 
 - Update the official CodeQL Action to v4.38.0 and Zizmor Action to v0.6.4,
