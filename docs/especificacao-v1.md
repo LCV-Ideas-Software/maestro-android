@@ -208,9 +208,11 @@ no Rust em `68528f9`:
   referência, marcador de nota ou chave de autor ausentes passavam por
   presentes. Uma regra só, em toda comparação: valor sem letra nem dígito
   nunca está presente (letra e dígito contados por ponto de código, para a
-  letra fora do plano básico não passar por pontuação); valor cujas letras o
-  dobramento descarta, como um nome grego, é comparado pela chave canônica,
-  e o mínimo de quatro letras do primeiro autor é medido nessa mesma
+  letra fora do plano básico não passar por pontuação); valor de que o
+  dobramento descarta alguma letra ou dígito — um nome grego, mesmo
+  misturado com ASCII (`Ωμέγα, 2020` dobra para `2020`) — é comparado pela
+  chave canônica, e o mínimo de quatro letras do primeiro autor é medido nessa
+  mesma
   representação, contando só letras e dígitos;
 - **HTML cru no texto final bloqueia a liberação** (`raw_html_in_final_text`;
   decisão do operador de 25/09/2026). O texto final é Markdown sem HTML:
@@ -1085,6 +1087,13 @@ Decisões de produto vigentes, no mesmo espírito das da calculadora:
 A publicação segue a esteira já em paridade (seção 3), com notas de versão em
 `play/release-notes/pt-BR.txt` e o teto de 500 caracteres por idioma verificado
 antes do build.
+
+**Dois canais de distribuição** (decisão do operador de 25/09/2026, comum aos
+três aplicativos Android da LCV Ideas & Software): na Play Store o aplicativo
+custa, inicialmente, R$ 10,00, como uma espécie de taxa de conveniência — o
+valor pode mudar por decisão do operador e nada no código depende dele; no
+GitHub Release do repositório o mesmo aplicativo, com o APK assinado pela
+mesma esteira, é gratuito. Registro na Discussion #62.
 
 ## 10. Riscos aceitos
 

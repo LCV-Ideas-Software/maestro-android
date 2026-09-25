@@ -210,19 +210,32 @@ public object AuditoriaAbnt {
      * passavam por presentes.
      *
      * - valor sem letra nem dígito (só pontuação) nunca está presente;
-     * - valor com letras que o dobramento descarta (alfabeto não latino) é
-     *   comparado pela [chaveCanonica], sem dobrar.
+     * - valor de que o dobramento descarta alguma letra ou dígito (alfabeto
+     *   não latino, mesmo misturado com ASCII: `Ωμέγα, 2020` dobra para
+     *   `2020`) é comparado pela [chaveCanonica], sem dobrar. O dobrado só
+     *   representa o valor quando guarda todas as letras e dígitos dele
+     *   ([dobramentoFiel]).
      */
     internal class TextoDobrado(texto: String) {
         private val dobrado = dobrarAscii(texto)
         private val canonico by lazy { chaveCanonica(texto) }
 
         fun contem(valor: String): Boolean {
-            val agulha = dobrarAscii(valor)
-            if (agulha.isNotEmpty()) return dobrado.contains(agulha)
+            if (dobramentoFiel(valor)) return dobrado.contains(dobrarAscii(valor))
             return representaAlgo(valor) && canonico.contains(chaveCanonica(valor))
         }
     }
+
+    /**
+     * Se o dobramento de [valor] guarda todas as letras e dígitos dele, por
+     * ponto de código, e há pelo menos um. Só então o dobrado representa o
+     * valor; quando descarta alguma letra, ou quando não há letra nenhuma
+     * (só pontuação, ou vazio: tudo dobra para `""`), a comparação vai pela
+     * [chaveCanonica].
+     */
+    private fun dobramentoFiel(valor: String): Boolean =
+        representaAlgo(valor) &&
+            valor.codePoints().filter { Character.isLetterOrDigit(it) }.count() == dobrarAscii(valor).length.toLong()
 
     /**
      * Se [valor] tem alguma letra ou dígito: só pontuação não representa nada.
@@ -235,30 +248,24 @@ public object AuditoriaAbnt {
 
     /**
      * O comprimento de [valor] na representação em que [TextoDobrado] o
-     * compara: o dobrado ou, quando o dobramento o esvazia, a chave canônica.
-     * Nos dois, só letras e dígitos contam, por ponto de código — o dobrado
-     * já é só isso, e a pontuação de um nome não latino não pode valer por
-     * letra. O canônico media só o dobrado, e um nome grego tinha
-     * comprimento zero.
+     * compara: as letras e dígitos, por ponto de código. O dobrado fiel é só
+     * isso, e a chave canônica guarda o mesmo tanto; a pontuação de um nome
+     * não latino não pode valer por letra. O canônico media só o dobrado, e
+     * um nome grego tinha comprimento zero.
      */
-    private fun comprimentoDobrado(valor: String): Int {
-        val dobrado = dobrarAscii(valor)
-        if (dobrado.isNotEmpty()) return dobrado.length
-        if (!representaAlgo(valor)) return 0
-        val canonico = chaveCanonica(valor)
-        return canonico.codePoints().filter { Character.isLetterOrDigit(it) }.count().toInt()
-    }
+    private fun comprimentoDobrado(valor: String): Int =
+        valor.codePoints().filter { Character.isLetterOrDigit(it) }.count().toInt()
 
     /**
      * Se [a] e [b] são o mesmo valor pelo dobramento, pela regra de
-     * [TextoDobrado]: dois valores que dobram para vazio são comparados pela
-     * [chaveCanonica], e não iguais só por isso.
+     * [TextoDobrado]: quando o dobramento descarta alguma letra de um deles,
+     * ou um deles não tem letra nenhuma, os dois são comparados pela
+     * [chaveCanonica], e não iguais só pelo que sobrou — `.` e `-` dobram os
+     * dois para `""` e não são o mesmo localizador.
      */
     private fun mesmoValorDobrado(a: String, b: String): Boolean {
-        val dobradoA = dobrarAscii(a)
-        val dobradoB = dobrarAscii(b)
-        if (dobradoA.isEmpty() && dobradoB.isEmpty()) return chaveCanonica(a) == chaveCanonica(b)
-        return dobradoA == dobradoB
+        if (!dobramentoFiel(a) || !dobramentoFiel(b)) return chaveCanonica(a) == chaveCanonica(b)
+        return dobrarAscii(a) == dobrarAscii(b)
     }
 
     /** `canonical_author_key`: espaços colapsados e caixa alta. */
