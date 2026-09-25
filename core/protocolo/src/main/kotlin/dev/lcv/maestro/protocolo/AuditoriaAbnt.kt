@@ -425,8 +425,10 @@ public object AuditoriaAbnt {
      * O texto com a marcação HTML trocada por espaços, do mesmo tamanho: tags
      * de abertura completas, comentários, declarações (`<!DOCTYPE ...>`) e
      * instruções de processamento (`<?xml ...?>`). As aspas da marcação somem,
-     * e as da prosa ficam nas mesmas posições do texto original. Comentário sem
-     * `-->` não é mascarado: o que vem depois dele continua conferido.
+     * e as da prosa ficam nas mesmas posições do texto original. Cada marcação
+     * termina no seu fechamento real, e o que está entre aspas dentro dela pode
+     * conter `<` e `>`. Comentário sem `-->` e instrução sem `?>` não são
+     * mascarados: o que vem depois deles continua conferido.
      *
      * Divergência do canônico, corrigindo uma falha dele: lá a aspa reta era
      * pulada depois de qualquer `<` sem `>` adiante, ou logo depois de um `=`.
@@ -440,33 +442,35 @@ public object AuditoriaAbnt {
             for (indice in faixa) mascarado.setCharAt(indice, ' ')
         }
         for (tag in TAG_HTML.findAll(texto)) mascarar(tag.range)
-        // O `-->` é procurado a partir de cada `<!--`, e a busca seguinte
-        // começa depois dele: tempo linear, sem expressão regular preguiçosa.
-        var abre = texto.indexOf("<!--")
-        while (abre >= 0) {
-            val fecha = texto.indexOf("-->", abre + 4)
-            if (fecha < 0) break
-            mascarar(abre until fecha + 3)
-            abre = texto.indexOf("<!--", fecha + 3)
+        // O fechamento é procurado a partir de cada abertura, e a busca
+        // seguinte começa depois dele: tempo linear, sem expressão regular
+        // preguiçosa, e com `<` e `>` livres no meio.
+        for ((abertura, fechamento) in listOf("<!--" to "-->", "<?" to "?>")) {
+            var abre = texto.indexOf(abertura)
+            while (abre >= 0) {
+                val fecha = texto.indexOf(fechamento, abre + abertura.length)
+                if (fecha < 0) break
+                mascarar(abre until fecha + fechamento.length)
+                abre = texto.indexOf(abertura, fecha + fechamento.length)
+            }
         }
         return mascarado.toString()
     }
 
     /**
      * Uma tag de abertura HTML completa (nome, atributos com valor entre aspas
-     * duplas, simples ou sem aspas, e `>`), uma declaração (`<!DOCTYPE ...>`,
-     * cujo `>` entre aspas não a fecha) ou uma instrução de processamento, que
-     * só termina em `?>`. Nenhuma parte aceita `<`, para que a busca que começa
-     * num `<` pare no seguinte e o custo fique linear.
+     * duplas, simples ou sem aspas, e `>`) ou uma declaração (`<!DOCTYPE ...>`).
+     * Entre aspas vale qualquer caractere, e o valor termina na aspa seguinte;
+     * fora delas, nenhuma parte aceita `<`. A busca que começa num `<` para,
+     * então, no `<` ou na aspa seguintes, e o custo fica linear.
      */
     private val TAG_HTML = Regex(
         "<[A-Za-z][A-Za-z0-9:-]*" +
             "(?:${TextoRust.ESPACO}+[^${TextoRust.ESPACO_CLASSE}\"'<>/=]+" +
             "(?:${TextoRust.ESPACO}*=${TextoRust.ESPACO}*" +
-            "(?:\"[^\"<]*\"|'[^'<]*'|[^${TextoRust.ESPACO_CLASSE}\"'<>=`]+))?)*" +
+            "(?:\"[^\"]*\"|'[^']*'|[^${TextoRust.ESPACO_CLASSE}\"'<>=`]+))?)*" +
             "${TextoRust.ESPACO}*/?>" +
-            "|<![A-Za-z](?:\"[^\"<]*\"|'[^'<]*'|[^\"'<>])*>" +
-            "|<\\?(?:[^?<]|\\?(?!>))*\\?>",
+            "|<![A-Za-z](?:\"[^\"]*\"|'[^']*'|[^\"'<>])*>",
     )
 
     /**

@@ -279,6 +279,10 @@ class AuditoriaAbntTest {
             // `>` entre aspas não fecha a declaração nem a instrução.
             "<!DOCTYPE x PUBLIC \"a>b\" $citacao>\nTexto.",
             "<?alvo dado=\"x>y\" titulo=$citacao?>\nTexto.",
+            // `<` entre aspas não impede a tag, a declaração nem a instrução.
+            "Veja <a title=\"a<b\" data-x=$citacao>isto</a>.",
+            "<!DOCTYPE x SYSTEM \"a<b\" $citacao>\nTexto.",
+            "<?alvo dado=\"<no>\" titulo=$citacao?>\nTexto.",
         )) {
             assertFalse(auditar(texto).temBloqueio("direct_quote_without_citation"), texto)
         }

@@ -198,8 +198,9 @@ no Rust em `68528f9`:
 - **a marcação HTML é mascarada antes da busca de aspas:** tags de abertura
   completas, comentários, declarações (`<!DOCTYPE ...>`) e instruções de
   processamento. Marcação não vira citação nem pareia com as aspas da prosa
-  em volta. `>` entre aspas não fecha a declaração, a instrução só termina
-  em `?>`, e comentário sem `-->` não é mascarado. O Rust
+  em volta. Cada marcação termina no seu fechamento real, e o texto entre
+  aspas dentro dela pode conter `<` e `>`; comentário sem `-->` e instrução
+  sem `?>` não são mascarados. O Rust
   pulava a aspa reta depois de qualquer `<` sem `>` adiante, ou logo depois de
   um `=`: prosa como `2 < 3 e "..."` escondia uma citação direta sem fonte,
   e a aspa que fecha um atributo pareava com a que abre o seguinte;
