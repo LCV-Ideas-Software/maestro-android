@@ -90,10 +90,12 @@ class ProtocoloNoAparelhoTest {
     }
 
     @Test
-    fun aspaSoESaltadaDentroDeTag() {
+    fun htmlCruBloqueiaEMenorNaProsaNao() {
         val citacao = "\"esta e uma citacao direta suficientemente longa\""
-        assertTrue(auditar("Sabe-se que 2 < 3 e $citacao sem fonte.").temBloqueio("direct_quote_without_citation"))
-        assertFalse(auditar("Veja <a title=$citacao href=\"#x\">isto</a>.").temBloqueio("direct_quote_without_citation"))
+        val prosa = auditar("Sabe-se que 2 < 3 e $citacao sem fonte.")
+        assertTrue(prosa.temBloqueio("direct_quote_without_citation"))
+        assertFalse(prosa.temBloqueio("raw_html_in_final_text"))
+        assertTrue(auditar("Veja <a title=$citacao href=\"#x\">isto</a>.").temBloqueio("raw_html_in_final_text"))
     }
 
     @Test

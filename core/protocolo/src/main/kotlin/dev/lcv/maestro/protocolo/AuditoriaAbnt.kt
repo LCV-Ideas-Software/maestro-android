@@ -5,16 +5,8 @@ import java.util.Locale
 import java.util.TreeMap
 import java.util.TreeSet
 import org.commonmark.node.AbstractVisitor
-import org.commonmark.node.BlockQuote
-import org.commonmark.node.FencedCodeBlock
-import org.commonmark.node.Heading
 import org.commonmark.node.HtmlBlock
 import org.commonmark.node.HtmlInline
-import org.commonmark.node.IndentedCodeBlock
-import org.commonmark.node.ListBlock
-import org.commonmark.node.SourceSpan
-import org.commonmark.node.ThematicBreak
-import org.commonmark.parser.IncludeSourceSpans
 import org.commonmark.parser.Parser
 
 /**
@@ -240,16 +232,18 @@ public object AuditoriaAbnt {
 
     /**
      * O comprimento de [valor] na representação em que [TextoDobrado] o
-     * compara: o dobrado ou, quando o dobramento o esvazia, a chave canônica,
-     * em pontos de código. O canônico media só o dobrado, e um nome grego
-     * tinha comprimento zero.
+     * compara: o dobrado ou, quando o dobramento o esvazia, a chave canônica.
+     * Nos dois, só letras e dígitos contam, por ponto de código — o dobrado
+     * já é só isso, e a pontuação de um nome não latino não pode valer por
+     * letra. O canônico media só o dobrado, e um nome grego tinha
+     * comprimento zero.
      */
     private fun comprimentoDobrado(valor: String): Int {
         val dobrado = dobrarAscii(valor)
         if (dobrado.isNotEmpty()) return dobrado.length
         if (!representaAlgo(valor)) return 0
         val canonico = chaveCanonica(valor)
-        return canonico.codePointCount(0, canonico.length)
+        return canonico.codePoints().filter { Character.isLetterOrDigit(it) }.count().toInt()
     }
 
     /**
@@ -476,7 +470,7 @@ public object AuditoriaAbnt {
     private fun bloqueiosDeAspas(texto: String, citacoes: List<Citacao>): List<BloqueioDeCitacao> {
         val bloqueios = mutableListOf<BloqueioDeCitacao>()
         var vistos = 0
-        for (achado in ASPAS.findAll(semHtmlCru(texto))) {
+        for (achado in ASPAS.findAll(texto)) {
             if (vistos++ >= MAXIMO_DE_CITACOES) break
             val inteiro = texto.substring(achado.range)
             val fim = achado.range.last + 1
@@ -503,139 +497,46 @@ public object AuditoriaAbnt {
     private val ASPAS = Regex("[“\"]([^“”\"\\n]{12,400})[”\"]")
 
     /**
-     * O texto com o HTML cru trocado por espaços, do mesmo tamanho: as aspas
-     * da marcação somem, e as da prosa ficam nas mesmas posições do texto
-     * original.
+     * `raw_html_in_final_text`. Divergência do canônico, por decisão do
+     * operador de 25/09/2026: o texto final é Markdown sem HTML, e qualquer
+     * HTML cru — tag, comentário, instrução de processamento, declaração ou
+     * CDATA, em linha ou em bloco — bloqueia a liberação, apontando o trecho.
+     * Quem reconhece o HTML cru é a commonmark-java, pela especificação
+     * CommonMark 0.31.2 (seções 4.6 e 6.6): o texto final é Markdown, e esta
+     * é a especificação dele (decisão do operador de 24/09/2026, no lugar de
+     * um reconhecimento escrito à mão). `<` na prosa (`2 < 3`) não é HTML e
+     * segue prosa; o link automático (`<https://…>`) e o código (`` `<b>` ``)
+     * também não são HTML cru para a especificação.
      *
-     * Quem reconhece o HTML é a commonmark-java, pela especificação CommonMark
-     * 0.31.2 — o texto final é Markdown, e esta é a especificação dele. Decisão
-     * do operador de 24/09/2026: o reconhecimento escrito à mão, que levou seis
-     * rodadas de revisão, saiu. Dois passes:
-     *
-     * 1. HTML cru em linha (seção 6.6: tag, comentário, instrução, declaração
-     *    e CDATA), com o bloco HTML desligado. No CommonMark, uma linha que
-     *    abre com `<div>` faz do bloco inteiro HTML cru, inclusive a prosa
-     *    visível dentro dele; sem o bloco, essas linhas viram parágrafo, cada
-     *    tag vira um `HtmlInline` exato, e a prosa continua conferida.
-     * 2. Blocos HTML cujo conteúdo o navegador esconde (seção 4.6: `<script>`
-     *    e `<style>` do tipo 1, e comentário, instrução, declaração e CDATA,
-     *    tipos 2 a 5), que podem atravessar linha em branco. `<pre>` e
-     *    `<textarea>`, também do tipo 1, mostram o conteúdo ao leitor, e os
-     *    blocos de elemento (tipos 6 e 7) também: ficam para o passe 1, que
-     *    já conferiu a prosa deles.
-     *
-     * Nos dois passes, a marcação que esconde texto é mascarada do início até
-     * onde o navegador a termina ([marcacaoEscondida]), e nunca além de onde
-     * a especificação CommonMark a termina, porque dali em diante o texto já
-     * é parágrafo conferido. Quando as duas discordam — o CommonMark fecha um
-     * `<script>` em `</style>`, o navegador não — fica o lado fechado: o
-     * texto é conferido. Sem fechamento, a marcação vai até onde o CommonMark
-     * a leva, escondida.
-     *
-     * Divergência do canônico, corrigindo uma falha dele: lá a aspa reta era
-     * pulada depois de qualquer `<` sem `>` adiante, ou logo depois de um `=`.
-     * Prosa como `2 < 3 e "..."` ou `x = "..."` escondia uma citação direta
-     * sem fonte; e a aspa que fecha um atributo pareava com a que abre o
-     * seguinte, desalinhando as aspas da prosa que vinham depois da tag.
+     * O Rust tolerava o HTML e pulava a aspa reta depois de qualquer `<` sem
+     * `>` adiante, ou logo depois de um `=`: prosa como `2 < 3 e "..."` ou
+     * `x = "..."` escondia uma citação direta sem fonte, e a aspa que fecha
+     * um atributo pareava com a que abre o seguinte. Aqui não há máscara: as
+     * aspas são procuradas no texto tal qual, e o HTML, se houver, é recusado.
      */
-    private fun semHtmlCru(texto: String): String {
-        val mascarado = StringBuilder(texto)
-        fun mascarar(inicio: Int, fim: Int) {
-            for (indice in inicio until fim) mascarado.setCharAt(indice, ' ')
+    private fun bloqueiosDeHtmlCru(texto: String): List<BloqueioDeCitacao> {
+        val bloqueios = mutableListOf<BloqueioDeCitacao>()
+        fun recusar(literal: String) {
+            bloqueios += bloqueio(
+                "raw_html_in_final_text",
+                "O texto final contem HTML cru; o texto final e Markdown sem HTML.",
+                "error", null, null, literal, false,
+            )
         }
-        fun mascarar(trechos: List<SourceSpan>) {
-            for (trecho in trechos) mascarar(trecho.inputIndex, trecho.inputIndex + trecho.length)
-        }
-        fun linha(trecho: SourceSpan) = texto.substring(trecho.inputIndex, trecho.inputIndex + trecho.length)
-
-        /**
-         * Mascara uma marcação a partir dos seus trechos de origem, um por
-         * linha: uma tag, inteira; uma marcação que esconde texto, do início
-         * até onde o navegador a termina. Com [soEscondidas], a tag é deixada
-         * em paz.
-         */
-        fun mascararMarcacao(trechos: List<SourceSpan>, soEscondidas: Boolean) {
-            if (trechos.isEmpty()) return
-            val (fechamento, desde) = marcacaoEscondida(linha(trechos.first()))
-                ?: return if (soEscondidas) Unit else mascarar(trechos)
-            var busca = desde
-            for (trecho in trechos) {
-                val fim = fechamento.find(linha(trecho), busca)
-                if (fim != null) {
-                    mascarar(trecho.inputIndex, trecho.inputIndex + fim.range.last + 1)
-                    return
-                }
-                mascarar(listOf(trecho))
-                busca = 0
-            }
-        }
-        MARKDOWN_SEM_BLOCO_HTML.parse(texto).accept(
-            object : AbstractVisitor() {
-                override fun visit(htmlInline: HtmlInline) = mascararMarcacao(htmlInline.sourceSpans, soEscondidas = false)
-            },
-        )
         MARKDOWN.parse(texto).accept(
             object : AbstractVisitor() {
-                override fun visit(htmlBlock: HtmlBlock) = mascararMarcacao(htmlBlock.sourceSpans, soEscondidas = true)
+                override fun visit(htmlBlock: HtmlBlock) = recusar(htmlBlock.literal)
+                override fun visit(htmlInline: HtmlInline) = recusar(htmlInline.literal)
             },
         )
-        return mascarado.toString()
+        return bloqueios
     }
 
     /**
-     * A marcação que esconde texto do leitor, aberta no começo de [texto]:
-     * a expressão do fechamento que o navegador reconhece, e a posição a
-     * partir da qual procurá-lo. Null se é uma tag, que esconde só a si
-     * mesma. O fechamento é o do tokenizador do HTML Standard (seção 13.2.5),
-     * que é o que o leitor vê, e não o da especificação CommonMark:
-     *
-     * - `<script` ou `<style` no começo de um bloco de tipo 1 (sem `<pre` e
-     *   `<textarea`, cujo conteúdo é visível): a tag de fim do mesmo nome,
-     *   `</script` seguido de espaço, tabulação, quebra, `/` ou `>`;
-     * - `<!--`: `-->` ou `--!>`, inclusive os fechamentos abruptos `<!-->` e
-     *   `<!--->`;
-     * - `<?`, `<!` e letra, `<![CDATA[`: o navegador lê os três como
-     *   comentário "bogus" (ou DOCTYPE), que termina no primeiro `>`, mesmo
-     *   entre aspas.
-     *
-     * A indentação de até três espaços, que a especificação admite, já vem
-     * fora do trecho de origem que a commonmark-java dá ao bloco.
+     * O parser da especificação CommonMark inteira. Montado uma vez, serve a
+     * qualquer thread, como a documentação da commonmark-java garante.
      */
-    private fun marcacaoEscondida(texto: String): Pair<Regex, Int>? = when {
-        texto.startsWith("<!--") -> FIM_DE_COMENTARIO to 2
-        texto.startsWith("<?") || texto.startsWith("<!") -> FIM_DE_COMENTARIO_BOGUS to 2
-        else -> INICIO_DE_SCRIPT_OU_STYLE.find(texto)?.let { inicio ->
-            Regex("</${inicio.groupValues[1]}[\\t\\n\\f\\r />]", RegexOption.IGNORE_CASE) to inicio.range.last + 1
-        }
-    }
-
-    private val INICIO_DE_SCRIPT_OU_STYLE = Regex("^<(script|style)(?:[ \\t>]|$)", RegexOption.IGNORE_CASE)
-    private val FIM_DE_COMENTARIO = Regex("--!?>")
-    private val FIM_DE_COMENTARIO_BOGUS = Regex(">")
-
-    /**
-     * O parser da especificação inteira, com a posição de origem de cada
-     * bloco. Montado uma vez, serve a qualquer thread, como a documentação da
-     * commonmark-java garante.
-     */
-    private val MARKDOWN: Parser = Parser.builder()
-        .includeSourceSpans(IncludeSourceSpans.BLOCKS)
-        .build()
-
-    /** O mesmo parser sem o bloco HTML, com a posição de origem de cada nó em linha. */
-    private val MARKDOWN_SEM_BLOCO_HTML: Parser = Parser.builder()
-        .enabledBlockTypes(
-            setOf(
-                Heading::class.java,
-                ThematicBreak::class.java,
-                FencedCodeBlock::class.java,
-                IndentedCodeBlock::class.java,
-                BlockQuote::class.java,
-                ListBlock::class.java,
-            ),
-        )
-        .includeSourceSpans(IncludeSourceSpans.BLOCKS_AND_INLINES)
-        .build()
+    private val MARKDOWN: Parser = Parser.builder().build()
 
     /**
      * `unstructured_citation_signals`. Rust (linhas 474–476):
@@ -676,14 +577,14 @@ public object AuditoriaAbnt {
                 if (trechos.size > MAXIMO_DE_CITACOES) return true
             }
         }
-        if (ASPAS.findAll(semHtmlCru(texto)).take(MAXIMO_DE_CITACOES + 1).count() > MAXIMO_DE_CITACOES) return true
+        if (ASPAS.findAll(texto).take(MAXIMO_DE_CITACOES + 1).count() > MAXIMO_DE_CITACOES) return true
         if (SINAIS.any { it.findAll(texto).take(MAXIMO_DE_CITACOES + 1).count() > MAXIMO_DE_CITACOES }) return true
         return secaoDeReferencias(texto, MAXIMO_DE_FONTES + 1).size > MAXIMO_DE_FONTES
     }
 
     /** `document_policy_blockers`. */
     private fun bloqueiosDePolitica(texto: String, citacoes: List<Citacao>): List<BloqueioDeCitacao> {
-        val bloqueios = bloqueiosDeAspas(texto, citacoes).toMutableList()
+        val bloqueios = (bloqueiosDeHtmlCru(texto) + bloqueiosDeAspas(texto, citacoes)).toMutableList()
         val dobrado = dobrarAscii(texto)
         if (dobrado.contains("wikipediaorg") || dobrado.contains("ptwikipediaorg")) {
             bloqueios += bloqueio(

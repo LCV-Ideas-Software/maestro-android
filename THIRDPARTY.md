@@ -71,7 +71,8 @@ three jars also carries its own `META-INF/LICENSE` (Apache-2.0) and
 `commonmark` has no runtime dependencies of its own; its POM declares only
 test-scoped ones. It contributes 215 KB to the runtime classpath. The final
 text is Markdown, and the citation audit has to tell raw HTML from prose to
-find direct quotations; a hand-written recogniser took six review rounds and
+refuse it (the final text carries no HTML, by the operator's decision of
+25/09/2026); a hand-written recogniser took six review rounds and
 kept disagreeing with the specification, so the operator decided on 24/09/2026
 to use the Java implementation of CommonMark instead.
 

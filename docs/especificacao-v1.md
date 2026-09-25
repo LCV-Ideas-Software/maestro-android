@@ -32,6 +32,14 @@ e nada disso existe num Android. Confirmado pelo operador em 21/09/2026: *"O
 Kotlin novo. Não empacota o produto existente, não carrega webview e não executa
 código do web por baixo.
 
+**Produto para público externo, não cópia.** Dito pelo operador em 25/09/2026:
+os aplicativos Android são portes dos originais, mas destinados a público
+variado e externo; não devem depender da estrutura interna dele
+(`admin-app/MainSite`, D1, Secret Store, convenções de uso próprio) e não são
+cópias idênticas. Tolerância ou atalho do original que só faz sentido no
+ambiente interno não se porta; onde o uso por terceiros pede outra solução
+(seções 2.2 e 4.4), a especificação diz qual, e a decisão fica registrada.
+
 ### Uma diferença de partida em relação à calculadora, dita agora
 
 A calculadora foi portada de um produto web que funcionava; o produto web era a
@@ -202,27 +210,20 @@ no Rust em `68528f9`:
   letra fora do plano básico não passar por pontuação); valor cujas letras o
   dobramento descarta, como um nome grego, é comparado pela chave canônica,
   e o mínimo de quatro letras do primeiro autor é medido nessa mesma
-  representação;
-- **o HTML cru do texto final é mascarado antes da busca de aspas.** O texto
-  final é Markdown, e quem reconhece o HTML é a `commonmark-java`, pela seção
-  6.6 da especificação CommonMark (decisão do operador de 24/09/2026, no
-  lugar de um reconhecimento escrito à mão). O HTML em linha é lido com o
-  bloco HTML desligado, para que a prosa dentro de um `<div>` continue
-  conferida; os blocos HTML cujo conteúdo o navegador esconde (seção 4.6:
-  `<script>` e `<style>`, comentário, instrução, declaração e CDATA), que
-  podem atravessar linha em branco, são mascarados do início até onde o
-  navegador os termina, pelo tokenizador do HTML Standard (tag de fim de
-  `<script>`/`<style>` mesmo com espaço antes do `>`; `-->` ou `--!>`;
-  instrução, declaração e CDATA até o primeiro `>`, que é onde o navegador
-  fecha um comentário "bogus"), e nunca além de onde o CommonMark os
-  termina — quando os dois discordam, o texto é conferido; o que vem depois
-  do fechamento o navegador mostra, e continua conferido; `<pre>` e
-  `<textarea>` mostram o conteúdo ao leitor e continuam conferidos.
-  Marcação não vira citação nem
-  pareia com as aspas da prosa em volta. O Rust
-  pulava a aspa reta depois de qualquer `<` sem `>` adiante, ou logo depois de
-  um `=`: prosa como `2 < 3 e "..."` escondia uma citação direta sem fonte,
-  e a aspa que fecha um atributo pareava com a que abre o seguinte;
+  representação, contando só letras e dígitos;
+- **HTML cru no texto final bloqueia a liberação** (`raw_html_in_final_text`;
+  decisão do operador de 25/09/2026). O texto final é Markdown sem HTML:
+  qualquer tag, comentário, instrução de processamento, declaração ou CDATA,
+  em linha ou em bloco, que a especificação CommonMark reconheça como HTML
+  cru (seções 4.6 e 6.6, lidas pela `commonmark-java` — decisão do operador
+  de 24/09/2026, no lugar de um reconhecimento escrito à mão) é recusado,
+  apontando o trecho. `<` na prosa (`2 < 3`), link automático e código não
+  são HTML cru. Não há máscara: as aspas são procuradas no texto tal qual. É
+  também o que impede o modelo de injetar marcação no que o aparelho exibe
+  (seção 4.4). O Rust tolerava o HTML e pulava a aspa reta depois de qualquer `<` sem `>`
+  adiante, ou logo depois de um `=`: prosa como `2 < 3 e "..."` escondia uma
+  citação direta sem fonte, e a aspa que fecha um atributo pareava com a que
+  abre o seguinte;
 - **o site-local IPv6 (`fec0::/10`) é recusado; o IPv4 dentro do NAT64
   bem-conhecido (`64:ff9b::/96`) e do 6to4 (`2002::/16`) é julgado como
   IPv4; e o prefixo NAT64 de uso local (`64:ff9b:1::/48`, RFC 8215) é
@@ -568,6 +569,39 @@ parou".
 A retomada já existe no web e porta inteira (309 linhas de estado circular):
 ela reconstrói o ponto da rodada a partir dos artefatos aceitos e do jornal. O
 que muda é apenas quem a dispara.
+
+### 4.4 Exibição e exportação do texto final (decisão do operador de 25/09/2026)
+
+Aqui o Android difere dos dois aplicativos internos, e a diferença só foi dita
+em 25/09/2026. No `maestro-app` e no `admin-app/Maestro AI`, de uso exclusivo
+do operador, o texto final é Markdown que o `admin-app/MainSite` interpreta.
+O `maestro-android` é produto para usuários diversos: o texto final é
+**exibido formatado na tela do aparelho** e **exportado em Markdown, TXT e
+PDF**. Isso é requisito do `:app` e se cumpre só com peças oficiais, sem
+layout próprio:
+
+- **Exibição.** A `commonmark-java` — o mesmo parser que a auditoria da
+  seção 2.2 usa, então o que a auditoria aprova é exatamente o que a tela
+  mostra — gera HTML com o seu `HtmlRenderer`, e o `WebView` do Android exibe
+  esse HTML com uma folha de estilo do aplicativo. O `WebView` roda com
+  JavaScript desligado, sem acesso a arquivo nem a conteúdo, carregando só a
+  string gerada localmente (`loadDataWithBaseURL` com base nula) — é
+  componente de exibição de HTML produzido no aparelho, não o produto web da
+  seção 1. O HTML que
+  chega ao `WebView` é sempre o que o renderizador produziu a partir do
+  Markdown: HTML cru no texto final é recusado pela auditoria (seção 2.2,
+  `raw_html_in_final_text`), e por isso o modelo não tem como injetar
+  marcação nem script no que o aparelho renderiza.
+- **PDF.** O print framework do Android: `PrintManager.print` com o
+  `PrintDocumentAdapter` que o próprio `WebView` fornece. A paginação, a
+  caixa de diálogo e o "Salvar como PDF" são do sistema.
+- **Markdown.** O artefato, tal qual.
+- **TXT.** Texto puro, pelo `TextContentRenderer` da `commonmark-java`:
+  títulos, listas e ênfases viram texto plano legível, sem marcas.
+
+Nenhuma biblioteca de Markdown de terceiro (Markwon ou similar) nem gerador
+de PDF próprio. Os três exportáveis saem do mesmo artefato que a auditoria
+aprovou, e a exportação só é oferecida para texto liberado.
 
 ## 5. Os seis provedores
 

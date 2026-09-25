@@ -195,9 +195,6 @@ class AuditoriaAbntTest {
             assertFalse(AuditoriaAbnt.excedeCapacidade(gerar(500)), gerar(1))
             assertTrue(AuditoriaAbnt.excedeCapacidade(gerar(501)), gerar(1))
         }
-        // As aspas contam como o leitor as vê, com as tags HTML mascaradas: o
-        // par de aspas entre dois atributos não é uma citação a mais.
-        assertFalse(AuditoriaAbnt.excedeCapacidade(aspas(500) + "\n<a title=\"x\" data-description=\"y\">z</a>"))
         val resultado = auditar(citacoes(501), "protocol-sha256", AuditoriaAbnt.manifestoVazio("protocol-sha256"))
         assertTrue(resultado.temBloqueio("citation_capacity_exceeded"))
         assertEquals(StatusDoParMaestro.NAO_PRONTO, resultado.statusDoParMaestro)
@@ -254,6 +251,11 @@ class AuditoriaAbntTest {
         )
         assertTrue(
             auditar("Texto (Ωμέ e Άλφα, 2020).\n\n## Referencias\nΩΜΈ, Άλφα. Obra. Atenas: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+        // A pontuação não vale por letra no mínimo: `Ω-μέ` tem três letras.
+        assertTrue(
+            auditar("Texto (Ω-μέ e Άλφα, 2020).\n\n## Referencias\nΩ-ΜΈ, Άλφα. Obra. Atenas: Editora, 2020.")
                 .temBloqueio("citation_without_reference"),
         )
         assertTrue(
@@ -357,88 +359,43 @@ class AuditoriaAbntTest {
     }
 
     @Test
-    fun `comentario, declaracao e instrucao de processamento nao sao citacao`() {
+    fun `HTML cru no texto final bloqueia a liberacao`() {
+        // Decisão do operador de 25/09/2026: o texto final é Markdown sem HTML.
+        // Tudo que a especificação CommonMark reconhece como HTML cru, em
+        // linha (6.6) ou em bloco (4.6), é recusado, apontando o trecho.
         val citacao = "\"esta e uma citacao direta suficientemente longa\""
         for (texto in listOf(
-            "Texto <!-- $citacao --> fim.",
-            "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"x\">\nTexto.",
-            "<?xml version=\"1.0\" encoding=\"um texto com quatro palavras\"?>\nTexto.",
-            // `<` dentro da instrução não a fecha.
-            "<?alvo dado=\"<no\" titulo=$citacao?>\nTexto.",
-            // `<` entre aspas não impede a tag nem a declaração.
-            "Veja <a title=\"a<b\" data-x=$citacao>isto</a>.",
-            "<!DOCTYPE x SYSTEM \"a<b\" $citacao>\nTexto.",
-            // As posições valem com fim de linha `\r\n`.
-            "A\r\nB\r\nVeja <a title=$citacao>isto</a>.",
-            // Tag sozinha na própria linha (o bloco HTML de tipo 7 do
-            // CommonMark): o atributo continua mascarado.
-            "<a title=$citacao>\nisto</a> e fim.",
-            // Blocos cujo conteúdo o navegador esconde (CommonMark 4.6:
-            // `<script>` e `<style>`, comentário, instrução, declaração e
-            // CDATA), que podem atravessar linha em branco: mascarados do
-            // início até onde o navegador os termina e, sem fechamento, até
-            // onde o CommonMark os leva.
-            "Texto.\n\n<!--\n$citacao\n\n-->\n\nFim.",
-            "Texto.\n\n<?alvo\n$citacao\n\n?>\n\nFim.",
-            "Texto.\n\n<!-- $citacao --> fim.",
-            "Texto.\n\n<!--\n$citacao\n\nsem fechamento.",
-            "Texto.\n\n<script>\nvar x = $citacao;\n\nsem fechamento.",
-            "Texto.\n\n<!--\n c\n\n$citacao na ultima linha, sem fechamento",
-            // `--!>` fecha o comentário no navegador antes do `-->` que o
-            // CommonMark exige; a aspa antes dele fica escondida.
-            "Texto <!-- $citacao --!> x -->.",
-            "Texto.\n\n<!-- $citacao --!> x -->\n\nFim.",
-            "Texto.\n\n<SCRIPT>\nvar x = $citacao;\n</Script >\n\nFim.",
-            "Texto.\n\n<script>\nvar x = $citacao;\n</script>\n\nFim.",
-            "Texto.\n\n<style>\n.a::before { content: $citacao; }\n</style>\n\nFim.",
-            "Texto.\n\n   <![CDATA[\n$citacao\n]]>\n\nFim.",
-        )) {
-            assertFalse(auditar(texto).temBloqueio("direct_quote_without_citation"), texto)
-        }
-        // Controles: o que não é marcação pela especificação CommonMark
-        // continua conferido. Comentário e instrução em linha sem fechamento,
-        // um `<?` dentro de um comentário em linha já fechado, a prosa dentro
-        // de um bloco de elemento (`<div>`, tipo 6), e a aspa logo depois de
-        // uma tag num texto com `\r\n`.
-        for (texto in listOf(
-            "Texto <!-- $citacao fim.",
-            "Texto <?alvo titulo=$citacao > fim.",
-            "Texto <!-- <? --> $citacao ?> fim.",
+            "Veja <a title=$citacao href=\"#x\">isto</a>.",
+            "Nota<sup>1</sup> e quebra<br>.",
+            "Texto <!-- comentario --> fim.",
             "<div>\n$citacao sem fonte.\n</div>",
-            // `<pre>` e `<textarea>` são blocos de tipo 1 como `<script>`, mas
-            // o navegador mostra o conteúdo deles ao leitor.
-            "Texto.\n\n<pre>\n$citacao sem fonte.\n</pre>\n\nFim.",
-            "Texto.\n\n<textarea>\n$citacao sem fonte.\n</textarea>\n\nFim.",
-            // `<?` que sobrou num comentário de bloco não abre instrução.
-            "Texto.\n\n<!-- <? -->\n\n$citacao ?> fim.",
-            // O que vem depois do fechamento de um bloco escondido, na mesma
-            // linha, o navegador mostra: a especificação põe a linha inteira
-            // no bloco, mas o leitor vê a aspa.
-            "Texto.\n\n<script>x</script> $citacao sem fonte.",
-            // O fechamento é o do navegador, não o do CommonMark: a tag de fim
-            // com espaço antes do `>`, `--!>`, o comentário abrupto `<!-->`, e
-            // instrução, declaração e CDATA lidos como comentário "bogus", que
-            // termina no primeiro `>`, mesmo entre aspas.
-            "Texto.\n\n<script>x</script > $citacao sem fonte.",
-            "Texto.\n\n<style>x</style\t> $citacao sem fonte.",
-            "Texto.\n\n<!-- c --!> $citacao sem fonte.",
-            "Texto.\n\n<!--> $citacao sem fonte.",
-            "Texto <!-- a --!> $citacao sem fonte -->.",
-            "Texto <?alvo dado=\"x>y\" titulo=$citacao?> fim.",
-            "<?alvo dado=\"x>y\" titulo=$citacao?>\nTexto.",
-            "Texto.\n\n<![CDATA[ x > $citacao ]]>",
-            "Texto <!DOCTYPE x SYSTEM \"a>b\" $citacao> fim.",
-            "Texto.\n\n<!-- c --> $citacao sem fonte.",
-            "Texto.\n\n<!--\n c\n\n--> $citacao sem fonte.",
-            "Texto.\n\n<?alvo?> $citacao sem fonte.",
-            "Texto.\n\n<!DOCTYPE x> $citacao sem fonte.",
-            "Texto.\n\n<![CDATA[x]]> $citacao sem fonte.",
-            "A\r\nB\r\nTexto <b>x</b>$citacao sem fonte.",
-            // A tag na mesma coluna da aspa, duas linhas abaixo: a máscara usa
-            // a posição no texto, e não a coluna da linha.
-            "$citacao sem fonte.\r\n\r\n<b>x</b> fim.",
+            "<a title=$citacao>\nisto</a> e fim.",
+            "Texto.\n\n<!--\ncomentario\n\n-->\n\nFim.",
+            "Texto.\n\n<script>\nvar x = 1;\n</script>\n\nFim.",
+            "<?xml version=\"1.0\"?>\nTexto.",
+            "<!DOCTYPE html>\nTexto.",
+            "Texto.\n\n   <![CDATA[\nx\n]]>\n\nFim.",
+            "Texto </b> solto.",
+            "A\r\nB\r\nVeja <b>x</b>.",
         )) {
-            assertTrue(auditar(texto).temBloqueio("direct_quote_without_citation"), texto)
+            val resultado = auditar(texto)
+            assertTrue(resultado.temBloqueio("raw_html_in_final_text"), texto)
+            assertNotEquals(StatusDoParMaestro.PRONTO, resultado.statusDoParMaestro, texto)
+        }
+        // O trecho apontado é o HTML, não a prosa em volta.
+        val trechos = auditar("Veja <a title=$citacao href=\"#x\">isto</a>.").bloqueios
+            .filter { it.codigo == "raw_html_in_final_text" }.map { it.trecho }
+        assertEquals(listOf("<a title=$citacao href=\"#x\">", "</a>"), trechos)
+        // Controles: o que a especificação não lê como HTML cru segue prosa —
+        // `<` solto, link automático, código em linha e bloco de código.
+        for (texto in listOf(
+            "Sabe-se que 2 < 3 e a < b.",
+            "Veja <https://example.org/x> e <mailto:a@b.c>.",
+            "Use `<b>` no codigo.",
+            "```html\n<div>x</div>\n```",
+            "    <div>indentado</div>",
+        )) {
+            assertFalse(auditar(texto).temBloqueio("raw_html_in_final_text"), texto)
         }
     }
 
@@ -452,15 +409,11 @@ class AuditoriaAbntTest {
         )) {
             assertTrue(auditar(texto).temBloqueio("direct_quote_without_citation"), texto)
         }
-        // Controle: valor de atributo dentro de uma tag não é citação.
-        val atributo = "Veja <a title=\"esta e uma citacao direta suficientemente longa\" href=\"#x\">isto</a>."
-        assertFalse(auditar(atributo).temBloqueio("direct_quote_without_citation"))
-        // A aspa que fecha um atributo não pareia com a que abre o seguinte: a
-        // citação longa (mais que os 220 caracteres conferidos depois da aspa)
-        // que vem depois da tag continua ligada à fonte logo após ela.
-        val longa = "esta e uma citacao direta muito longa " + "com muitas palavras ".repeat(14)
-        val depoisDaTag = "<a id=\"x\" data-description=\"abc\">Um texto introdutorio \"$longa\" (Silva, 2020)."
-        assertFalse(auditar(depoisDaTag).temBloqueio("direct_quote_without_citation"))
+        // Controle: `<` na prosa não é HTML cru.
+        assertFalse(
+            auditar("Sabe-se que 2 < 3 e \"esta e uma citacao direta suficientemente longa\" sem fonte.")
+                .temBloqueio("raw_html_in_final_text"),
+        )
     }
 
     @Test

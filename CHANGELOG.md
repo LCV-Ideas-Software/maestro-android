@@ -82,28 +82,21 @@ All material changes to Maestro Android are recorded here.
     code point, so a letter outside the basic plane does not pass for
     punctuation); a value whose letters the fold drops, such as a Greek
     name, is compared by its canonical key instead, and the four-letter
-    minimum of the first author is measured in that same representation;
-  - the raw HTML in the Markdown final text is masked before quotes are
-    searched, so markup is neither taken for a quotation nor paired with the
-    quotes of the prose around it. `commonmark-java` (0.30.0, BSD-2-Clause)
-    recognises it by section 6.6 of the CommonMark specification, which the
-    operator chose on 24/09/2026 over a hand-written recogniser. Inline raw
-    HTML is read with the HTML block type off, so prose inside a `<div>` is
-    still checked; the HTML blocks whose content the browser hides (section
-    4.6: `<script>` and `<style>`, comment, processing instruction,
-    declaration and CDATA), which may span a blank line, are masked from
-    their start through the point where the browser ends them, per the HTML
-    Standard tokenizer (a `</script>`/`</style>` end tag even with
-    whitespace before `>`; `-->` or `--!>`; a processing instruction,
-    declaration or CDATA up to the first `>`, where the browser ends a
-    bogus comment), and never past the point where CommonMark ends them:
-    when the two disagree, the text is checked. What follows the terminator
-    is shown by the browser and stays checked; `<pre>` and `<textarea>` show
-    their content to the reader and stay checked.
-    The canonical skipped a straight quote after any `<` with
-    no `>` after it, or right after an `=`: prose such as `2 < 3 e "..."` hid
-    an uncited direct quotation, and the quote closing one attribute could
-    pair with the one opening the next;
+    minimum of the first author is measured in that same representation,
+    counting letters and digits only;
+  - raw HTML in the Markdown final text blocks the release
+    (`raw_html_in_final_text`; operator's decision of 25/09/2026). The final
+    text is Markdown with no HTML: any tag, comment, processing instruction,
+    declaration or CDATA, inline or block, that the CommonMark specification
+    recognises as raw HTML (sections 4.6 and 6.6, read by `commonmark-java`
+    0.30.0, BSD-2-Clause — the operator's choice of 24/09/2026 over a
+    hand-written recogniser) is refused, pointing at the snippet. A `<` in
+    prose (`2 < 3`), an autolink and code are not raw HTML. Nothing is
+    masked: quotes are searched in the text as it is. The canonical
+    tolerated HTML and skipped a straight quote after any `<` with no `>`
+    after it, or right after an `=`: prose such as `2 < 3 e "..."` hid an
+    uncited direct quotation, and the quote closing one attribute could pair
+    with the one opening the next;
   - the IPv6 site-local range (`fec0::/10`) is blocked, the IPv4 address
     inside the well-known NAT64 prefix (`64:ff9b::/96`) and 6to4
     (`2002::/16`) is judged as IPv4, and the local-use NAT64 prefix
@@ -132,7 +125,7 @@ All material changes to Maestro Android are recorded here.
   serial-turn cases. 90 tests in the new files, plus 9 in
   `ProtocoloNoAparelhoTest`, which runs on the `:core:seguranca` emulator in CI
   to prove the regular expressions and the UTF-8 decoder on Android rather
-  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 46 mutations,
+  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 36 mutations,
   the last one written per rule) were all caught, with a green control run
   before and after.
 
