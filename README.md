@@ -86,7 +86,11 @@ shares; section 2.2 of the specification lists them. Raw HTML inside the
 Markdown final text blocks the release (operator's decision of 25/09/2026);
 `commonmark-java` tells it from prose, following the CommonMark specification,
 not a scanner of our own (operator's decision of 24/09/2026; recorded in
-[`THIRDPARTY.md`](THIRDPARTY.md)). What needs
+[`THIRDPARTY.md`](THIRDPARTY.md)). The application is a product for the
+public, not a copy of the operator's internal apps: it reaches users through
+two channels, the Play Store (R$ 10.00 initially, a convenience fee that may
+change) and, free of charge, the GitHub Releases of this repository
+(operator's decision of 25/09/2026, Discussion #62). What needs
 the network or the device reaches the module through interfaces: URL parsing,
 name resolution, fetching and search belong to `:core:provedores`, and the link
 review records to `:core:sessao`. Its regular expressions use explicit

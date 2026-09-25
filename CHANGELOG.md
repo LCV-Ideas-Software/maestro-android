@@ -81,8 +81,9 @@ All material changes to Maestro Android are recorded here.
     author key passed as present. One rule covers every comparison: a value
     with no letter or digit is never present (letters and digits counted by
     code point, so a letter outside the basic plane does not pass for
-    punctuation); a value whose letters the fold drops, such as a Greek
-    name, is compared by its canonical key instead, and the four-letter
+    punctuation); a value of which the fold drops any letter or digit — a
+    Greek name, even mixed with ASCII (`Ωμέγα, 2020` folds to `2020`) — is
+    compared by its canonical key instead, and the four-letter
     minimum of the first author is measured in that same representation,
     counting letters and digits only;
   - raw HTML in the Markdown final text blocks the release
@@ -126,7 +127,7 @@ All material changes to Maestro Android are recorded here.
   serial-turn cases. 90 tests in the new files, plus 9 in
   `ProtocoloNoAparelhoTest`, which runs on the `:core:seguranca` emulator in CI
   to prove the regular expressions and the UTF-8 decoder on Android rather
-  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 40 mutations,
+  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 42 mutations,
   the last one written per rule) were all caught, with a green control run
   before and after.
 

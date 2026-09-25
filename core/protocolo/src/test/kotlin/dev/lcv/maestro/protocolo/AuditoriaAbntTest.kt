@@ -217,6 +217,19 @@ class AuditoriaAbntTest {
         val semCitacao = "Texto sem a citacao.\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026."
         // Citação do manifesto ausente do texto, com `original_text` ".".
         assertTrue(auditar(semCitacao, "protocol-sha256", comOriginal(".")).temBloqueio("manifest_citation_absent_from_text"))
+        // Misturado com ASCII, o dobrado guardava só a parte ASCII: a citação
+        // `(Ωμέγα, 2020)` dobrava para `2020`, e a bibliografia com esse ano
+        // a dava por presente. Só a chave canônica vale quando o dobramento
+        // descarta alguma letra.
+        val referencia2020 = "\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2020."
+        assertTrue(
+            auditar("Texto sem citacao.$referencia2020", "protocol-sha256", comOriginal("(Ωμέγα, 2020)"))
+                .temBloqueio("manifest_citation_absent_from_text"),
+        )
+        assertFalse(
+            auditar("Texto (Ωμέγα, 2020).$referencia2020", "protocol-sha256", comOriginal("(Ωμέγα, 2020)"))
+                .temBloqueio("manifest_citation_absent_from_text"),
+        )
         // Aspa seguida só de "." não fica ligada à citação de texto ".".
         val aspa = "“Trecho direto com mais de quatro palavras”.\n\n## Referencias\n" +
             "SILVA, Maria. Obra. Sao Paulo: Editora, 2026."
@@ -315,6 +328,26 @@ class AuditoriaAbntTest {
         )) {
             assertTrue(outro.temBloqueio(codigo), codigo)
         }
+        // Misturado com ASCII, o dobrado guarda só a parte ASCII: `Ωμέγα Bo` e
+        // `Άλφα Bo` dobram os dois para `bo`, e não são o mesmo autor.
+        val misto = "Texto (Ωμέγα Bo, 2026, p. 12).\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026."
+        fun comChaveMista(chave: String) = manifestoVerificado().let { base ->
+            base.copy(
+                citacoes = listOf(
+                    base.citacoes[0].copy(
+                        autorExibido = "Ωμέγα Bo, Α.",
+                        chaveDoAutor = chave,
+                        textoOriginal = "(Ωμέγα Bo, 2026, p. 12)",
+                    ),
+                ),
+                fontes = listOf(base.fontes[0].copy(autores = listOf(AutorDaFonte("Ωμέγα Bo, Α.", chave)))),
+            )
+        }
+        assertTrue(auditar(misto, "protocol-sha256", comChaveMista("ΑΛΦΑ BO")).temBloqueio("body_citation_not_in_manifest"))
+        assertFalse(
+            auditar(misto, "protocol-sha256", comChaveMista(AuditoriaAbnt.chaveCanonica("Ωμέγα Bo")))
+                .temBloqueio("body_citation_not_in_manifest"),
+        )
         // Controle: com a chave do próprio autor, as três conferências passam.
         val proprio = auditar(texto, "protocol-sha256", comChave(AuditoriaAbnt.chaveCanonica("Ωμέγα")))
         for (codigo in listOf(
