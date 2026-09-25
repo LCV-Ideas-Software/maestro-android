@@ -309,6 +309,21 @@ class IntegridadeDeLinksTest {
             val erro = assertFailsWith<IntegridadeDeLinks.Falha>(caso.toString()) { aceitar(linha, registro) }
             assertEquals("cannot accept a link that did not pass mechanical validation", erro.message, caso.toString())
         }
+        // A evidência que não terminou vai para quarentena antes de o código
+        // HTTP guardado nela ser lido: vencida com 404 é bloqueada, e não
+        // "não encontrada".
+        val finais = setOf(EstadoDaEvidencia.PRONTA, EstadoDaEvidencia.BLOQUEADA, EstadoDaEvidencia.FALHOU)
+        for (estado in EstadoDaEvidencia.entries.filter { it !in finais }) {
+            val linha = auditarCom(evidencia(url, status = 404, estado = estado))
+            assertEquals(ClassificacaoDoLink.EM_QUARENTENA, linha.classificacao, estado.toString())
+            assertEquals("blocked", linha.tom, estado.toString())
+        }
+        // Controle: nos estados finais, o código HTTP segue a ordem do canônico.
+        assertEquals(ClassificacaoDoLink.NAO_ENCONTRADO, auditarCom(evidencia(url, status = 404)).classificacao)
+        assertEquals(
+            ClassificacaoDoLink.PROIBIDO,
+            auditarCom(evidencia(url, status = 403, estado = EstadoDaEvidencia.BLOQUEADA)).classificacao,
+        )
         // Controle: interação que uma pessoa resolveu é aceita.
         val resolvida = RegistroEmMemoria()
         val linha = auditarCom(evidencia(url, interacao = EstadoDeInteracao.RESOLVIDA_POR_PESSOA), resolvida)

@@ -323,6 +323,15 @@ public object IntegridadeDeLinks {
             EstadoDeInteracao.PAYWALL -> return ClassificacaoDoLink.PAYWALL
             else -> Unit
         }
+        // Divergência do canônico, corrigindo uma falha dele: lá qualquer
+        // outro estado caía em "passou". Evidência na fila, em coleta, vencida
+        // ou à espera do operador, e interação de consentimento ou de
+        // confirmação de download, não provam nada, e o código HTTP guardado
+        // nelas é de uma coleta que não vale. Vão para quarentena antes de o
+        // código ser lido. Os estados finais seguem a ordem do canônico.
+        if (registro.estado !in ESTADOS_FINAIS || registro.estadoDeInteracao !in INTERACOES_CONCLUIDAS) {
+            return ClassificacaoDoLink.EM_QUARENTENA
+        }
         val status = registro.status
         return when {
             status == 401 -> ClassificacaoDoLink.EXIGE_AUTENTICACAO
@@ -339,19 +348,18 @@ public object IntegridadeDeLinks {
                     else -> ClassificacaoDoLink.SUSPEITA_DE_ALUCINACAO
                 }
             }
-            // Divergência do canônico, corrigindo uma falha dele: lá qualquer
-            // outro estado caía em "passou". Evidência na fila, em coleta,
-            // vencida ou à espera do operador, e interação de consentimento ou
-            // de confirmação de download, não provam nada. Só passa evidência
-            // pronta, sem interação pendente.
-            registro.estado != EstadoDaEvidencia.PRONTA ||
-                registro.estadoDeInteracao !in INTERACOES_CONCLUIDAS -> ClassificacaoDoLink.EM_QUARENTENA
             else -> null
         }
     }
 
     /** As interações que não deixam nada pendente entre a coleta e o conteúdo. */
     private val INTERACOES_CONCLUIDAS = setOf(EstadoDeInteracao.NENHUMA, EstadoDeInteracao.RESOLVIDA_POR_PESSOA)
+
+    /**
+     * Os estados em que a coleta terminou: pronta, bloqueada ou falhou. Só
+     * neles o código HTTP guardado é o da coleta que vale.
+     */
+    private val ESTADOS_FINAIS = setOf(EstadoDaEvidencia.PRONTA, EstadoDaEvidencia.BLOQUEADA, EstadoDaEvidencia.FALHOU)
 
     /** `apply_web_evidence`. */
     internal fun aplicarEvidencia(

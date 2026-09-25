@@ -173,7 +173,8 @@ no Rust em `68528f9`:
   bloqueada, servida com 200, podia ser aceita como suporte. Só passa evidência
   pronta e sem interação pendente. Na fila, em coleta, vencida ou à espera do
   operador, ou com pedido de consentimento ou de confirmação de download, ela
-  vai para quarentena e conta como bloqueada.
+  vai para quarentena e conta como bloqueada, qualquer que seja o código HTTP
+  guardado nela de uma coleta anterior.
   Cada linha guarda a classificação mecânica à parte da que a revisão escreve
   (`mechanical_classification`), e um aceite anterior só é preservado enquanto
   a verificação nova ainda passar;

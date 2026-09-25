@@ -62,7 +62,8 @@ All material changes to Maestro Android are recorded here.
     blocked evidence, served with 200 could be accepted as support. Only
     evidence that is ready, with no interaction pending, passes; queued,
     collecting, stale or operator-pending evidence, and consent or download
-    prompts, are quarantined and counted as blocked. Each row keeps its
+    prompts, are quarantined and counted as blocked, whatever HTTP status they
+    still carry from an earlier fetch. Each row keeps its
     mechanical classification (`mechanical_classification`) apart from the
     one the review sets, and an
     earlier acceptance is preserved only while the new check still passes;
@@ -107,7 +108,7 @@ All material changes to Maestro Android are recorded here.
   serial-turn cases. 89 tests in the new files, plus 9 in
   `ProtocoloNoAparelhoTest`, which runs on the `:core:seguranca` emulator in CI
   to prove the regular expressions and the UTF-8 decoder on Android rather
-  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 29 mutations)
+  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 31 mutations)
   were all caught, with a green control run before and after.
 
 - Add `:core:seguranca`, the Android library that keeps each provider's API key
