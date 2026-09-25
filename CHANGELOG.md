@@ -92,10 +92,14 @@ All material changes to Maestro Android are recorded here.
     still checked; the HTML blocks whose content the browser hides (section
     4.6: `<script>` and `<style>`, comment, processing instruction,
     declaration and CDATA), which may span a blank line, are masked from
-    their start through the terminator the specification defines for the
-    type; what follows the terminator on that line is shown by the browser
-    and stays checked; `<pre>` and `<textarea>` show their content to the
-    reader and stay checked.
+    their start through the point where the browser ends them, per the HTML
+    Standard tokenizer (a `</script>`/`</style>` end tag even with
+    whitespace before `>`; `-->` or `--!>`; a processing instruction,
+    declaration or CDATA up to the first `>`, where the browser ends a
+    bogus comment), and never past the point where CommonMark ends them:
+    when the two disagree, the text is checked. What follows the terminator
+    is shown by the browser and stays checked; `<pre>` and `<textarea>` show
+    their content to the reader and stay checked.
     The canonical skipped a straight quote after any `<` with
     no `>` after it, or right after an `=`: prose such as `2 < 3 e "..."` hid
     an uncited direct quotation, and the quote closing one attribute could
@@ -128,7 +132,7 @@ All material changes to Maestro Android are recorded here.
   serial-turn cases. 90 tests in the new files, plus 9 in
   `ProtocoloNoAparelhoTest`, which runs on the `:core:seguranca` emulator in CI
   to prove the regular expressions and the UTF-8 decoder on Android rather
-  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 42 mutations,
+  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 46 mutations,
   the last one written per rule) were all caught, with a green control run
   before and after.
 

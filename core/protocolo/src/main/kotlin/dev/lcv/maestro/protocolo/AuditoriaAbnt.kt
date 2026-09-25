@@ -519,14 +519,18 @@ public object AuditoriaAbnt {
      *    tag vira um `HtmlInline` exato, e a prosa continua conferida.
      * 2. Blocos HTML cujo conteúdo o navegador esconde (seção 4.6: `<script>`
      *    e `<style>` do tipo 1, e comentário, instrução, declaração e CDATA,
-     *    tipos 2 a 5), que podem atravessar linha em branco. O bloco é
-     *    mascarado do início até o fechamento que a especificação define
-     *    para o tipo dele (a condição de fim); o que vem depois do fechamento
-     *    na mesma linha o navegador mostra, e continua conferido. Sem
-     *    fechamento, o bloco vai até o fim do texto, e o navegador também
-     *    esconde tudo. `<pre>` e `<textarea>`, também do tipo 1, mostram o
-     *    conteúdo ao leitor, e os blocos de elemento (tipos 6 e 7) também:
-     *    ficam para o passe 1, que já conferiu a prosa deles.
+     *    tipos 2 a 5), que podem atravessar linha em branco. `<pre>` e
+     *    `<textarea>`, também do tipo 1, mostram o conteúdo ao leitor, e os
+     *    blocos de elemento (tipos 6 e 7) também: ficam para o passe 1, que
+     *    já conferiu a prosa deles.
+     *
+     * Nos dois passes, a marcação que esconde texto é mascarada do início até
+     * onde o navegador a termina ([marcacaoEscondida]), e nunca além de onde
+     * a especificação CommonMark a termina, porque dali em diante o texto já
+     * é parágrafo conferido. Quando as duas discordam — o CommonMark fecha um
+     * `<script>` em `</style>`, o navegador não — fica o lado fechado: o
+     * texto é conferido. Sem fechamento, a marcação vai até onde o CommonMark
+     * a leva, escondida.
      *
      * Divergência do canônico, corrigindo uma falha dele: lá a aspa reta era
      * pulada depois de qualquer `<` sem `>` adiante, ou logo depois de um `=`.
@@ -543,48 +547,71 @@ public object AuditoriaAbnt {
             for (trecho in trechos) mascarar(trecho.inputIndex, trecho.inputIndex + trecho.length)
         }
         fun linha(trecho: SourceSpan) = texto.substring(trecho.inputIndex, trecho.inputIndex + trecho.length)
+
+        /**
+         * Mascara uma marcação a partir dos seus trechos de origem, um por
+         * linha: uma tag, inteira; uma marcação que esconde texto, do início
+         * até onde o navegador a termina. Com [soEscondidas], a tag é deixada
+         * em paz.
+         */
+        fun mascararMarcacao(trechos: List<SourceSpan>, soEscondidas: Boolean) {
+            if (trechos.isEmpty()) return
+            val (fechamento, desde) = marcacaoEscondida(linha(trechos.first()))
+                ?: return if (soEscondidas) Unit else mascarar(trechos)
+            var busca = desde
+            for (trecho in trechos) {
+                val fim = fechamento.find(linha(trecho), busca)
+                if (fim != null) {
+                    mascarar(trecho.inputIndex, trecho.inputIndex + fim.range.last + 1)
+                    return
+                }
+                mascarar(listOf(trecho))
+                busca = 0
+            }
+        }
         MARKDOWN_SEM_BLOCO_HTML.parse(texto).accept(
             object : AbstractVisitor() {
-                override fun visit(htmlInline: HtmlInline) = mascarar(htmlInline.sourceSpans)
+                override fun visit(htmlInline: HtmlInline) = mascararMarcacao(htmlInline.sourceSpans, soEscondidas = false)
             },
         )
         MARKDOWN.parse(texto).accept(
             object : AbstractVisitor() {
-                override fun visit(htmlBlock: HtmlBlock) {
-                    val trechos = htmlBlock.sourceSpans
-                    if (trechos.isEmpty()) return
-                    val fechamento = BLOCOS_ESCONDIDOS.firstOrNull { it.first.containsMatchIn(linha(trechos.first())) }
-                        ?.second ?: return
-                    mascarar(trechos.dropLast(1))
-                    // Só a última linha pode conter o fechamento: é a condição
-                    // de fim do bloco. Sem ele, o bloco foi até o fim do texto.
-                    val ultima = trechos.last()
-                    val fim = fechamento.find(linha(ultima))?.let { it.range.last + 1 } ?: ultima.length
-                    mascarar(ultima.inputIndex, ultima.inputIndex + fim)
-                }
+                override fun visit(htmlBlock: HtmlBlock) = mascararMarcacao(htmlBlock.sourceSpans, soEscondidas = true)
             },
         )
         return mascarado.toString()
     }
 
     /**
-     * Os blocos HTML cujo conteúdo o navegador esconde (CommonMark 0.31.2,
-     * seção 4.6), cada um com a condição de início e a de fim da
-     * especificação: `<script` ou `<style` seguidos de espaço, tabulação, `>`
-     * ou fim de linha (tipo 1, sem `<pre` e `<textarea`, cujo conteúdo é
-     * visível), até uma tag de fim de tipo 1; `<!--` até `-->`; `<?` até
-     * `?>`; `<!` e letra até `>`; `<![CDATA[` até `]]>`. A indentação de até
-     * três espaços, que a especificação admite, já vem fora do trecho de
-     * origem que a commonmark-java dá ao bloco.
+     * A marcação que esconde texto do leitor, aberta no começo de [texto]:
+     * a expressão do fechamento que o navegador reconhece, e a posição a
+     * partir da qual procurá-lo. Null se é uma tag, que esconde só a si
+     * mesma. O fechamento é o do tokenizador do HTML Standard (seção 13.2.5),
+     * que é o que o leitor vê, e não o da especificação CommonMark:
+     *
+     * - `<script` ou `<style` no começo de um bloco de tipo 1 (sem `<pre` e
+     *   `<textarea`, cujo conteúdo é visível): a tag de fim do mesmo nome,
+     *   `</script` seguido de espaço, tabulação, quebra, `/` ou `>`;
+     * - `<!--`: `-->` ou `--!>`, inclusive os fechamentos abruptos `<!-->` e
+     *   `<!--->`;
+     * - `<?`, `<!` e letra, `<![CDATA[`: o navegador lê os três como
+     *   comentário "bogus" (ou DOCTYPE), que termina no primeiro `>`, mesmo
+     *   entre aspas.
+     *
+     * A indentação de até três espaços, que a especificação admite, já vem
+     * fora do trecho de origem que a commonmark-java dá ao bloco.
      */
-    private val BLOCOS_ESCONDIDOS: List<Pair<Regex, Regex>> = listOf(
-        Regex("^<(?:script|style)(?:[ \\t>]|$)", RegexOption.IGNORE_CASE) to
-            Regex("</(?:pre|script|style|textarea)>", RegexOption.IGNORE_CASE),
-        Regex("^<!--") to Regex("-->"),
-        Regex("^<\\?") to Regex("\\?>"),
-        Regex("^<![A-Za-z]") to Regex(">"),
-        Regex("^<!\\[CDATA\\[") to Regex("]]>"),
-    )
+    private fun marcacaoEscondida(texto: String): Pair<Regex, Int>? = when {
+        texto.startsWith("<!--") -> FIM_DE_COMENTARIO to 2
+        texto.startsWith("<?") || texto.startsWith("<!") -> FIM_DE_COMENTARIO_BOGUS to 2
+        else -> INICIO_DE_SCRIPT_OU_STYLE.find(texto)?.let { inicio ->
+            Regex("</${inicio.groupValues[1]}[\\t\\n\\f\\r />]", RegexOption.IGNORE_CASE) to inicio.range.last + 1
+        }
+    }
+
+    private val INICIO_DE_SCRIPT_OU_STYLE = Regex("^<(script|style)(?:[ \\t>]|$)", RegexOption.IGNORE_CASE)
+    private val FIM_DE_COMENTARIO = Regex("--!?>")
+    private val FIM_DE_COMENTARIO_BOGUS = Regex(">")
 
     /**
      * O parser da especificação inteira, com a posição de origem de cada

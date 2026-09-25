@@ -210,10 +210,14 @@ no Rust em `68528f9`:
   bloco HTML desligado, para que a prosa dentro de um `<div>` continue
   conferida; os blocos HTML cujo conteúdo o navegador esconde (seção 4.6:
   `<script>` e `<style>`, comentário, instrução, declaração e CDATA), que
-  podem atravessar linha em branco, são mascarados do início até o
-  fechamento que a especificação define para o tipo — o que vem depois do
-  fechamento na mesma linha o navegador mostra, e continua conferido; `<pre>`
-  e `<textarea>` mostram o conteúdo ao leitor e continuam conferidos.
+  podem atravessar linha em branco, são mascarados do início até onde o
+  navegador os termina, pelo tokenizador do HTML Standard (tag de fim de
+  `<script>`/`<style>` mesmo com espaço antes do `>`; `-->` ou `--!>`;
+  instrução, declaração e CDATA até o primeiro `>`, que é onde o navegador
+  fecha um comentário "bogus"), e nunca além de onde o CommonMark os
+  termina — quando os dois discordam, o texto é conferido; o que vem depois
+  do fechamento o navegador mostra, e continua conferido; `<pre>` e
+  `<textarea>` mostram o conteúdo ao leitor e continuam conferidos.
   Marcação não vira citação nem
   pareia com as aspas da prosa em volta. O Rust
   pulava a aspa reta depois de qualquer `<` sem `>` adiante, ou logo depois de

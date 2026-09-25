@@ -363,9 +363,8 @@ class AuditoriaAbntTest {
             "Texto <!-- $citacao --> fim.",
             "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"x\">\nTexto.",
             "<?xml version=\"1.0\" encoding=\"um texto com quatro palavras\"?>\nTexto.",
-            // A instrução só termina em `?>`, com `<` e `>` livres dentro.
-            "<?alvo dado=\"x>y\" titulo=$citacao?>\nTexto.",
-            "<?alvo dado=\"<no>\" titulo=$citacao?>\nTexto.",
+            // `<` dentro da instrução não a fecha.
+            "<?alvo dado=\"<no\" titulo=$citacao?>\nTexto.",
             // `<` entre aspas não impede a tag nem a declaração.
             "Veja <a title=\"a<b\" data-x=$citacao>isto</a>.",
             "<!DOCTYPE x SYSTEM \"a<b\" $citacao>\nTexto.",
@@ -377,14 +376,19 @@ class AuditoriaAbntTest {
             // Blocos cujo conteúdo o navegador esconde (CommonMark 4.6:
             // `<script>` e `<style>`, comentário, instrução, declaração e
             // CDATA), que podem atravessar linha em branco: mascarados do
-            // início até o fechamento do tipo e, sem fechamento, até o fim do
-            // texto.
+            // início até onde o navegador os termina e, sem fechamento, até
+            // onde o CommonMark os leva.
             "Texto.\n\n<!--\n$citacao\n\n-->\n\nFim.",
             "Texto.\n\n<?alvo\n$citacao\n\n?>\n\nFim.",
             "Texto.\n\n<!-- $citacao --> fim.",
             "Texto.\n\n<!--\n$citacao\n\nsem fechamento.",
             "Texto.\n\n<script>\nvar x = $citacao;\n\nsem fechamento.",
             "Texto.\n\n<!--\n c\n\n$citacao na ultima linha, sem fechamento",
+            // `--!>` fecha o comentário no navegador antes do `-->` que o
+            // CommonMark exige; a aspa antes dele fica escondida.
+            "Texto <!-- $citacao --!> x -->.",
+            "Texto.\n\n<!-- $citacao --!> x -->\n\nFim.",
+            "Texto.\n\n<SCRIPT>\nvar x = $citacao;\n</Script >\n\nFim.",
             "Texto.\n\n<script>\nvar x = $citacao;\n</script>\n\nFim.",
             "Texto.\n\n<style>\n.a::before { content: $citacao; }\n</style>\n\nFim.",
             "Texto.\n\n   <![CDATA[\n$citacao\n]]>\n\nFim.",
@@ -411,6 +415,19 @@ class AuditoriaAbntTest {
             // linha, o navegador mostra: a especificação põe a linha inteira
             // no bloco, mas o leitor vê a aspa.
             "Texto.\n\n<script>x</script> $citacao sem fonte.",
+            // O fechamento é o do navegador, não o do CommonMark: a tag de fim
+            // com espaço antes do `>`, `--!>`, o comentário abrupto `<!-->`, e
+            // instrução, declaração e CDATA lidos como comentário "bogus", que
+            // termina no primeiro `>`, mesmo entre aspas.
+            "Texto.\n\n<script>x</script > $citacao sem fonte.",
+            "Texto.\n\n<style>x</style\t> $citacao sem fonte.",
+            "Texto.\n\n<!-- c --!> $citacao sem fonte.",
+            "Texto.\n\n<!--> $citacao sem fonte.",
+            "Texto <!-- a --!> $citacao sem fonte -->.",
+            "Texto <?alvo dado=\"x>y\" titulo=$citacao?> fim.",
+            "<?alvo dado=\"x>y\" titulo=$citacao?>\nTexto.",
+            "Texto.\n\n<![CDATA[ x > $citacao ]]>",
+            "Texto <!DOCTYPE x SYSTEM \"a>b\" $citacao> fim.",
             "Texto.\n\n<!-- c --> $citacao sem fonte.",
             "Texto.\n\n<!--\n c\n\n--> $citacao sem fonte.",
             "Texto.\n\n<?alvo?> $citacao sem fonte.",
