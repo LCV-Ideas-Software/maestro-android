@@ -16,8 +16,9 @@ import kotlin.test.assertTrue
  * O motor de integridade de links e a defesa de rede. Os sete testes de
  * `link_integrity.rs` (linhas 976–1068) e as faixas de IP do teste
  * `link_audit_blocks_local_and_private_targets` (`lib.rs`, 1341) estão aqui;
- * os que dependem do parser de URL real e da sondagem ficam com eles, no
- * `:core:provedores`. As regras aqui correm com dublês.
+ * os que dependem do parser de URL real e da coleta ficam com eles, no
+ * `:core:provedores` (`IntegridadeComRedeTest`). As regras aqui correm com
+ * dublês.
  */
 class IntegridadeDeLinksTest {
 

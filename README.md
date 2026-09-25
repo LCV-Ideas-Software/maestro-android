@@ -107,6 +107,24 @@ that honours `Retry-After`. The module reads the API key through an interface
 and never touches the Android Keystore; that implementation is
 `:core:seguranca`.
 
+The same module holds the network side of the link audit (MAEANDR-18, second
+of two pull requests), implementing the interfaces of `:core:protocolo` with
+official components, by the operator's decisions of 25/09/2026: URLs are
+parsed by OkHttp's `HttpUrl`; every name is resolved through Google Public
+DNS over HTTPS (`okhttp-dnsoverhttps`, `dns.google`), with no fallback to the
+network's own DNS, and every answer is checked against the blocked ranges
+before any connection; `robots.txt` is read by crawler-commons, the reference
+parser for RFC 9309; only `https://` links are collected. The fetch itself
+follows the desktop: a fresh guarded client without proxy, cookies or
+automatic redirects, five hops at most, each validated again, an 8 MiB body
+cap, and the same interaction classification. Evidence search uses the
+Crossref and OpenAlex APIs without keys. The app may carry an optional
+contact e-mail, the user's own, that goes only to Crossref, as its
+documentation asks; nothing from LCV Ideas & Software identifies the user in
+any request. Section 5.4 of the specification records the decisions and the
+two places where the RFC 9309 parser reads a `robots.txt` differently from
+the desktop.
+
 The third module, `:core:seguranca`, is an Android library that keeps each
 provider's API key on this device only. The key is encrypted with AES-256-GCM
 by a key generated inside the Android Keystore, which cannot be exported:
@@ -133,7 +151,9 @@ target. It is not loaded by Pages or any runtime and does not represent Kotlin
 coverage. Kotlin is covered by CodeQL code scanning: since 24/09/2026 the
 Default setup analyzes `java-kotlin`, built with autobuild, on CodeQL 2.27.1,
 the first version that supports the Kotlin 2.4.20 this project is pinned to
-(MAEANDR-16). Code Quality does not cover it: its rule-based analysis supports
+(MAEANDR-16; [official
+changelog](https://github.blog/changelog/2026-09-25-codeql-2-27-1-adds-c-and-c-query-and-kotlin-2-4-20-support/)).
+Code Quality does not cover it: its rule-based analysis supports
 C#, Go, Java, JavaScript, Python, Ruby and TypeScript, and its `none` build mode
 cannot extract Kotlin. So the placeholder is still the only source Code Quality
 analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).

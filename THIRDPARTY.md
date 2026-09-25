@@ -91,15 +91,43 @@ not carry them today.
 | `com.squareup.okhttp3:okhttp` (`okhttp-jvm`) | 5.5.0 | [Apache-2.0](https://github.com/square/okhttp/blob/parent-5.5.0/LICENSE.txt) | HTTP transport to the six AI providers |
 | Public Suffix List, bundled inside `okhttp-jvm` | bundled | [MPL-2.0](https://publicsuffix.org/list/), © Mozilla Foundation and contributors | `okhttp3/internal/publicsuffix/PublicSuffixDatabase.list`, used by OkHttp for cookie domains; not a separate artifact |
 | `com.squareup.okhttp3:okhttp-coroutines` | 5.5.0 | [Apache-2.0](https://github.com/square/okhttp/blob/parent-5.5.0/LICENSE.txt) | OkHttp's official coroutine bridge: cancelling the coroutine cancels the call |
+| `com.squareup.okhttp3:okhttp-dnsoverhttps` | 5.5.0 | [Apache-2.0](https://github.com/square/okhttp/blob/parent-5.5.0/LICENSE.txt) | OkHttp's official DNS-over-HTTPS resolver. Every name the link audit resolves goes to Google Public DNS (`dns.google`) over HTTPS, and every answer is checked against the blocked ranges before any connection (operator's decision of 25/09/2026) |
+| `com.github.crawler-commons:crawler-commons` | 1.6 | [Apache-2.0](https://github.com/crawler-commons/crawler-commons/blob/crawler-commons-1.6/LICENSE) | The reference `robots.txt` parser for RFC 9309 (`SimpleRobotRulesParser`), used by the link audit in place of a parser of our own (operator's decision of 25/09/2026) |
+| `commons-io:commons-io` | 2.21.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of `crawler-commons`; its jar carries the `META-INF/NOTICE.txt` reproduced below |
+| `org.slf4j:slf4j-api` | 2.0.17 | [MIT](https://www.slf4j.org/license.html), © 2004-2022 QOS.ch Sarl (Switzerland) | Transitive of `crawler-commons`, which logs through it |
+| `org.slf4j:slf4j-nop` | 2.0.17 | [MIT](https://www.slf4j.org/license.html), © 2004-2022 QOS.ch Sarl (Switzerland) | The official no-operation binding, on the runtime and test runtime classpaths, so SLF4J neither logs nor warns on stderr |
 | `com.squareup.okio:okio` (`okio-jvm`) | 3.18.1 | [Apache-2.0](https://github.com/square/okio/blob/parent-3.18.1/LICENSE.txt) | Transitive of OkHttp |
 | `org.jetbrains.kotlinx:kotlinx-coroutines-core` (`-jvm`) | 1.11.0 | [Apache-2.0](https://github.com/Kotlin/kotlinx.coroutines/blob/1.11.0/LICENSE.txt) | Suspending provider calls and cancellable waits |
 | `org.jetbrains.kotlin:kotlin-stdlib` | 2.4.20 | [Apache-2.0](https://github.com/JetBrains/kotlin/blob/v2.4.20/license/LICENSE.txt) | The Kotlin standard library, needed by every Kotlin module, `:core:protocolo` included; it was missing from this inventory |
 
 The module also uses `jackson-databind`, recorded above, to build the request
-bodies and read the responses. Measured contribution to the runtime classpath:
-939 KB (`okhttp-jvm`), 7 KB (`okhttp-coroutines`), 383 KB (`okio-jvm`),
-1 540 KB (`kotlinx-coroutines-core-jvm`) and 1 810 KB (`kotlin-stdlib`),
-before shrinking.
+bodies and read the responses, and since the link audit's network side it
+depends on `:core:protocolo` as `api`, so any binary that includes it also
+carries `commonmark`, recorded above. Measured contribution to the runtime
+classpath: 939 KB (`okhttp-jvm`), 7 KB (`okhttp-coroutines`), 22 KB
+(`okhttp-dnsoverhttps`), 383 KB (`okio-jvm`), 240 KB (`crawler-commons`),
+585 KB (`commons-io`), 70 KB (`slf4j-api`), 5 KB (`slf4j-nop`), 1 540 KB
+(`kotlinx-coroutines-core-jvm`) and 1 810 KB (`kotlin-stdlib`), before
+shrinking.
+
+Notices the link audit's artifacts require, verified on 25/09/2026 by listing
+each jar and the upstream repository at its release tag. `crawler-commons`
+ships no `NOTICE` file, in the jar or in the repository at
+`crawler-commons-1.6`; its Apache-2.0 text is the row's link.
+`okhttp-dnsoverhttps` is covered by the OkHttp notice already required above.
+`commons-io` requires this notice to travel with any binary that includes it:
+
+```
+Apache Commons IO
+Copyright 2002-2025 The Apache Software Foundation
+
+This product includes software developed at
+The Apache Software Foundation (https://www.apache.org/).
+```
+
+`slf4j-api` and `slf4j-nop` are MIT: the copyright line in their rows and the
+permission notice from `META-INF/LICENSE.txt` in each jar must be kept with
+any binary that includes them.
 
 Retrofit is not used. Each provider is a single `POST` endpoint whose JSON body
 is built with Jackson, so Retrofit would only wrap the same OkHttp client; the
@@ -110,8 +138,8 @@ as OkHttp ships it, requires telling recipients where its source form is
 available, which the row's link does. The first APK that includes the module
 has to carry that notice along with the Apache-2.0 text.
 
-Test-only dependencies (`mockwebserver3`, `kotlinx-coroutines-test`, JUnit and
-`kotlin-test`) never reach a distributed binary and are not listed.
+Test-only dependencies (`mockwebserver3`, `okhttp-tls`, `kotlinx-coroutines-test`,
+JUnit and `kotlin-test`) never reach a distributed binary and are not listed.
 
 ### `:core:seguranca`
 
