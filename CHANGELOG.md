@@ -82,14 +82,17 @@ All material changes to Maestro Android are recorded here.
     quotes of the prose around it. `commonmark-java` (0.30.0, BSD-2-Clause)
     recognises it by section 6.6 of the CommonMark specification, which the
     operator chose on 24/09/2026 over a hand-written recogniser; the HTML
-    block type is turned off so that prose inside a `<div>` is still checked.
+    block type is turned off so that prose inside a `<div>` is still checked,
+    and a comment, processing instruction, declaration or CDATA block, which
+    may span a blank line, is masked up to its close in a second pass.
     The canonical skipped a straight quote after any `<` with
     no `>` after it, or right after an `=`: prose such as `2 < 3 e "..."` hid
     an uncited direct quotation, and the quote closing one attribute could
     pair with the one opening the next;
   - the IPv6 site-local range (`fec0::/10`) is blocked, and the IPv4 address
-    inside NAT64 (`64:ff9b::/96`) and 6to4 (`2002::/16`) is judged as IPv4.
-    The canonical let all three reach the user's local network;
+    inside NAT64 (`64:ff9b::/96`, and the local-use `64:ff9b:1::/48` read in
+    every RFC 6052 layout its bytes allow) and 6to4 (`2002::/16`) is judged as
+    IPv4. The canonical let all of them reach the user's local network;
   - a URL that sanitization would change (over 1,000 code points, or holding a
     secret pattern) is blocked. The canonical stored the sanitized URL and
     fetched it, so a review could approve evidence for a different target;
@@ -111,7 +114,7 @@ All material changes to Maestro Android are recorded here.
   serial-turn cases. 89 tests in the new files, plus 9 in
   `ProtocoloNoAparelhoTest`, which runs on the `:core:seguranca` emulator in CI
   to prove the regular expressions and the UTF-8 decoder on Android rather
-  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 33 mutations)
+  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 38 mutations)
   were all caught, with a green control run before and after.
 
 - Add `:core:seguranca`, the Android library that keeps each provider's API key

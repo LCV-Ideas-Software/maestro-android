@@ -498,6 +498,21 @@ class IntegridadeDeLinksTest {
         for (publico in listOf("64:ff9b::5db8:d822", "2002:5db8:d822::1", "fe00::1")) {
             assertFalse(RedePublica.ipBloqueado(ip(publico)), publico)
         }
+        // O prefixo NAT64 de uso local (RFC 8215), nos leiautes do RFC 6052:
+        // 192.168.1.1 em /48 e em /96, 10.0.0.1 em /64, e 0.0.0.0.
+        for (bloqueado in listOf(
+            "64:ff9b:1:c0a8:1:100::",
+            "64:ff9b:1::c0a8:101",
+            "64:ff9b:1:0:a:0:100:0",
+            "64:ff9b:1::",
+        )) {
+            assertTrue(RedePublica.ipBloqueado(ip(bloqueado)), bloqueado)
+        }
+        // Controle: 93.184.216.34 passa em /96 e em /48, cuja leitura /96 é
+        // 0.0.0.0.
+        for (publico in listOf("64:ff9b:1::5db8:d822", "64:ff9b:1:5db8:d8:2200::")) {
+            assertFalse(RedePublica.ipBloqueado(ip(publico)), publico)
+        }
     }
 
     @Test

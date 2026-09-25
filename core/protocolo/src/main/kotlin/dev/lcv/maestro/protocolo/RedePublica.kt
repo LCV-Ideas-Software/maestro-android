@@ -62,6 +62,18 @@ public object RedePublica {
         else -> true
     }
 
+    /**
+     * Os leiautes do RFC 6052 para prefixos de 48, 56, 64 e 96 bits: onde
+     * estão os quatro octetos do IPv4, e quais octetos têm de ser zero (o
+     * octeto `u`, 8, e o sufixo).
+     */
+    private val LEIAUTES_RFC_6052 = listOf(
+        listOf(6, 7, 9, 10) to listOf(8, 11, 12, 13, 14, 15),
+        listOf(7, 9, 10, 11) to listOf(8, 12, 13, 14, 15),
+        listOf(9, 10, 11, 12) to listOf(8, 13, 14, 15),
+        listOf(12, 13, 14, 15) to listOf(8),
+    )
+
     /** `is_blocked_link_audit_ipv4`. */
     private fun ipv4Bloqueado(o: List<Int>): Boolean =
         o[0] == 0 ||
@@ -95,6 +107,20 @@ public object RedePublica {
         // não pode ser recusado inteiro.
         if (segmentos[0] == 0x0064 && segmentos[1] == 0xFF9B && segmentos.slice(2..5).all { it == 0 }) {
             return ipv4Bloqueado(v4())
+        }
+        // RFC 8215: o prefixo de uso local, 64:ff9b:1::/48, admite qualquer
+        // comprimento de prefixo do RFC 6052, e cada comprimento põe o IPv4 num
+        // lugar. O endereço é lido em cada leiaute que as regras do RFC 6052
+        // permitem (octeto `u` e sufixo zerados) e bloqueado se alguma leitura
+        // der IPv4 bloqueado. A leitura toda zerada só vale quando nenhuma
+        // outra dá endereço: o /96 de um endereço em /48 lê sempre 0.0.0.0.
+        if (segmentos[0] == 0x0064 && segmentos[1] == 0xFF9B && segmentos[2] == 0x0001) {
+            val octeto = { indice: Int -> bytes[indice].toInt() and 0xFF }
+            val leituras = LEIAUTES_RFC_6052
+                .filter { (_, zeros) -> zeros.all { octeto(it) == 0 } }
+                .map { (posicoes, _) -> posicoes.map(octeto) }
+            val comEndereco = leituras.filter { v4 -> v4.any { it != 0 } }.ifEmpty { leituras }
+            if (comEndereco.isNotEmpty()) return comEndereco.any(::ipv4Bloqueado)
         }
         if (segmentos[0] == 0x2002) {
             return ipv4Bloqueado(listOf(bytes[2], bytes[3], bytes[4], bytes[5]).map { it.toInt() and 0xFF })

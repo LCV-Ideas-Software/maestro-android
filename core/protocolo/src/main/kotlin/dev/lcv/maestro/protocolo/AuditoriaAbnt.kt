@@ -8,6 +8,7 @@ import org.commonmark.node.AbstractVisitor
 import org.commonmark.node.BlockQuote
 import org.commonmark.node.FencedCodeBlock
 import org.commonmark.node.Heading
+import org.commonmark.node.HtmlBlock
 import org.commonmark.node.HtmlInline
 import org.commonmark.node.IndentedCodeBlock
 import org.commonmark.node.ListBlock
@@ -483,10 +484,15 @@ public object AuditoriaAbnt {
      * é a especificação dele. Decisão do operador de 24/09/2026: o
      * reconhecimento escrito à mão, que levou seis rodadas de revisão, saiu.
      *
-     * O bloco HTML fica desligado no parser. No CommonMark, uma linha que abre
-     * com `<div>` faz do bloco inteiro HTML cru, inclusive a prosa visível
-     * dentro dele; sem o bloco, essas linhas viram parágrafo, cada tag vira um
-     * `HtmlInline` exato, e o texto continua conferido.
+     * O bloco HTML fica desligado no primeiro passe. No CommonMark, uma linha
+     * que abre com `<div>` faz do bloco inteiro HTML cru, inclusive a prosa
+     * visível dentro dele; sem o bloco, essas linhas viram parágrafo, cada tag
+     * vira um `HtmlInline` exato, e o texto continua conferido. O segundo
+     * passe liga o bloco só para os que são pura marcação (tipos 2 a 5 da
+     * especificação: comentário, instrução, declaração e CDATA), que podem
+     * atravessar uma linha em branco; cada um é mascarado até o seu
+     * fechamento, e o resto da linha continua conferido. Sem fechamento, não é
+     * mascarado.
      *
      * Divergência do canônico, corrigindo uma falha dele: lá a aspa reta era
      * pulada depois de qualquer `<` sem `>` adiante, ou logo depois de um `=`.
@@ -507,8 +513,39 @@ public object AuditoriaAbnt {
                 }
             },
         )
+        MARKDOWN_COM_BLOCO_HTML.parse(texto).accept(
+            object : AbstractVisitor() {
+                override fun visit(htmlBlock: HtmlBlock) {
+                    val trechos = htmlBlock.sourceSpans
+                    if (trechos.isEmpty()) return
+                    var inicio = trechos.first().inputIndex
+                    while (inicio < texto.length && texto[inicio] == ' ') inicio++
+                    val fimDoBloco = trechos.last().inputIndex + trechos.last().length
+                    val fechamento = FECHAMENTOS_DE_MARCACAO.firstOrNull { (abertura, _) ->
+                        texto.startsWith(abertura, inicio) &&
+                            (abertura != "<!" || texto.getOrNull(inicio + 2)?.let { it in 'A'..'Z' || it in 'a'..'z' } == true)
+                    } ?: return
+                    val (abertura, final) = fechamento
+                    val fim = texto.indexOf(final, inicio + abertura.length)
+                    if (fim < 0 || fim + final.length > fimDoBloco) return
+                    for (indice in inicio until fim + final.length) mascarado.setCharAt(indice, ' ')
+                }
+            },
+        )
         return mascarado.toString()
     }
+
+    /**
+     * Os blocos HTML de pura marcação (tipos 2 a 5 da seção 4.6 do
+     * CommonMark), cada um com o seu fechamento. A ordem importa: `<!--` e
+     * `<![CDATA[` antes da declaração, que é `<!` seguido de letra.
+     */
+    private val FECHAMENTOS_DE_MARCACAO = listOf(
+        "<!--" to "-->",
+        "<![CDATA[" to "]]>",
+        "<?" to "?>",
+        "<!" to ">",
+    )
 
     /**
      * Todos os blocos do CommonMark menos o bloco HTML, e com a posição de
@@ -527,6 +564,11 @@ public object AuditoriaAbnt {
             ),
         )
         .includeSourceSpans(IncludeSourceSpans.BLOCKS_AND_INLINES)
+        .build()
+
+    /** O parser com todos os blocos, para achar os blocos HTML de pura marcação. */
+    private val MARKDOWN_COM_BLOCO_HTML: Parser = Parser.builder()
+        .includeSourceSpans(IncludeSourceSpans.BLOCKS)
         .build()
 
     /**

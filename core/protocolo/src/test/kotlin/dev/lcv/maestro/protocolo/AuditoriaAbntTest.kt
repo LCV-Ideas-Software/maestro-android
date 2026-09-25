@@ -338,6 +338,12 @@ class AuditoriaAbntTest {
             "<!DOCTYPE x SYSTEM \"a<b\" $citacao>\nTexto.",
             // As posições valem com fim de linha `\r\n`.
             "A\r\nB\r\nVeja <a title=$citacao>isto</a>.",
+            // Tag sozinha na própria linha (o bloco HTML de tipo 7 do
+            // CommonMark): o atributo continua mascarado.
+            "<a title=$citacao>\nisto</a> e fim.",
+            // Comentário e instrução que atravessam uma linha em branco.
+            "Texto.\n\n<!--\n$citacao\n\n-->\n\nFim.",
+            "Texto.\n\n<?alvo\n$citacao\n\n?>\n\nFim.",
         )) {
             assertFalse(auditar(texto).temBloqueio("direct_quote_without_citation"), texto)
         }
@@ -354,6 +360,10 @@ class AuditoriaAbntTest {
             // A tag na mesma coluna da aspa, duas linhas abaixo: a máscara usa
             // a posição no texto, e não a coluna da linha.
             "$citacao sem fonte.\r\n\r\n<b>x</b> fim.",
+            // O bloco de comentário é mascarado só até o `-->`, e o bloco sem
+            // fechamento não é mascarado.
+            "Texto.\n\n<!-- c --> $citacao fim.",
+            "Texto.\n\n<!--\n$citacao\n\nsem fechamento.",
         )) {
             assertTrue(auditar(texto).temBloqueio("direct_quote_without_citation"), texto)
         }

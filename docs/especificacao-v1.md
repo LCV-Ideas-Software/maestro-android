@@ -203,16 +203,19 @@ no Rust em `68528f9`:
   processamento, declaração e CDATA, cada um até o fechamento que a
   especificação define (decisão do operador de 24/09/2026, no lugar de um
   reconhecimento escrito à mão). O bloco HTML fica desligado, para que a
-  prosa dentro de um `<div>` continue conferida. Marcação não vira citação
+  prosa dentro de um `<div>` continue conferida; num segundo passe, o bloco
+  de comentário, instrução, declaração ou CDATA, que pode atravessar uma
+  linha em branco, é mascarado até o seu fechamento. Marcação não vira citação
   nem pareia com as aspas da prosa em volta. O Rust
   pulava a aspa reta depois de qualquer `<` sem `>` adiante, ou logo depois de
   um `=`: prosa como `2 < 3 e "..."` escondia uma citação direta sem fonte,
   e a aspa que fecha um atributo pareava com a que abre o seguinte;
 - **o site-local IPv6 (`fec0::/10`) é recusado, e o IPv4 dentro do NAT64
-  (`64:ff9b::/96`) e do 6to4 (`2002::/16`) é julgado como IPv4.** O Rust
-  deixava os três chegarem à rede local do usuário. O prefixo NAT64 não é
-  recusado inteiro porque, numa rede com DNS64, todo site só IPv4 resolve
-  para ele;
+  (`64:ff9b::/96`, e o de uso local `64:ff9b:1::/48`, lido em cada leiaute
+  do RFC 6052 que os bytes permitem) e do 6to4 (`2002::/16`) é julgado como
+  IPv4.** O Rust deixava todos chegarem à rede local do usuário. O prefixo
+  NAT64 não é recusado inteiro porque, numa rede com DNS64, todo site só
+  IPv4 resolve para ele;
 - **os auxiliares do turno que não revisou o texto recebem o contexto de
   citações da sessão.** No Rust eles auditam sem manifesto, e na retomada da
   sessão (`restore_circular_resume_progress`) um revisor `READY` sobre texto
