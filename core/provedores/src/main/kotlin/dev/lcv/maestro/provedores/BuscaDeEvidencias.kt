@@ -39,6 +39,8 @@ public class BuscaDeEvidencias internal constructor(
     private val relogio: () -> Instant,
     /** O endpoint de cada conector; os testes o apontam para o servidor falso. */
     private val endpointDe: (Conector) -> String = { it.endpoint },
+    /** O que mais cancelar em [cancelarTudo]: em produção, as consultas DoH do resolvedor. */
+    private val cancelador: () -> Unit = {},
 ) : IntegridadeDeLinks.BuscadorDeEvidencia {
 
     public constructor(resolvedor: ResolvedorPublico, agente: AgenteDeColeta) : this(
@@ -47,10 +49,11 @@ public class BuscaDeEvidencias internal constructor(
         { RedePublica.motivoDeRecusa(it, AnalisadorDeUrlOkHttp, resolvedor) },
         agente,
         Instant::now,
+        cancelador = resolvedor::cancelar,
     )
 
-    private val politica = politica
     private val transporte = TransportePublico(clienteBase, dns, politica, agente)
+    private val politica = transporte.politicaGuardada()
 
     /** `built_in_search_connectors`. */
     internal enum class Conector(
@@ -97,12 +100,17 @@ public class BuscaDeEvidencias internal constructor(
         if (bruta.status !in 200..299) {
             throw IntegridadeDeLinks.Falha("search provider '${conector.id}' returned HTTP ${bruta.status}")
         }
-        val raiz: JsonNode = try {
+        // `readTree` de conteúdo vazio não lança: devolve nó ausente (ou nulo,
+        // conforme a versão). O canônico (`serde_json`) recusa como JSON inválido.
+        val raiz: JsonNode? = try {
             Json.LEITOR.readTree(bruta.corpo)
         } catch (erro: JacksonException) {
             throw IntegridadeDeLinks.Falha(
                 Erros.sanear("search provider '${conector.id}' returned invalid JSON: ${erro.message}", 500),
             )
+        }
+        if (raiz == null || raiz.isMissingNode) {
+            throw IntegridadeDeLinks.Falha("search provider '${conector.id}' returned invalid JSON: empty response body")
         }
         val resultados = noEm(raiz, conector.caminhoDosResultados)?.takeIf { it.isArray }
             ?: throw IntegridadeDeLinks.Falha(
@@ -161,9 +169,10 @@ public class BuscaDeEvidencias internal constructor(
         return registros
     }
 
-    /** Cancela toda busca em curso. */
+    /** Cancela toda busca em curso — transporte e consultas DoH — e fecha esta busca ([ColetaCancelada] daí em diante). */
     public fun cancelarTudo() {
         transporte.cancelarTudo()
+        cancelador()
     }
 
     /** `json_value_at_path`: segmentos separados por ponto, vazios ignorados. */

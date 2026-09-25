@@ -42,6 +42,8 @@ public class ColetorHttp internal constructor(
     private val agente: AgenteDeColeta,
     private val armazem: ArmazemDeEvidencias?,
     private val relogio: () -> Instant,
+    /** O que mais cancelar em [cancelarTudo]: em produção, as consultas DoH do resolvedor. */
+    private val cancelador: () -> Unit = {},
 ) : IntegridadeDeLinks.ColetorDeEvidencia {
 
     public constructor(
@@ -55,11 +57,12 @@ public class ColetorHttp internal constructor(
         agente,
         armazem,
         Instant::now,
+        resolvedor::cancelar,
     )
 
-    private val politica = politica
     private val transporte = TransportePublico(clienteBase, dns, politica, agente)
-    private val robots = LeitorDeRobots(transporte, politica, agente.nomeDoRobo)
+    private val politica = transporte.politicaGuardada()
+    private val robots = LeitorDeRobots(transporte, this.politica, agente.nomeDoRobo)
 
     /** O que fica guardado de uma coleta: o `StoredWebEvidence` do canônico. */
     public class Coleta(
@@ -113,7 +116,7 @@ public class ColetorHttp internal constructor(
             return guardar(registro)
         }
 
-        val condicionais = if (revalidar) cabecalhosCondicionais(existente) else emptyMap()
+        val condicionais = if (revalidar && conteudoPronto(existente)) cabecalhosCondicionais(existente) else emptyMap()
         val bruta = try {
             transporte.executar(MetodoHttp.GET, validada, condicionais, TETO_DO_CORPO_BYTES)
         } catch (erro: IntegridadeDeLinks.Falha) {
@@ -123,7 +126,10 @@ public class ColetorHttp internal constructor(
         }
 
         if (bruta.status == 304) {
-            if (existente == null) {
+            // Só conteúdo pronto guardado pode ser renovado: um 304 sobre um
+            // registro que falhou ou parou numa interação não tem o que
+            // preservar, e viraria "pronto e fresco" sem corpo por 30 dias.
+            if (existente == null || !conteudoPronto(existente)) {
                 throw IntegridadeDeLinks.Falha("received HTTP 304 without a cached evidence record")
             }
             val coletadaEm = relogio()
@@ -135,6 +141,9 @@ public class ColetorHttp internal constructor(
                 atualizadaEm = FormatoDoRegistro.rfc3339(coletadaEm),
                 duracaoMs = bruta.duracaoMs,
                 estadoDoRobots = estadoDoRobots,
+                // O registro descreve a resposta que o renovou: se ela veio por
+                // um redirecionamento novo, o destino final é o novo.
+                urlFinal = bruta.urlFinal,
                 cadeiaDeRedirecionamento = bruta.redirecionamentos,
                 notas = existente.registro.notas + "Cache revalidated by HTTP 304; content hash preserved",
             )
@@ -179,10 +188,20 @@ public class ColetorHttp internal constructor(
         return guardar(Coleta(registro, bruta.cabecalhos, corpo))
     }
 
-    /** Cancela toda coleta em curso: a coleta é bloqueante e não vê o cancelamento da corrotina. */
+    /**
+     * Cancela toda coleta em curso — transporte e consultas DoH — e fecha
+     * este coletor: depois disto, qualquer coleta lança [ColetaCancelada]
+     * antes de tocar a rede. A coleta é bloqueante e não vê o cancelamento
+     * da corrotina; o `:core:sessao` cria um coletor por auditoria.
+     */
     public fun cancelarTudo() {
         transporte.cancelarTudo()
+        cancelador()
     }
+
+    /** Se a coleta guardada é conteúdo pronto: só ela pode ser revalidada e renovada por 304. */
+    private fun conteudoPronto(existente: Coleta?): Boolean =
+        existente != null && existente.registro.estado == EstadoDaEvidencia.PRONTA && existente.corpo != null
 
     private fun guardar(coleta: Coleta): Coleta {
         armazem?.guardar(coleta)

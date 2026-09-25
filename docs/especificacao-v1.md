@@ -783,10 +783,13 @@ sobre o plano:
    alcançado — furo do canônico, registrado na MAESTRO-34.
 6. **A gravação é uma interface** (`ArmazemDeEvidencias`), do `:core:sessao`.
    Com ela, registro pronto e fresco é reaproveitado sem requisição, a
-   revalidação envia os validadores guardados e um `304` renova o registro,
-   e `created_at` é preservado. Só o registro pronto carrega corpo: uma
-   recoleta que falhou ou esbarrou numa interação nunca sobrescreve os bytes
-   do último registro pronto.
+   revalidação envia os validadores guardados e um `304` renova o registro
+   — com a URL final da resposta que o renovou —, e `created_at` é
+   preservado. Só o registro pronto carrega corpo, e **só o registro pronto
+   guardado pode ser revalidado ou renovado por `304`**: o que falhou ou
+   parou numa interação guarda os cabeçalhos, mas não é conteúdo, e um
+   `304` sobre ele é o erro do canônico. Uma recoleta que falhou ou esbarrou
+   numa interação nunca sobrescreve os bytes do último registro pronto.
 7. **Identidade e contato.** O `User-Agent` é o do canônico,
    `MaestroEditorialAI/<versão> (Android; +<repositório>)`, em todo salto.
    O aplicativo pode guardar um **e-mail de contato opcional, do usuário**,
@@ -796,7 +799,13 @@ sobre o plano:
    nenhuma.
 8. **A coleta é serial**, como no canônico, e bloqueante: o `:core:sessao` a
    roda em `Dispatchers.IO` e chama `cancelarTudo()` ao cancelar, porque a
-   chamada bloqueante não vê o cancelamento da corrotina.
+   chamada bloqueante não vê o cancelamento da corrotina. O cancelamento é
+   uma regra só, no transporte: depois de `cancelarTudo()` nada mais começa
+   — nem um salto, nem a página depois do `robots.txt`, nem uma validação
+   que consultaria o DNS —, as consultas DoH em curso são canceladas, e a
+   coleta sobe como `ColetaCancelada`, que não é falha registrada: a
+   auditoria cancelada para, em vez de seguir link a link. Um coletor
+   cancelado não volta; o `:core:sessao` cria um por auditoria.
 
 Não portados, por decisão do operador: a sondagem legada de 15 s do web e os
 conectores de busca configuráveis (seção 11). Os hashes e os ids não são

@@ -44,11 +44,13 @@ class ColetorHttpTest {
         }
     }
 
+    private var cancelamentos = 0
+
     private fun coletor(
         politica: UrlPublica.PoliticaDeRede = RedeDeTeste.politica(),
         armazem: ColetorHttp.ArmazemDeEvidencias? = null,
         relogio: () -> Instant = { agora },
-    ) = ColetorHttp(RedeDeTeste.cliente(), Dns.SYSTEM, politica, RedeDeTeste.agente, armazem, relogio)
+    ) = ColetorHttp(RedeDeTeste.cliente(), Dns.SYSTEM, politica, RedeDeTeste.agente, armazem, relogio) { cancelamentos++ }
 
     private fun robots(codigo: Int = 404, corpo: String = "") {
         servidor.enqueue(RedeDeTeste.resposta(codigo, corpo, "Content-Type" to "text/plain"))
@@ -359,6 +361,80 @@ class ColetorHttpTest {
     }
 
     @Test
+    fun `validadores so viajam, e o 304 so renova, sobre conteudo pronto guardado`() {
+        val armazem = ArmazemEmMemoria()
+        // Uma coleta que parou no login guarda os cabeçalhos, mas não é conteúdo.
+        robots()
+        servidor.enqueue(RedeDeTeste.resposta(401, "<html>Sign in</html>", "Content-Type" to "text/html", "ETag" to "\"v1\""))
+        val parada = coletor(armazem = armazem).coletarComConteudo(url("/a"))
+        assertEquals(EstadoDaEvidencia.EXIGE_ACAO_DO_OPERADOR, parada.registro.estado)
+        assertEquals("\"v1\"", parada.cabecalhos["etag"])
+        assertNull(parada.corpo)
+        // Revalidar não envia o validador dela, e a resposta cheia vira o registro pronto.
+        robots()
+        pagina()
+        val cheia = coletor(armazem = armazem).coletarComConteudo(url("/a"), revalidar = true)
+        repeat(3) { servidor.takeRequest() }
+        assertNull(servidor.takeRequest().headers["If-None-Match"])
+        assertEquals(EstadoDaEvidencia.PRONTA, cheia.registro.estado)
+        assertNotNull(cheia.corpo)
+        // Um 304 sobre registro guardado que não é conteúdo pronto é o erro do canônico.
+        armazem.guardadas[parada.registro.id] = parada
+        robots()
+        servidor.enqueue(MockResponse.Builder().code(304).build())
+        val erro = assertFailsWith<IntegridadeDeLinks.Falha> {
+            coletor(armazem = armazem).coletarComConteudo(url("/a"), revalidar = true)
+        }
+        assertEquals("received HTTP 304 without a cached evidence record", erro.message)
+    }
+
+    @Test
+    fun `304 depois de redirecionamento novo renova o registro com o destino novo`() {
+        val armazem = ArmazemEmMemoria()
+        robots()
+        servidor.enqueue(RedeDeTeste.resposta(200, "<html>v1</html>", "Content-Type" to "text/html", "ETag" to "\"v1\""))
+        val primeira = coletor(armazem = armazem).coletarComConteudo(url("/a"))
+        assertEquals(url("/a"), primeira.registro.urlFinal)
+        robots()
+        servidor.enqueue(MockResponse.Builder().code(302).setHeader("Location", url("/b")).build())
+        servidor.enqueue(MockResponse.Builder().code(304).build())
+        val renovada = coletor(armazem = armazem).coletarComConteudo(url("/a"), revalidar = true)
+        assertEquals(EstadoDaEvidencia.PRONTA, renovada.registro.estado)
+        assertEquals(url("/b"), renovada.registro.urlFinal)
+        assertEquals(listOf(url("/b")), renovada.registro.cadeiaDeRedirecionamento.map { it.url })
+        assertEquals(primeira.registro.sha256, renovada.registro.sha256)
+    }
+
+    @Test
+    fun `cancelarTudo durante o robots aborta a coleta sem pedir a pagina, e nada mais comeca`() {
+        servidor.enqueue(MockResponse.Builder().code(404).headersDelay(20, TimeUnit.SECONDS).build())
+        pagina()
+        val tabela = RedeDeTeste.TabelaDns(mapOf("example.com" to listOf(RedeDeTeste.PUBLICO)))
+        val coletor = coletor(RedeDeTeste.politica(ResolvedorPublico(tabela)))
+        var erro: Throwable? = null
+        val inicio = System.nanoTime()
+        val trabalho = thread {
+            try {
+                coletor.coletar(url("/a"))
+            } catch (e: Throwable) {
+                erro = e
+            }
+        }
+        Thread.sleep(500)
+        coletor.cancelarTudo()
+        trabalho.join(10_000)
+        assertTrue((System.nanoTime() - inicio) < 10_000_000_000L)
+        assertTrue(erro is ColetaCancelada, erro.toString())
+        assertEquals(1, servidor.requestCount)
+        assertEquals(1, cancelamentos)
+        // Depois do cancelamento, nem a validação (que consulta o DNS) começa.
+        assertFailsWith<ColetaCancelada> { coletor.coletar(url("/c")) }
+        assertFailsWith<ColetaCancelada> { coletor.coletar("https://example.com/") }
+        assertEquals(1, servidor.requestCount)
+        assertTrue(tabela.consultas.isEmpty(), tabela.consultas.toString())
+    }
+
+    @Test
     fun `projecao do cache como no canonico`() {
         robots()
         pagina()
@@ -378,15 +454,21 @@ class ColetorHttpTest {
         servidor.enqueue(MockResponse.Builder().body("lento").headersDelay(20, TimeUnit.SECONDS).build())
         val coletor = coletor()
         var registro: dev.lcv.maestro.protocolo.RegistroDeEvidencia? = null
+        var erro: Throwable? = null
         val inicio = System.nanoTime()
-        val trabalho = thread { registro = coletor.coletar(url("/a")) }
+        val trabalho = thread {
+            try {
+                registro = coletor.coletar(url("/a"))
+            } catch (e: Throwable) {
+                erro = e
+            }
+        }
         Thread.sleep(500)
         coletor.cancelarTudo()
         trabalho.join(10_000)
         assertTrue((System.nanoTime() - inicio) < 10_000_000_000L)
-        val cancelado = assertNotNull(registro)
-        assertEquals(EstadoDaEvidencia.FALHOU, cancelado.estado)
-        assertTrue(cancelado.notas.single().startsWith("HTTP request failed: "), cancelado.notas.toString())
+        assertNull(registro)
+        assertTrue(erro is ColetaCancelada, erro.toString())
     }
 
     @Test

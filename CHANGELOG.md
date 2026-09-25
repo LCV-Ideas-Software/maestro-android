@@ -39,8 +39,21 @@ All material changes to Maestro Android are recorded here.
     `is_redirection()` first, so its own `304` branch is unreachable;
   - the store behind the evidence records is an interface for `:core:sessao`;
     with it a ready and fresh record is reused without a request, a
-    revalidation sends the stored validators and a `304` renews the record,
-    and `created_at` is preserved; only a ready record carries its body;
+    revalidation sends the stored validators and a `304` renews the record
+    with the final URL of the revalidating response, and `created_at` is
+    preserved; only a ready record carries its body, and only a stored
+    ready record can be revalidated or renewed by a `304` (a record that
+    failed or stopped at an interaction keeps its headers but is not
+    content, and a `304` over it is the canonical error);
+  - cancellation is one rule at the transport: after `cancelarTudo()`
+    nothing starts, not a hop, not the page after `robots.txt`, not a
+    validation that would resolve a name, and the in-flight DNS-over-HTTPS
+    queries are cancelled too; the collection surfaces `ColetaCancelada`,
+    which is not a failure record, so a cancelled audit stops instead of
+    continuing link by link;
+  - an empty 2xx body from a search API is refused as invalid JSON, as
+    `serde_json` refuses it, since Jackson's `readTree` does not throw on
+    empty content;
   - evidence search uses the Crossref and OpenAlex APIs without keys. An
     optional contact e-mail, the user's own, goes only to Crossref, as the
     `mailto` parameter and in the polite `User-Agent`; nothing from LCV Ideas

@@ -198,6 +198,16 @@ class TransportePublicoTest {
     }
 
     @Test
+    fun `transporte cancelado nao abre requisicao nenhuma`() {
+        val transporte = transporte(UrlPublica.PoliticaDeRede { null })
+        servidor.enqueue(RedeDeTeste.resposta(200, "nunca"))
+        transporte.cancelarTudo()
+        assertTrue(transporte.foiCancelado)
+        assertFailsWith<ColetaCancelada> { executar(servidor.url("/x").toString(), transporte = transporte) }
+        assertEquals(0, servidor.requestCount)
+    }
+
+    @Test
     fun `o cliente e guardado e resolve nomes pelo DNS injetado`() {
         val cliente = transporte().cliente
         assertEquals(java.net.Proxy.NO_PROXY, cliente.proxy)

@@ -32,6 +32,14 @@ import okhttp3.Request
  * agente) só vão à origem da URL inicial: um redirecionamento para outra
  * origem com esses cabeçalhos é recusado, não seguido sem eles.
  */
+/**
+ * A coleta foi cancelada por `cancelarTudo()`. Não é [IntegridadeDeLinks.Falha]:
+ * uma falha vira registro `FALHOU` e a auditoria segue para o próximo link;
+ * o cancelamento sobe até quem cancelou (o `:core:sessao`), e nada mais
+ * começa neste transporte.
+ */
+public class ColetaCancelada : RuntimeException("collection canceled by cancelarTudo()")
+
 internal class TransportePublico(
     base: OkHttpClient,
     dns: Dns,
@@ -47,6 +55,19 @@ internal class TransportePublico(
         .retryOnConnectionFailure(false)
         .callTimeout(PRAZO_SEGUNDOS, TimeUnit.SECONDS)
         .build()
+
+    /**
+     * Depois de [cancelarTudo], nada mais começa: nem um salto, nem a
+     * página depois do `robots.txt`, nem uma validação que consulte o DNS.
+     */
+    @Volatile
+    var foiCancelado: Boolean = false
+        private set
+
+    /** [ColetaCancelada] se [cancelarTudo] já foi chamado. */
+    fun conferirCancelamento() {
+        if (foiCancelado) throw ColetaCancelada()
+    }
 
     /** `RawHttpResponse`. */
     class RespostaBruta(
@@ -80,6 +101,7 @@ internal class TransportePublico(
         val vistas = mutableSetOf<String>()
         val redirecionamentos = mutableListOf<Redirecionamento>()
         while (true) {
+            conferirCancelamento()
             atual = UrlPublica.validar(atual.toString(), politica)
             if (!vistas.add(atual.toString())) throw IntegridadeDeLinks.Falha("redirect loop detected")
 
@@ -93,6 +115,7 @@ internal class TransportePublico(
             val resposta = try {
                 cliente.newCall(requisicao.build()).execute()
             } catch (erro: IOException) {
+                conferirCancelamento()
                 throw IntegridadeDeLinks.Falha(descrever(erro))
             }
             resposta.use { r ->
@@ -137,6 +160,7 @@ internal class TransportePublico(
                     }
                     fonte.readByteArray()
                 } catch (erro: IOException) {
+                    conferirCancelamento()
                     throw IntegridadeDeLinks.Falha("failed to read HTTP response body: ${descrever(erro)}")
                 }
                 return RespostaBruta(
@@ -146,9 +170,20 @@ internal class TransportePublico(
         }
     }
 
-    /** Cancela toda chamada em curso: a coleta é bloqueante e não vê o cancelamento da corrotina. */
+    /**
+     * Cancela toda chamada em curso e marca o transporte: a coleta é
+     * bloqueante e não vê o cancelamento da corrotina. Um transporte
+     * cancelado não volta; o `:core:sessao` cria um coletor por auditoria.
+     */
     fun cancelarTudo() {
+        foiCancelado = true
         cliente.dispatcher.cancelAll()
+    }
+
+    /** A [politica] com a conferência de cancelamento antes de qualquer consulta de nome. */
+    fun politicaGuardada(): UrlPublica.PoliticaDeRede = UrlPublica.PoliticaDeRede { url ->
+        conferirCancelamento()
+        politica.motivoDeRecusa(url)
     }
 
     private fun cabecalhosSeguros(resposta: okhttp3.Response): Map<String, String> {

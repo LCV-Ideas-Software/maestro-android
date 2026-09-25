@@ -23,13 +23,16 @@ class BuscaDeEvidenciasTest {
     @AfterTest
     fun descer() = servidor.close()
 
+    private var cancelamentos = 0
+
     private fun busca(agente: AgenteDeColeta = RedeDeTeste.agentePolido) = BuscaDeEvidencias(
         RedeDeTeste.cliente(),
         Dns.SYSTEM,
         RedeDeTeste.politica(RedeDeTeste.resolvedor("10.0.0.1.example.com" to listOf("10.0.0.1"))),
         agente,
         { RedeDeTeste.agora },
-    ) { servidor.url("/${it.id}/works").toString() }
+        { servidor.url("/${it.id}/works").toString() },
+    ) { cancelamentos++ }
 
     private val crossref = """
         {"message":{"items":[
@@ -118,6 +121,15 @@ class BuscaDeEvidenciasTest {
     }
 
     @Test
+    fun `cancelarTudo fecha a busca antes de qualquer consulta de nome`() {
+        val busca = busca()
+        busca.cancelarTudo()
+        assertEquals(1, cancelamentos)
+        assertFailsWith<ColetaCancelada> { busca.buscar("q", "crossref", 1) }
+        assertEquals(0, servidor.requestCount)
+    }
+
+    @Test
     fun `erros de entrada e de resposta com as mensagens do canonico`() {
         fun falha(bloco: () -> Unit) = assertFailsWith<IntegridadeDeLinks.Falha>(block = bloco).message
         assertEquals("web evidence search query cannot be empty", falha { busca().buscar("  \t ", "crossref", 1) })
@@ -131,6 +143,11 @@ class BuscaDeEvidenciasTest {
 
         servidor.enqueue(RedeDeTeste.resposta(503, "{}", "Content-Type" to "application/json"))
         assertEquals("search provider 'crossref' returned HTTP 503", falha { busca().buscar("q", "crossref", 1) })
+        servidor.enqueue(RedeDeTeste.resposta(200, "", "Content-Type" to "application/json"))
+        assertEquals(
+            "search provider 'crossref' returned invalid JSON: empty response body",
+            falha { busca().buscar("q", "crossref", 1) },
+        )
         servidor.enqueue(RedeDeTeste.resposta(200, "nao e json", "Content-Type" to "application/json"))
         val invalido = falha { busca().buscar("q", "crossref", 1) }!!
         assertEquals(true, invalido.startsWith("search provider 'crossref' returned invalid JSON: "))

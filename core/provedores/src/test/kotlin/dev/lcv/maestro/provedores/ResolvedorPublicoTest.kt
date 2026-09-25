@@ -3,6 +3,8 @@ package dev.lcv.maestro.provedores
 import java.net.InetAddress
 import java.net.Proxy
 import java.net.UnknownHostException
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -73,6 +75,39 @@ class ResolvedorPublicoTest {
         val resolvedor = ResolvedorPublico(delegado)
         assertEquals(1, resolvedor.resolver("example.com")!!.size)
         assertContains(assertFailsWith<UnknownHostException> { resolvedor.lookup("example.com") }.message!!, "resolve")
+    }
+
+    @Test
+    fun `cancelar interrompe a consulta DoH em curso`() {
+        val servidor = RedeDeTeste.servidorHttps()
+        try {
+            repeat(2) { servidor.enqueue(MockResponse.Builder().code(200).headersDelay(20, TimeUnit.SECONDS).build()) }
+            val confiante = ResolvedorPublico.clienteDeArranque(null).newBuilder()
+                .sslSocketFactory(RedeDeTeste.cliente().sslSocketFactory, RedeDeTeste.cliente().x509TrustManager!!)
+                .build()
+            val doh = ResolvedorPublico.sobreHttps(
+                servidor.url("/dns-query"), listOf(InetAddress.getByName("127.0.0.1")), confiante,
+            )
+            var erro: Throwable? = null
+            val inicio = System.nanoTime()
+            val trabalho = thread {
+                try {
+                    doh.lookup("example.com")
+                } catch (e: Throwable) {
+                    erro = e
+                }
+            }
+            Thread.sleep(500)
+            doh.cancelar()
+            trabalho.join(10_000)
+            assertTrue((System.nanoTime() - inicio) < 10_000_000_000L)
+            assertTrue(erro is UnknownHostException, erro.toString())
+            // O resolvedor não fecha: a consulta seguinte parte normalmente (e falha só por falta de resposta).
+            repeat(2) { servidor.enqueue(MockResponse.Builder().code(500).build()) }
+            assertNull(doh.resolver("example.org"))
+        } finally {
+            servidor.close()
+        }
     }
 
     @Test
