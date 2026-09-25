@@ -454,9 +454,10 @@ public object AuditoriaAbnt {
 
     /**
      * Uma tag de abertura HTML completa (nome, atributos com valor entre aspas
-     * duplas, simples ou sem aspas, e `>`), uma declaração ou uma instrução de
-     * processamento. Nenhuma parte aceita `<`, para que a busca que começa num
-     * `<` pare no seguinte e o custo fique linear.
+     * duplas, simples ou sem aspas, e `>`), uma declaração (`<!DOCTYPE ...>`,
+     * cujo `>` entre aspas não a fecha) ou uma instrução de processamento, que
+     * só termina em `?>`. Nenhuma parte aceita `<`, para que a busca que começa
+     * num `<` pare no seguinte e o custo fique linear.
      */
     private val TAG_HTML = Regex(
         "<[A-Za-z][A-Za-z0-9:-]*" +
@@ -464,8 +465,8 @@ public object AuditoriaAbnt {
             "(?:${TextoRust.ESPACO}*=${TextoRust.ESPACO}*" +
             "(?:\"[^\"<]*\"|'[^'<]*'|[^${TextoRust.ESPACO_CLASSE}\"'<>=`]+))?)*" +
             "${TextoRust.ESPACO}*/?>" +
-            "|<![A-Za-z][^<>]*>" +
-            "|<\\?[^<>]*>",
+            "|<![A-Za-z](?:\"[^\"<]*\"|'[^'<]*'|[^\"'<>])*>" +
+            "|<\\?(?:[^?<]|\\?(?!>))*\\?>",
     )
 
     /**

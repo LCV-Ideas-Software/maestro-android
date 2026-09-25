@@ -171,8 +171,9 @@ no Rust em `68528f9`:
 - **só se aceita link cuja verificação mecânica passou.** O Rust só conferia o
   código HTTP: página de captcha, de login ou de paywall, ou evidência
   bloqueada, servida com 200, podia ser aceita como suporte. Só passa evidência
-  pronta e sem interação pendente: na fila, em coleta, vencida ou à espera do
-  operador, ou com pedido de consentimento ou de confirmação de download, não.
+  pronta e sem interação pendente. Na fila, em coleta, vencida ou à espera do
+  operador, ou com pedido de consentimento ou de confirmação de download, ela
+  vai para quarentena e conta como bloqueada.
   Cada linha guarda a classificação mecânica à parte da que a revisão escreve
   (`mechanical_classification`), e um aceite anterior só é preservado enquanto
   a verificação nova ainda passar;
@@ -196,7 +197,8 @@ no Rust em `68528f9`:
 - **a marcação HTML é mascarada antes da busca de aspas:** tags de abertura
   completas, comentários, declarações (`<!DOCTYPE ...>`) e instruções de
   processamento. Marcação não vira citação nem pareia com as aspas da prosa
-  em volta; comentário sem `-->` não é mascarado. O Rust
+  em volta. `>` entre aspas não fecha a declaração, a instrução só termina
+  em `?>`, e comentário sem `-->` não é mascarado. O Rust
   pulava a aspa reta depois de qualquer `<` sem `>` adiante, ou logo depois de
   um `=`: prosa como `2 < 3 e "..."` escondia uma citação direta sem fonte,
   e a aspa que fecha um atributo pareava com a que abre o seguinte;

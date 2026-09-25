@@ -62,8 +62,9 @@ All material changes to Maestro Android are recorded here.
     blocked evidence, served with 200 could be accepted as support. Only
     evidence that is ready, with no interaction pending, passes; queued,
     collecting, stale or operator-pending evidence, and consent or download
-    prompts, do not. Each row keeps its mechanical classification
-    (`mechanical_classification`) apart from the one the review sets, and an
+    prompts, are quarantined and counted as blocked. Each row keeps its
+    mechanical classification (`mechanical_classification`) apart from the
+    one the review sets, and an
     earlier acceptance is preserved only while the new check still passes;
   - accepting an HTTP(S) link requires the content hash of its evidence. The
     canonical compared a missing hash with a missing hash, so the acceptance
@@ -75,7 +76,9 @@ All material changes to Maestro Android are recorded here.
   - HTML markup (complete start tags, comments, declarations such as
     `<!DOCTYPE ...>` and processing instructions) is masked before quotes are
     searched, so markup is neither taken for a quotation nor paired with the
-    quotes of the prose around it; a comment with no `-->` is not masked. The
+    quotes of the prose around it. A `>` inside quotes does not end a
+    declaration, a processing instruction ends only at `?>`, and a comment with
+    no `-->` is not masked. The
     canonical skipped a straight quote after any `<` with
     no `>` after it, or right after an `=`: prose such as `2 < 3 e "..."` hid
     an uncited direct quotation, and the quote closing one attribute could
@@ -104,7 +107,7 @@ All material changes to Maestro Android are recorded here.
   serial-turn cases. 89 tests in the new files, plus 9 in
   `ProtocoloNoAparelhoTest`, which runs on the `:core:seguranca` emulator in CI
   to prove the regular expressions and the UTF-8 decoder on Android rather
-  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 26 mutations)
+  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 29 mutations)
   were all caught, with a green control run before and after.
 
 - Add `:core:seguranca`, the Android library that keeps each provider's API key

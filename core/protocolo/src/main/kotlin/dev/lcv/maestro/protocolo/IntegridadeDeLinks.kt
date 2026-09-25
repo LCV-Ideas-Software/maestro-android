@@ -378,7 +378,13 @@ public object IntegridadeDeLinks {
                 status = evidencia.status?.let { "HTTP $it" } ?: "falha mecanica",
                 invalidade = evidencia.notas.lastOrNull()?.let { Saneamento.texto(it, 180) }
                     ?: "o link nao passou pela verificacao mecanica",
-                tom = if (evidencia.estado == EstadoDaEvidencia.BLOQUEADA) "blocked" else "error",
+                // A evidência não pronta, que o canônico não trata, também é
+                // quarentena, e conta entre as bloqueadas.
+                tom = if (evidencia.estado == EstadoDaEvidencia.BLOQUEADA || classe == ClassificacaoDoLink.EM_QUARENTENA) {
+                    "blocked"
+                } else {
+                    "error"
+                },
             )
         }
         if (tipoDivergente(comEvidencia.urlNormalizada, comEvidencia.tipoDeConteudo, analisador)) {

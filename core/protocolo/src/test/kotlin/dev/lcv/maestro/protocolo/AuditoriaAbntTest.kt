@@ -276,11 +276,16 @@ class AuditoriaAbntTest {
             "Texto <!-- $citacao --> fim.",
             "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"x\">\nTexto.",
             "<?xml version=\"1.0\" encoding=\"um texto com quatro palavras\"?>\nTexto.",
+            // `>` entre aspas não fecha a declaração nem a instrução.
+            "<!DOCTYPE x PUBLIC \"a>b\" $citacao>\nTexto.",
+            "<?alvo dado=\"x>y\" titulo=$citacao?>\nTexto.",
         )) {
             assertFalse(auditar(texto).temBloqueio("direct_quote_without_citation"), texto)
         }
-        // Controle: comentário sem `-->` não esconde a aspa que vem depois.
+        // Controles: comentário sem `-->` e instrução sem `?>` não escondem a
+        // aspa que vem depois.
         assertTrue(auditar("Texto <!-- $citacao fim.").temBloqueio("direct_quote_without_citation"))
+        assertTrue(auditar("Texto <?alvo titulo=$citacao > fim.").temBloqueio("direct_quote_without_citation"))
     }
 
     @Test

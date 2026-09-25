@@ -304,6 +304,8 @@ class IntegridadeDeLinksTest {
             val registro = RegistroEmMemoria()
             val linha = auditarCom(caso, registro)
             assertEquals(200, linha.statusHttp)
+            // A quarentena conta entre as bloqueadas no resumo da auditoria.
+            if (linha.classificacao == ClassificacaoDoLink.EM_QUARENTENA) assertEquals("blocked", linha.tom, caso.toString())
             val erro = assertFailsWith<IntegridadeDeLinks.Falha>(caso.toString()) { aceitar(linha, registro) }
             assertEquals("cannot accept a link that did not pass mechanical validation", erro.message, caso.toString())
         }
