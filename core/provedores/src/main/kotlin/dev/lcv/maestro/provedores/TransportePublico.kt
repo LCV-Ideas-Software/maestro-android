@@ -103,6 +103,9 @@ internal class TransportePublico(
         while (true) {
             conferirCancelamento()
             atual = UrlPublica.validar(atual.toString(), politica)
+            // A validação pode ter esperado uma consulta de nome, que não é
+            // cancelada: conferir de novo antes de abrir a chamada.
+            conferirCancelamento()
             if (!vistas.add(atual.toString())) throw IntegridadeDeLinks.Falha("redirect loop detected")
 
             val requisicao = Request.Builder()

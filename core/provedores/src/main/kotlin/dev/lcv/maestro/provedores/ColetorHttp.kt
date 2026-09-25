@@ -17,6 +17,8 @@ import java.time.OffsetDateTime
 import java.time.format.DateTimeParseException
 import java.util.Locale
 import okhttp3.Dns
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 
 /**
@@ -120,7 +122,7 @@ public class ColetorHttp internal constructor(
             return guardar(registro, existente)
         }
 
-        val condicionais = if (revalidar && conteudoPronto(existente)) cabecalhosCondicionais(existente) else emptyMap()
+        val condicionais = if (revalidar && conteudoPronto(existente)) cabecalhosCondicionais(existente, validada) else emptyMap()
         val bruta = try {
             transporte.executar(MetodoHttp.GET, validada, condicionais, TETO_DO_CORPO_BYTES)
         } catch (erro: IntegridadeDeLinks.Falha) {
@@ -275,9 +277,19 @@ public class ColetorHttp internal constructor(
         )
     }
 
-    /** `conditional_headers`: os validadores guardados viram cabeçalhos da origem. */
-    private fun cabecalhosCondicionais(existente: Coleta?): Map<String, String> {
+    /**
+     * `conditional_headers`: os validadores guardados viram cabeçalhos da
+     * origem — só quando a origem final da evidência é a origem da
+     * requisição. Um `ETag` de outra origem (a coleta seguiu um
+     * redirecionamento para fora) não pode viajar à URL original: vazaria o
+     * validador ao host errado, e o transporte recusaria o mesmo
+     * redirecionamento por causa dos cabeçalhos presos à origem. Nesse caso
+     * a revalidação é uma coleta cheia.
+     */
+    private fun cabecalhosCondicionais(existente: Coleta?, requisicao: HttpUrl): Map<String, String> {
         if (existente == null) return emptyMap()
+        val origemFinal = existente.registro.urlFinal?.toHttpUrlOrNull() ?: return emptyMap()
+        if (!UrlPublica.mesmaOrigem(origemFinal, requisicao)) return emptyMap()
         val resultado = linkedMapOf<String, String>()
         existente.cabecalhos["etag"]?.let { resultado["If-None-Match"] = it }
         existente.cabecalhos["last-modified"]?.let { resultado["If-Modified-Since"] = it }

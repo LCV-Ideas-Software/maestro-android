@@ -198,11 +198,23 @@ class TransportePublicoTest {
     }
 
     @Test
-    fun `transporte cancelado nao abre requisicao nenhuma`() {
-        val transporte = transporte(UrlPublica.PoliticaDeRede { null })
+    fun `transporte cancelado nao abre requisicao nenhuma, nem consulta a politica`() {
+        var consultas = 0
+        val transporte = transporte(UrlPublica.PoliticaDeRede { consultas++; null })
         servidor.enqueue(RedeDeTeste.resposta(200, "nunca"))
         transporte.cancelarTudo()
         assertTrue(transporte.foiCancelado)
+        assertFailsWith<ColetaCancelada> { executar(servidor.url("/x").toString(), transporte = transporte) }
+        assertEquals(0, servidor.requestCount)
+        assertEquals(0, consultas)
+    }
+
+    @Test
+    fun `cancelamento durante a validacao nao abre a chamada`() {
+        // A política espera uma consulta de nome que não é cancelada; o cancelamento chega no meio dela.
+        lateinit var transporte: TransportePublico
+        transporte = transporte(UrlPublica.PoliticaDeRede { transporte.cancelarTudo(); null })
+        servidor.enqueue(RedeDeTeste.resposta(200, "nunca"))
         assertFailsWith<ColetaCancelada> { executar(servidor.url("/x").toString(), transporte = transporte) }
         assertEquals(0, servidor.requestCount)
     }

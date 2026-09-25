@@ -783,7 +783,9 @@ sobre o plano:
    alcançado — furo do canônico, registrado na MAESTRO-34.
 6. **A gravação é uma interface** (`ArmazemDeEvidencias`), do `:core:sessao`.
    Com ela, registro pronto e fresco é reaproveitado sem requisição, a
-   revalidação envia os validadores guardados e um `304` renova o registro
+   revalidação envia os validadores guardados — só quando a origem final da
+   evidência é a origem requisitada: `ETag` de um destino em outra origem
+   nunca viaja ao host original — e um `304` renova o registro
    — com a URL final da resposta que o renovou —, e `created_at` é
    preservado. Só o registro pronto carrega corpo, e **só o registro pronto
    guardado pode ser revalidado ou renovado por `304`**: o que falhou ou
@@ -802,7 +804,9 @@ sobre o plano:
    chamada bloqueante não vê o cancelamento da corrotina. O cancelamento é
    uma regra só, no transporte: depois de `cancelarTudo()` nada mais começa
    — nem um salto, nem a página depois do `robots.txt`, nem uma validação
-   que consultaria o DNS —, e a coleta sobe como `ColetaCancelada`, que
+   que consultaria o DNS; e a flag é conferida de novo depois de uma
+   validação, que pode ter esperado uma consulta de nome —, e a coleta
+   sobe como `ColetaCancelada`, que
    não é falha registrada: a auditoria cancelada para, em vez de seguir
    link a link. Um coletor cancelado não volta; o `:core:sessao` cria um
    por auditoria. O resolvedor DoH é do aplicativo e serve a mais de uma

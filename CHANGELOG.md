@@ -39,15 +39,18 @@ All material changes to Maestro Android are recorded here.
     `is_redirection()` first, so its own `304` branch is unreachable;
   - the store behind the evidence records is an interface for `:core:sessao`;
     with it a ready and fresh record is reused without a request, a
-    revalidation sends the stored validators and a `304` renews the record
-    with the final URL of the revalidating response, and `created_at` is
+    revalidation sends the stored validators (only when the evidence's final
+    origin is the origin being requested: a validator from a cross-origin
+    destination never travels to the original host) and a `304` renews the
+    record with the final URL of the revalidating response, and `created_at` is
     preserved; only a ready record carries its body, and only a stored
     ready record can be revalidated or renewed by a `304` (a record that
     failed or stopped at an interaction keeps its headers but is not
     content, and a `304` over it is the canonical error);
   - cancellation is one rule at the transport: after `cancelarTudo()`
     nothing starts, not a hop, not the page after `robots.txt`, not a
-    validation that would resolve a name; the collection surfaces
+    validation that would resolve a name; the flag is checked again after
+    a validation, which may have waited on a name lookup; the collection surfaces
     `ColetaCancelada`, which is not a failure record, so a cancelled audit
     stops instead of continuing link by link. The application's DNS
     resolver is shared by every audit and is not cancelled (operator's

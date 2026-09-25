@@ -31,10 +31,14 @@ import okhttp3.Dns
 class ColetorHttpTest {
 
     private val servidor = RedeDeTeste.servidorHttps()
+    private val outro = RedeDeTeste.servidorHttps()
     private val agora = RedeDeTeste.agora
 
     @AfterTest
-    fun descer() = servidor.close()
+    fun descer() {
+        servidor.close()
+        outro.close()
+    }
 
     private class ArmazemEmMemoria : ColetorHttp.ArmazemDeEvidencias {
         val guardadas = LinkedHashMap<String, ColetorHttp.Coleta>()
@@ -471,6 +475,29 @@ class ColetorHttpTest {
         assertEquals(0, servidor.requestCount)
         // O id preliminar continua sendo o da URL como o texto a citou.
         assertEquals(RedeDeTeste.sha("http_fetch|GET|https://user:password@example.com/"), coletor.coletar("https://user:password@example.com/").id)
+    }
+
+    @Test
+    fun `validadores de outra origem nao viajam na revalidacao`() {
+        val armazem = ArmazemEmMemoria()
+        robots()
+        servidor.enqueue(MockResponse.Builder().code(302).setHeader("Location", outro.url("/b")).build())
+        outro.enqueue(RedeDeTeste.resposta(200, "<html>fora</html>", "Content-Type" to "text/html", "ETag" to "\"fora\""))
+        val primeira = coletor(armazem = armazem).coletarComConteudo(url("/a"))
+        assertEquals(EstadoDaEvidencia.PRONTA, primeira.registro.estado)
+        assertEquals(outro.url("/b").toString(), primeira.registro.urlFinal)
+        assertEquals("\"fora\"", primeira.cabecalhos["etag"])
+
+        robots()
+        servidor.enqueue(MockResponse.Builder().code(302).setHeader("Location", outro.url("/b")).build())
+        outro.enqueue(RedeDeTeste.resposta(200, "<html>fora 2</html>", "Content-Type" to "text/html", "ETag" to "\"fora2\""))
+        val segunda = coletor(armazem = armazem).coletarComConteudo(url("/a"), revalidar = true)
+        assertEquals(EstadoDaEvidencia.PRONTA, segunda.registro.estado)
+        assertEquals(RedeDeTeste.sha("<html>fora 2</html>"), segunda.registro.sha256)
+        repeat(3) { servidor.takeRequest() }
+        assertNull(servidor.takeRequest().headers["If-None-Match"])
+        outro.takeRequest()
+        assertNull(outro.takeRequest().headers["If-None-Match"])
     }
 
     @Test
