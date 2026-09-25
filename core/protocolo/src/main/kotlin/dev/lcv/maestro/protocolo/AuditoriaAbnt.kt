@@ -76,18 +76,21 @@ public object AuditoriaAbnt {
             ?.let { Saneamento.curto(it, 128) }
         val referenciasBrutas = secaoDeReferencias(texto)
         val citacoesBrutas = citacoesBrutas(texto)
+        // Uma leitura só do HTML cru serve à capacidade e aos bloqueios: a
+        // árvore do CommonMark de um texto grande não se monta duas vezes.
+        val htmlCru = lerHtmlCru(texto)
         val bloqueios = mutableListOf<BloqueioDeCitacao>()
         val citacoes: List<Citacao>
         val referenciasNormalizadas: List<String>
         if (manifesto != null) {
             val (validadas, referencias) =
                 validarManifesto(texto, citacoesBrutas, referenciasBrutas, hash, manifesto, bloqueios)
-            bloqueios += bloqueiosDePolitica(texto, citacoesBrutas + validadas)
+            bloqueios += bloqueiosDePolitica(texto, citacoesBrutas + validadas, htmlCru.bloqueios)
             citacoes = validadas
             referenciasNormalizadas = referencias
         } else {
             citacoes = citacoesBrutas
-            bloqueios += bloqueiosDeTextoLivre(texto, citacoes, referenciasBrutas)
+            bloqueios += bloqueiosDeTextoLivre(texto, citacoes, referenciasBrutas, htmlCru.bloqueios)
             if (citacoes.isNotEmpty()) {
                 bloqueios += bloqueio(
                     "structured_manifest_missing",
@@ -115,7 +118,7 @@ public object AuditoriaAbnt {
         // referências, e ignora o resto em silêncio — uma citação sem suporte
         // depois da 500ª nunca era comparada com o manifesto. Aqui o excesso
         // reprova o texto.
-        if (excedeCapacidade(texto)) {
+        if (excedeCapacidade(texto, htmlCru.marcacoes)) {
             bloqueios += bloqueio(
                 "citation_capacity_exceeded",
                 "O texto excede o limite seguro de citacoes, aspas, notas ou referencias auditaveis; o " +
@@ -514,12 +517,15 @@ public object AuditoriaAbnt {
      * um atributo pareava com a que abre o seguinte. Aqui não há máscara: as
      * aspas são procuradas no texto tal qual, e o HTML, se houver, é recusado.
      */
-    private fun bloqueiosDeHtmlCru(texto: String): List<BloqueioDeCitacao> {
+    private fun lerHtmlCru(texto: String): HtmlCru {
         val bloqueios = mutableListOf<BloqueioDeCitacao>()
-        // Como os outros leitores: no máximo MAXIMO_DE_CITACOES bloqueios; o
-        // excesso já reprovou o texto pela capacidade, e a primeira marcação
-        // já bloqueia a liberação.
+        var marcacoes = 0
+        // Uma árvore só, percorrida uma vez: a contagem inteira, para a
+        // capacidade, e no máximo MAXIMO_DE_CITACOES bloqueios, como os outros
+        // leitores — o excesso reprova o texto pela capacidade, e a primeira
+        // marcação já bloqueia a liberação.
         fun recusar(literal: String) {
+            marcacoes++
             if (bloqueios.size >= MAXIMO_DE_CITACOES) return
             bloqueios += bloqueio(
                 "raw_html_in_final_text",
@@ -533,25 +539,11 @@ public object AuditoriaAbnt {
                 override fun visit(htmlInline: HtmlInline) = recusar(htmlInline.literal)
             },
         )
-        return bloqueios
+        return HtmlCru(bloqueios, marcacoes)
     }
 
-    /** Quantas marcações de HTML cru, em linha ou em bloco, o texto tem — só a contagem, sem criar nada. */
-    private fun marcacoesDeHtmlCru(texto: String): Int {
-        var vistas = 0
-        MARKDOWN.parse(texto).accept(
-            object : AbstractVisitor() {
-                override fun visit(htmlBlock: HtmlBlock) {
-                    vistas++
-                }
-
-                override fun visit(htmlInline: HtmlInline) {
-                    vistas++
-                }
-            },
-        )
-        return vistas
-    }
+    /** O que a leitura única do HTML cru dá: os bloqueios, no máximo [MAXIMO_DE_CITACOES], e a contagem inteira. */
+    private class HtmlCru(val bloqueios: List<BloqueioDeCitacao>, val marcacoes: Int)
 
     /**
      * O parser da especificação CommonMark inteira. Montado uma vez, serve a
@@ -590,10 +582,11 @@ public object AuditoriaAbnt {
      * Se o texto tem mais citações, aspas, sinais, referências ou marcações
      * de HTML cru do que os leitores acima examinam. Conta até um além do
      * limite, sem cortar. Vale também para o HTML cru, cujo leitor,
-     * [bloqueiosDeHtmlCru], para em [MAXIMO_DE_CITACOES] bloqueios como os
-     * outros.
+     * [lerHtmlCru], para em [MAXIMO_DE_CITACOES] bloqueios como os outros; a
+     * auditoria passa a contagem da leitura que já fez, para a árvore do
+     * CommonMark não se montar duas vezes.
      */
-    internal fun excedeCapacidade(texto: String): Boolean {
+    internal fun excedeCapacidade(texto: String, marcacoesDeHtmlCru: Int = lerHtmlCru(texto).marcacoes): Boolean {
         val trechos = HashSet<Pair<Int, Int>>()
         for (padrao in PADROES_DE_CITACAO) {
             for (achado in padrao.findAll(texto)) {
@@ -603,13 +596,17 @@ public object AuditoriaAbnt {
         }
         if (ASPAS.findAll(texto).take(MAXIMO_DE_CITACOES + 1).count() > MAXIMO_DE_CITACOES) return true
         if (SINAIS.any { it.findAll(texto).take(MAXIMO_DE_CITACOES + 1).count() > MAXIMO_DE_CITACOES }) return true
-        if (marcacoesDeHtmlCru(texto) > MAXIMO_DE_CITACOES) return true
+        if (marcacoesDeHtmlCru > MAXIMO_DE_CITACOES) return true
         return secaoDeReferencias(texto, MAXIMO_DE_FONTES + 1).size > MAXIMO_DE_FONTES
     }
 
     /** `document_policy_blockers`. */
-    private fun bloqueiosDePolitica(texto: String, citacoes: List<Citacao>): List<BloqueioDeCitacao> {
-        val bloqueios = (bloqueiosDeHtmlCru(texto) + bloqueiosDeAspas(texto, citacoes)).toMutableList()
+    private fun bloqueiosDePolitica(
+        texto: String,
+        citacoes: List<Citacao>,
+        htmlCru: List<BloqueioDeCitacao>,
+    ): List<BloqueioDeCitacao> {
+        val bloqueios = (htmlCru + bloqueiosDeAspas(texto, citacoes)).toMutableList()
         val dobrado = dobrarAscii(texto)
         if (dobrado.contains("wikipediaorg") || dobrado.contains("ptwikipediaorg")) {
             bloqueios += bloqueio(
@@ -658,8 +655,9 @@ public object AuditoriaAbnt {
         texto: String,
         citacoes: List<Citacao>,
         referencias: List<ReferenciaBruta>,
+        htmlCru: List<BloqueioDeCitacao>,
     ): List<BloqueioDeCitacao> {
-        val bloqueios = bloqueiosDePolitica(texto, citacoes).toMutableList()
+        val bloqueios = bloqueiosDePolitica(texto, citacoes, htmlCru).toMutableList()
         if (citacoes.isNotEmpty() && referencias.isEmpty()) {
             bloqueios += bloqueio(
                 "reference_section_missing",

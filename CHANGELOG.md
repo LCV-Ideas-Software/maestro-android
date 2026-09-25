@@ -126,7 +126,7 @@ All material changes to Maestro Android are recorded here.
   serial-turn cases. 90 tests in the new files, plus 9 in
   `ProtocoloNoAparelhoTest`, which runs on the `:core:seguranca` emulator in CI
   to prove the regular expressions and the UTF-8 decoder on Android rather
-  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 39 mutations,
+  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 40 mutations,
   the last one written per rule) were all caught, with a green control run
   before and after.
 
