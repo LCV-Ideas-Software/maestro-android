@@ -47,10 +47,17 @@ All material changes to Maestro Android are recorded here.
     content, and a `304` over it is the canonical error);
   - cancellation is one rule at the transport: after `cancelarTudo()`
     nothing starts, not a hop, not the page after `robots.txt`, not a
-    validation that would resolve a name, and the in-flight DNS-over-HTTPS
-    queries are cancelled too; the collection surfaces `ColetaCancelada`,
-    which is not a failure record, so a cancelled audit stops instead of
-    continuing link by link;
+    validation that would resolve a name; the collection surfaces
+    `ColetaCancelada`, which is not a failure record, so a cancelled audit
+    stops instead of continuing link by link. The application's DNS
+    resolver is shared by every audit and is not cancelled (operator's
+    decision of 25/09/2026): a query already in flight ends by its own
+    10-second timeout;
+  - a stored record never carries credentials: the URL of a record blocked
+    by validation is written without user info and with every sensitive
+    query value replaced by `<redacted>` (the desktop stores the raw URL,
+    MAESTRO-34 item 15); and a refresh that fails or stops at an
+    interaction never erases the last ready body from the store;
   - an empty 2xx body from a search API is refused as invalid JSON, as
     `serde_json` refuses it, since Jackson's `readTree` does not throw on
     empty content;

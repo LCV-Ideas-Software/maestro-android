@@ -23,16 +23,13 @@ class BuscaDeEvidenciasTest {
     @AfterTest
     fun descer() = servidor.close()
 
-    private var cancelamentos = 0
-
     private fun busca(agente: AgenteDeColeta = RedeDeTeste.agentePolido) = BuscaDeEvidencias(
         RedeDeTeste.cliente(),
         Dns.SYSTEM,
         RedeDeTeste.politica(RedeDeTeste.resolvedor("10.0.0.1.example.com" to listOf("10.0.0.1"))),
         agente,
         { RedeDeTeste.agora },
-        { servidor.url("/${it.id}/works").toString() },
-    ) { cancelamentos++ }
+    ) { servidor.url("/${it.id}/works").toString() }
 
     private val crossref = """
         {"message":{"items":[
@@ -124,7 +121,6 @@ class BuscaDeEvidenciasTest {
     fun `cancelarTudo fecha a busca antes de qualquer consulta de nome`() {
         val busca = busca()
         busca.cancelarTudo()
-        assertEquals(1, cancelamentos)
         assertFailsWith<ColetaCancelada> { busca.buscar("q", "crossref", 1) }
         assertEquals(0, servidor.requestCount)
     }

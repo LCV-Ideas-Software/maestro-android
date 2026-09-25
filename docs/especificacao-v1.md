@@ -802,10 +802,19 @@ sobre o plano:
    chamada bloqueante não vê o cancelamento da corrotina. O cancelamento é
    uma regra só, no transporte: depois de `cancelarTudo()` nada mais começa
    — nem um salto, nem a página depois do `robots.txt`, nem uma validação
-   que consultaria o DNS —, as consultas DoH em curso são canceladas, e a
-   coleta sobe como `ColetaCancelada`, que não é falha registrada: a
-   auditoria cancelada para, em vez de seguir link a link. Um coletor
-   cancelado não volta; o `:core:sessao` cria um por auditoria.
+   que consultaria o DNS —, e a coleta sobe como `ColetaCancelada`, que
+   não é falha registrada: a auditoria cancelada para, em vez de seguir
+   link a link. Um coletor cancelado não volta; o `:core:sessao` cria um
+   por auditoria. O resolvedor DoH é do aplicativo e serve a mais de uma
+   auditoria ao mesmo tempo; por isso **não é cancelado** (decisão do
+   operador de 25/09/2026): uma consulta já em voo termina pelo próprio
+   prazo de 10 s, e esse é o custo aceito.
+9. **O registro nunca guarda credencial.** A URL do registro bloqueado pela
+   validação é gravada sem usuário e senha e com o valor de toda chave
+   sensível trocado por `<redacted>`; o canônico grava a URL bruta
+   (furo 15 da MAESTRO-34). E uma recoleta que falhou ou parou numa
+   interação nunca apaga do armazém o último corpo pronto: o registro
+   novo é gravado com o corpo que já estava lá.
 
 Não portados, por decisão do operador: a sondagem legada de 15 s do web e os
 conectores de busca configuráveis (seção 11). Os hashes e os ids não são

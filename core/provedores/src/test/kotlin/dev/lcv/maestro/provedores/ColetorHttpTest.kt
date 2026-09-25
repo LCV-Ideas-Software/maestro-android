@@ -44,13 +44,11 @@ class ColetorHttpTest {
         }
     }
 
-    private var cancelamentos = 0
-
     private fun coletor(
         politica: UrlPublica.PoliticaDeRede = RedeDeTeste.politica(),
         armazem: ColetorHttp.ArmazemDeEvidencias? = null,
         relogio: () -> Instant = { agora },
-    ) = ColetorHttp(RedeDeTeste.cliente(), Dns.SYSTEM, politica, RedeDeTeste.agente, armazem, relogio) { cancelamentos++ }
+    ) = ColetorHttp(RedeDeTeste.cliente(), Dns.SYSTEM, politica, RedeDeTeste.agente, armazem, relogio)
 
     private fun robots(codigo: Int = 404, corpo: String = "") {
         servidor.enqueue(RedeDeTeste.resposta(codigo, corpo, "Content-Type" to "text/plain"))
@@ -426,12 +424,53 @@ class ColetorHttpTest {
         assertTrue((System.nanoTime() - inicio) < 10_000_000_000L)
         assertTrue(erro is ColetaCancelada, erro.toString())
         assertEquals(1, servidor.requestCount)
-        assertEquals(1, cancelamentos)
         // Depois do cancelamento, nem a validação (que consulta o DNS) começa.
         assertFailsWith<ColetaCancelada> { coletor.coletar(url("/c")) }
         assertFailsWith<ColetaCancelada> { coletor.coletar("https://example.com/") }
         assertEquals(1, servidor.requestCount)
         assertTrue(tabela.consultas.isEmpty(), tabela.consultas.toString())
+    }
+
+    @Test
+    fun `recoleta que falhou ou parou nao apaga o ultimo corpo pronto do armazem`() {
+        val armazem = ArmazemEmMemoria()
+        robots()
+        pagina(corpo = "<html>pronto</html>")
+        val pronta = coletor(armazem = armazem).coletarComConteudo(url("/a"))
+        // Trinta dias depois, a recoleta cai num 500 e depois num login.
+        for ((codigo, corpo) in listOf(500 to "<html>erro</html>", 401 to "<html>Sign in</html>")) {
+            robots()
+            pagina(codigo, corpo)
+            val falhou = coletor(armazem = armazem) { agora.plusSeconds(30 * 86_400) }.coletarComConteudo(url("/a"))
+            assertNull(falhou.corpo)
+            val guardada = armazem.guardadas.getValue(pronta.registro.id)
+            assertEquals(falhou.registro, guardada.registro)
+            assertContentEquals("<html>pronto</html>".toByteArray(), guardada.corpo)
+        }
+        // O registro guardado não é conteúdo pronto: não é reaproveitado nem revalidado.
+        robots()
+        pagina(corpo = "<html>novo</html>")
+        val nova = coletor(armazem = armazem) { agora.plusSeconds(31 * 86_400) }.coletarComConteudo(url("/a"), revalidar = true)
+        repeat(5) { servidor.takeRequest() }
+        assertNull(servidor.takeRequest().headers["If-None-Match"])
+        assertContentEquals("<html>novo</html>".toByteArray(), armazem.guardadas.getValue(pronta.registro.id).corpo)
+        assertEquals(EstadoDaEvidencia.PRONTA, nova.registro.estado)
+    }
+
+    @Test
+    fun `a URL gravada no registro bloqueado nao leva credencial nem valor sensivel`() {
+        val coletor = coletor()
+        assertEquals("https://example.com/", coletor.coletar("https://user:password@example.com/").url)
+        assertEquals("https://example.com/?x=1&access_token=%3Credacted%3E", coletor.coletar("https://example.com/?x=1&access_token=topsecret").url)
+        assertEquals(
+            "https://example.com/?Sig=%3Credacted%3E&session_token=%3Credacted%3E&x=2#f",
+            coletor.coletar("https://example.com/?Sig=abc&session_token=def&x=2#f").url,
+        )
+        // O que o parser não lê é tratado no texto, com a mesma regra.
+        assertEquals("http://exa mple.com/?token=<redacted>&ok=1", coletor.coletar("http://user:pw@exa mple.com/?token=abc&ok=1").url)
+        assertEquals(0, servidor.requestCount)
+        // O id preliminar continua sendo o da URL como o texto a citou.
+        assertEquals(RedeDeTeste.sha("http_fetch|GET|https://user:password@example.com/"), coletor.coletar("https://user:password@example.com/").id)
     }
 
     @Test

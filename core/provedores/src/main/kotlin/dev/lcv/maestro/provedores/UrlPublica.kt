@@ -51,6 +51,39 @@ internal object UrlPublica {
         return analisada.newBuilder().fragment(null).build()
     }
 
+    /**
+     * A URL como ela pode ser gravada num registro: sem usuário e senha, e
+     * com o valor de toda chave sensível trocado por `<redacted>`. A URL
+     * validada já não os tem; a bloqueada chega como o texto a citou, e o
+     * registro de bloqueio não pode ser o lugar onde a credencial sobrevive.
+     * O canônico grava a URL bruta (`failed_fetch_record` → `base_record`,
+     * só `sanitize_text`): furo 15 da MAESTRO-34. O que o `HttpUrl` não lê
+     * é tratado no texto, com a mesma regra.
+     */
+    fun paraRegistro(url: String): String {
+        val analisada = url.toHttpUrlOrNull()
+        if (analisada != null) {
+            val construtor = analisada.newBuilder().username("").password("").query(null)
+            for (i in 0 until analisada.querySize) {
+                val nome = analisada.queryParameterName(i)
+                construtor.addQueryParameter(nome, if (chaveSensivel(nome)) REDIGIDO else analisada.queryParameterValue(i))
+            }
+            return construtor.build().toString()
+        }
+        val semUsuario = USUARIO_NA_AUTORIDADE.replace(url, "$1")
+        return PAR_DA_QUERY.replace(semUsuario) { par ->
+            if (chaveSensivel(par.groupValues[2])) "${par.groupValues[1]}${par.groupValues[2]}=$REDIGIDO" else par.value
+        }
+    }
+
+    private const val REDIGIDO = "<redacted>"
+
+    /** `esquema://` seguido de tudo até o `@` da autoridade. */
+    private val USUARIO_NA_AUTORIDADE = Regex("^([a-zA-Z][a-zA-Z0-9+.-]*://)[^/?#]*@")
+
+    /** Um par `nome=valor` da query, com o separador que o antecede. */
+    private val PAR_DA_QUERY = Regex("([?&])([^=&#]*)=([^&#]*)")
+
     /** `sensitive_query_key`. */
     fun chaveSensivel(nome: String): Boolean {
         val normalizado = nome.lowercase(Locale.ROOT)

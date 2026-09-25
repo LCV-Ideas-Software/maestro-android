@@ -39,8 +39,6 @@ public class BuscaDeEvidencias internal constructor(
     private val relogio: () -> Instant,
     /** O endpoint de cada conector; os testes o apontam para o servidor falso. */
     private val endpointDe: (Conector) -> String = { it.endpoint },
-    /** O que mais cancelar em [cancelarTudo]: em produção, as consultas DoH do resolvedor. */
-    private val cancelador: () -> Unit = {},
 ) : IntegridadeDeLinks.BuscadorDeEvidencia {
 
     public constructor(resolvedor: ResolvedorPublico, agente: AgenteDeColeta) : this(
@@ -49,7 +47,6 @@ public class BuscaDeEvidencias internal constructor(
         { RedePublica.motivoDeRecusa(it, AnalisadorDeUrlOkHttp, resolvedor) },
         agente,
         Instant::now,
-        cancelador = resolvedor::cancelar,
     )
 
     private val transporte = TransportePublico(clienteBase, dns, politica, agente)
@@ -169,10 +166,9 @@ public class BuscaDeEvidencias internal constructor(
         return registros
     }
 
-    /** Cancela toda busca em curso — transporte e consultas DoH — e fecha esta busca ([ColetaCancelada] daí em diante). */
+    /** Cancela toda busca em curso e fecha esta busca ([ColetaCancelada] daí em diante); o resolvedor DoH não é cancelado. */
     public fun cancelarTudo() {
         transporte.cancelarTudo()
-        cancelador()
     }
 
     /** `json_value_at_path`: segmentos separados por ponto, vazios ignorados. */

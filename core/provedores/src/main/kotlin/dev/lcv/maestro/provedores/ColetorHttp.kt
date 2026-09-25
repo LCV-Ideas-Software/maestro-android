@@ -42,8 +42,6 @@ public class ColetorHttp internal constructor(
     private val agente: AgenteDeColeta,
     private val armazem: ArmazemDeEvidencias?,
     private val relogio: () -> Instant,
-    /** O que mais cancelar em [cancelarTudo]: em produção, as consultas DoH do resolvedor. */
-    private val cancelador: () -> Unit = {},
 ) : IntegridadeDeLinks.ColetorDeEvidencia {
 
     public constructor(
@@ -57,19 +55,25 @@ public class ColetorHttp internal constructor(
         agente,
         armazem,
         Instant::now,
-        resolvedor::cancelar,
     )
 
     private val transporte = TransportePublico(clienteBase, dns, politica, agente)
     private val politica = transporte.politicaGuardada()
     private val robots = LeitorDeRobots(transporte, this.politica, agente.nomeDoRobo)
 
-    /** O que fica guardado de uma coleta: o `StoredWebEvidence` do canônico. */
+    /**
+     * O que fica guardado de uma coleta: o `StoredWebEvidence` do canônico.
+     * O que a coleta devolve e o que o armazém recebe diferem num ponto: no
+     * armazém, [corpo] é o **último corpo pronto** deste id — uma recoleta
+     * que falhou ou esbarrou numa interação leva `corpo` nulo ao chamador, e
+     * o armazém guarda o registro novo com o corpo que já tinha (o canônico
+     * grava o registro sem `content_path` e deixa os bytes no disco).
+     */
     public class Coleta(
         public val registro: RegistroDeEvidencia,
         /** Os cabeçalhos seguros da resposta (`safe_response_headers`). */
         public val cabecalhos: Map<String, String>,
-        /** O corpo, só quando o registro está `PRONTA`. */
+        /** O corpo, só quando o registro está `PRONTA`; no armazém, o último corpo pronto. */
         public val corpo: ByteArray?,
     )
 
@@ -95,7 +99,7 @@ public class ColetorHttp internal constructor(
         val validada = try {
             UrlPublica.validar(url, politica)
         } catch (erro: IntegridadeDeLinks.Falha) {
-            return guardar(falha(null, idPreliminar, url, EstadoDaEvidencia.BLOQUEADA, erro.message.orEmpty(), agora))
+            return guardar(falha(null, idPreliminar, url, EstadoDaEvidencia.BLOQUEADA, erro.message.orEmpty(), agora), null)
         }
         val urlCanonica = validada.toString()
         val id = FormatoDoRegistro.sha256("http_fetch|GET|$urlCanonica")
@@ -113,7 +117,7 @@ public class ColetorHttp internal constructor(
                 existente, id, urlCanonica, EstadoDaEvidencia.BLOQUEADA,
                 "robots.txt disallows automatic collection for this path", agora,
             ).copy(estadoDoRobots = estadoDoRobots)
-            return guardar(registro)
+            return guardar(registro, existente)
         }
 
         val condicionais = if (revalidar && conteudoPronto(existente)) cabecalhosCondicionais(existente) else emptyMap()
@@ -122,7 +126,7 @@ public class ColetorHttp internal constructor(
         } catch (erro: IntegridadeDeLinks.Falha) {
             val registro = falha(existente, id, urlCanonica, EstadoDaEvidencia.FALHOU, erro.message.orEmpty(), agora)
                 .copy(estadoDoRobots = estadoDoRobots)
-            return guardar(registro)
+            return guardar(registro, existente)
         }
 
         if (bruta.status == 304) {
@@ -147,7 +151,7 @@ public class ColetorHttp internal constructor(
                 cadeiaDeRedirecionamento = bruta.redirecionamentos,
                 notas = existente.registro.notas + "Cache revalidated by HTTP 304; content hash preserved",
             )
-            return guardar(Coleta(renovado, existente.cabecalhos + bruta.cabecalhos, existente.corpo))
+            return guardar(Coleta(renovado, existente.cabecalhos + bruta.cabecalhos, existente.corpo), existente)
         }
 
         val coletadaEm = relogio()
@@ -185,30 +189,39 @@ public class ColetorHttp internal constructor(
             notas = notas,
         )
         val corpo = if (estado == EstadoDaEvidencia.PRONTA) bruta.corpo else null
-        return guardar(Coleta(registro, bruta.cabecalhos, corpo))
+        return guardar(Coleta(registro, bruta.cabecalhos, corpo), existente)
     }
 
     /**
-     * Cancela toda coleta em curso — transporte e consultas DoH — e fecha
-     * este coletor: depois disto, qualquer coleta lança [ColetaCancelada]
-     * antes de tocar a rede. A coleta é bloqueante e não vê o cancelamento
-     * da corrotina; o `:core:sessao` cria um coletor por auditoria.
+     * Cancela toda coleta em curso e fecha este coletor: depois disto,
+     * qualquer coleta lança [ColetaCancelada] antes de tocar a rede — nem
+     * uma consulta de nome nova sai. A coleta é bloqueante e não vê o
+     * cancelamento da corrotina; o `:core:sessao` cria um coletor por
+     * auditoria. O resolvedor DoH, que é do aplicativo, não é cancelado
+     * (decisão do operador de 25/09/2026): uma consulta já em voo termina
+     * pelo prazo dele.
      */
     public fun cancelarTudo() {
         transporte.cancelarTudo()
-        cancelador()
     }
 
     /** Se a coleta guardada é conteúdo pronto: só ela pode ser revalidada e renovada por 304. */
     private fun conteudoPronto(existente: Coleta?): Boolean =
         existente != null && existente.registro.estado == EstadoDaEvidencia.PRONTA && existente.corpo != null
 
-    private fun guardar(coleta: Coleta): Coleta {
-        armazem?.guardar(coleta)
+    /**
+     * Grava e devolve a coleta. No armazém, uma coleta sem corpo mantém o
+     * último corpo pronto guardado (`:1263-1271` do canônico: uma recoleta
+     * que falhou ou esbarrou numa interação nunca sobrescreve os bytes do
+     * último registro pronto); o chamador recebe a coleta como ela é.
+     */
+    private fun guardar(coleta: Coleta, existente: Coleta?): Coleta {
+        armazem?.guardar(Coleta(coleta.registro, coleta.cabecalhos, coleta.corpo ?: existente?.corpo))
         return coleta
     }
 
-    private fun guardar(registro: RegistroDeEvidencia): Coleta = guardar(Coleta(registro, emptyMap(), null))
+    private fun guardar(registro: RegistroDeEvidencia, existente: Coleta?): Coleta =
+        guardar(Coleta(registro, emptyMap(), null), existente)
 
     /** `failed_fetch_record`. */
     private fun falha(
@@ -231,7 +244,9 @@ public class ColetorHttp internal constructor(
             id = id,
             versaoDoEsquema = VERSAO_DO_ESQUEMA,
             estado = EstadoDaEvidencia.COLETANDO,
-            url = Erros.sanear(url, 2_048),
+            // A URL gravada nunca leva credencial nem valor de chave sensível:
+            // a URL bloqueada pela validação chega aqui como o texto citou.
+            url = Erros.sanear(UrlPublica.paraRegistro(url), 2_048),
             metodo = MetodoHttp.GET,
             modoDeAcesso = ModoDeAcesso.COLETA_HTTP,
             status = null,

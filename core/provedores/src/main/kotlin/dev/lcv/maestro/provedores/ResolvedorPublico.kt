@@ -35,22 +35,14 @@ import okhttp3.dnsoverhttps.DnsOverHttps
  * ([AnalisadorDeUrlOkHttp.ipLiteral]). O nome vai ao [delegado] — em produção
  * o DNS sobre HTTPS do Google, [dnsDoGoogle], por decisão do operador de
  * 25/09/2026; sem recaída para o DNS do sistema.
+ *
+ * O resolvedor é do aplicativo e serve a mais de uma auditoria ao mesmo
+ * tempo; por isso **não é cancelado** por auditoria nenhuma (decisão do
+ * operador de 25/09/2026, na revisão da PR 2). Depois de `cancelarTudo()`
+ * o transporte cancelado recusa qualquer consulta nova, e uma consulta DoH
+ * já em voo termina sozinha pelo prazo do cliente de arranque.
  */
-public class ResolvedorPublico internal constructor(
-    private val delegado: Dns,
-    private val cancelador: () -> Unit,
-) : Dns, RedePublica.ResolvedorDeNomes {
-
-    public constructor(delegado: Dns) : this(delegado, {})
-
-    /**
-     * Cancela as consultas DoH em curso. Não marca o resolvedor: ele é do
-     * aplicativo e serve a mais de uma auditoria; quem não volta é o
-     * transporte cancelado, que recusa qualquer consulta nova.
-     */
-    public fun cancelar() {
-        cancelador()
-    }
+public class ResolvedorPublico(private val delegado: Dns) : Dns, RedePublica.ResolvedorDeNomes {
 
     override fun resolver(host: String): List<ByteArray>? = try {
         todos(host).map { it.address }
@@ -115,7 +107,7 @@ public class ResolvedorPublico internal constructor(
                 .bootstrapDnsHosts(arranque)
                 .includeIPv6(true)
                 .build()
-            return ResolvedorPublico(doh) { cliente.dispatcher.cancelAll() }
+            return ResolvedorPublico(doh)
         }
 
         private const val PRAZO_DO_DOH_SEGUNDOS = 10L
