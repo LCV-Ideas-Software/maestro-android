@@ -231,6 +231,32 @@ class AuditoriaAbntTest {
             auditar("Texto (Ωμέγα, 2020).\n\n## Referencias\nΩΜΈΓΑ, Άλφα. Obra. Atenas: Editora, 2020.")
                 .temBloqueio("citation_without_reference"),
         )
+        // Vários autores: o primeiro, com quatro letras ou mais, basta para
+        // casar, medido na representação em que é comparado. O Rust media o
+        // dobrado, e um nome grego tinha comprimento zero.
+        assertFalse(
+            auditar("Texto (Ωμέγα e Άλφα, 2020).\n\n## Referencias\nΩΜΈΓΑ, Άλφα. Obra. Atenas: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+        // Controles: primeiro autor de três letras não basta, grego ou ASCII,
+        // embora a chave inteira, que não tem mínimo, case como no ASCII; e o
+        // primeiro autor grego não casa com a referência de outro.
+        assertFalse(
+            auditar("Texto (Ωμέ, 2020).\n\n## Referencias\nΩΜΈ, Άλφα. Obra. Atenas: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+        assertTrue(
+            auditar("Texto (Ωμέ e Άλφα, 2020).\n\n## Referencias\nΩΜΈ, Άλφα. Obra. Atenas: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+        assertTrue(
+            auditar("Texto (Sil e Alfa, 2020).\n\n## Referencias\nSIL, Alfa. Obra. Rio: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+        assertTrue(
+            auditar("Texto (Ωμέγα e Άλφα, 2020).\n\n## Referencias\nΒΉΤΑ, Γάμμα. Obra. Atenas: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
         // Autor ASCII de outro sobrenome, no mesmo ano, também não casa.
         assertTrue(
             auditar("Texto (Souza, 2020).\n\n## Referencias\nSILVA, Ana. Obra. Rio: Editora, 2020.")
@@ -341,15 +367,17 @@ class AuditoriaAbntTest {
             // Tag sozinha na própria linha (o bloco HTML de tipo 7 do
             // CommonMark): o atributo continua mascarado.
             "<a title=$citacao>\nisto</a> e fim.",
-            // Blocos de pura marcação (CommonMark 4.6, tipos 1 a 5), que podem
-            // atravessar linha em branco: mascarados inteiros, como a
-            // especificação os delimita, inclusive o resto da linha do
-            // fechamento e, sem fechamento, até o fim do texto.
+            // Blocos cujo conteúdo o navegador esconde (CommonMark 4.6:
+            // `<script>` e `<style>`, comentário, instrução, declaração e
+            // CDATA), que podem atravessar linha em branco: mascarados
+            // inteiros, como a especificação os delimita, inclusive o resto
+            // da linha do fechamento e, sem fechamento, até o fim do texto.
             "Texto.\n\n<!--\n$citacao\n\n-->\n\nFim.",
             "Texto.\n\n<?alvo\n$citacao\n\n?>\n\nFim.",
             "Texto.\n\n<!-- c --> $citacao fim.",
             "Texto.\n\n<!--\n$citacao\n\nsem fechamento.",
             "Texto.\n\n<script>\nvar x = $citacao;\n</script>\n\nFim.",
+            "Texto.\n\n<style>\n.a::before { content: $citacao; }\n</style>\n\nFim.",
             "Texto.\n\n   <![CDATA[\n$citacao\n]]>\n\nFim.",
         )) {
             assertFalse(auditar(texto).temBloqueio("direct_quote_without_citation"), texto)
@@ -364,6 +392,10 @@ class AuditoriaAbntTest {
             "Texto <?alvo titulo=$citacao > fim.",
             "Texto <!-- <? --> $citacao ?> fim.",
             "<div>\n$citacao sem fonte.\n</div>",
+            // `<pre>` e `<textarea>` são blocos de tipo 1 como `<script>`, mas
+            // o navegador mostra o conteúdo deles ao leitor.
+            "Texto.\n\n<pre>\n$citacao sem fonte.\n</pre>\n\nFim.",
+            "Texto.\n\n<textarea>\n$citacao sem fonte.\n</textarea>\n\nFim.",
             // `<?` que sobrou num comentário de bloco não abre instrução.
             "Texto.\n\n<!-- <? -->\n\n$citacao ?> fim.",
             "A\r\nB\r\nTexto <b>x</b>$citacao sem fonte.",

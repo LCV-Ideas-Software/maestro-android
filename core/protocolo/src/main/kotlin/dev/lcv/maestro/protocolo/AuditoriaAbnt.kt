@@ -233,6 +233,20 @@ public object AuditoriaAbnt {
     private fun representaAlgo(valor: String): Boolean = valor.any(Char::isLetterOrDigit)
 
     /**
+     * O comprimento de [valor] na representação em que [TextoDobrado] o
+     * compara: o dobrado ou, quando o dobramento o esvazia, a chave canônica,
+     * em pontos de código. O canônico media só o dobrado, e um nome grego
+     * tinha comprimento zero.
+     */
+    private fun comprimentoDobrado(valor: String): Int {
+        val dobrado = dobrarAscii(valor)
+        if (dobrado.isNotEmpty()) return dobrado.length
+        if (!representaAlgo(valor)) return 0
+        val canonico = chaveCanonica(valor)
+        return canonico.codePointCount(0, canonico.length)
+    }
+
+    /**
      * Se [a] e [b] são o mesmo valor pelo dobramento, pela regra de
      * [TextoDobrado]: dois valores que dobram para vazio são comparados pela
      * [chaveCanonica], e não iguais só por isso.
@@ -497,13 +511,14 @@ public object AuditoriaAbnt {
      *    abre com `<div>` faz do bloco inteiro HTML cru, inclusive a prosa
      *    visível dentro dele; sem o bloco, essas linhas viram parágrafo, cada
      *    tag vira um `HtmlInline` exato, e a prosa continua conferida.
-     * 2. Blocos HTML de pura marcação (seção 4.6, tipos 1 a 5: `<script>`,
-     *    `<pre>`, `<style>`, `<textarea>`, comentário, instrução, declaração e
-     *    CDATA), que podem atravessar linha em branco. O bloco é mascarado
-     *    inteiro, como a especificação o delimita, inclusive o resto da linha
-     *    do fechamento e, sem fechamento, até o fim do texto — o que o
-     *    navegador também esconde. Os blocos de elemento (tipos 6 e 7) ficam
-     *    para o passe 1, que já conferiu a prosa deles.
+     * 2. Blocos HTML cujo conteúdo o navegador esconde (seção 4.6: `<script>`
+     *    e `<style>` do tipo 1, e comentário, instrução, declaração e CDATA,
+     *    tipos 2 a 5), que podem atravessar linha em branco. O bloco é
+     *    mascarado inteiro, como a especificação o delimita, inclusive o resto
+     *    da linha do fechamento e, sem fechamento, até o fim do texto — o que
+     *    o navegador também esconde. `<pre>` e `<textarea>`, também do tipo 1,
+     *    mostram o conteúdo ao leitor, e os blocos de elemento (tipos 6 e 7)
+     *    também: ficam para o passe 1, que já conferiu a prosa deles.
      *
      * Divergência do canônico, corrigindo uma falha dele: lá a aspa reta era
      * pulada depois de qualquer `<` sem `>` adiante, ou logo depois de um `=`.
@@ -538,15 +553,16 @@ public object AuditoriaAbnt {
     }
 
     /**
-     * As condições de início dos blocos HTML de tipos 1 a 5 (CommonMark
-     * 0.31.2, seção 4.6), que são pura marcação: `<pre`, `<script`, `<style`
-     * ou `<textarea` seguidos de espaço, tabulação, `>` ou fim de linha;
-     * `<!--`; `<?`; `<!` e letra; `<![CDATA[`. A indentação de até três
-     * espaços, que a especificação admite, já vem fora do trecho de origem
-     * que a commonmark-java dá ao bloco.
+     * As condições de início dos blocos HTML cujo conteúdo o navegador
+     * esconde (CommonMark 0.31.2, seção 4.6): `<script` ou `<style` seguidos
+     * de espaço, tabulação, `>` ou fim de linha (tipo 1, sem `<pre` e
+     * `<textarea`, cujo conteúdo é visível); `<!--`; `<?`; `<!` e letra;
+     * `<![CDATA[` (tipos 2 a 5). A indentação de até três espaços, que a
+     * especificação admite, já vem fora do trecho de origem que a
+     * commonmark-java dá ao bloco.
      */
     private val INICIO_DE_BLOCO_DE_MARCACAO = Regex(
-        "^(?:<(?:pre|script|style|textarea)(?:[ \\t>]|$)|<!--|<\\?|<![A-Za-z]|<!\\[CDATA\\[)",
+        "^(?:<(?:script|style)(?:[ \\t>]|$)|<!--|<\\?|<![A-Za-z]|<!\\[CDATA\\[)",
         RegexOption.IGNORE_CASE,
     )
 
@@ -690,7 +706,7 @@ public object AuditoriaAbnt {
             val primeiroToken = EspacoUnicode.dividirPorEspacos(citacao.chaveDoAutor).firstOrNull() ?: ""
             val casada = referencias.withIndex().firstOrNull { (_, referencia) ->
                 (referencia.chave.contem(citacao.chaveDoAutor) ||
-                    (dobrarAscii(primeiroToken).length >= 4 && referencia.chave.contem(primeiroToken))) &&
+                    (comprimentoDobrado(primeiroToken) >= 4 && referencia.chave.contem(primeiroToken))) &&
                     referencia.ano == citacao.ano
             }
             if (casada != null) {

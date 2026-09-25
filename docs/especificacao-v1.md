@@ -199,16 +199,18 @@ no Rust em `68528f9`:
   referência, marcador de nota ou chave de autor ausentes passavam por
   presentes. Uma regra só, em toda comparação: valor sem letra nem dígito
   nunca está presente; valor cujas letras o dobramento descarta, como um
-  nome grego, é comparado pela chave canônica;
+  nome grego, é comparado pela chave canônica, e o mínimo de quatro letras
+  do primeiro autor é medido nessa mesma representação;
 - **o HTML cru do texto final é mascarado antes da busca de aspas.** O texto
   final é Markdown, e quem reconhece o HTML é a `commonmark-java`, pela seção
   6.6 da especificação CommonMark (decisão do operador de 24/09/2026, no
   lugar de um reconhecimento escrito à mão). O HTML em linha é lido com o
   bloco HTML desligado, para que a prosa dentro de um `<div>` continue
-  conferida; os blocos HTML de pura marcação (seção 4.6, tipos 1 a 5:
-  `<script>`, `<pre>`, `<style>`, `<textarea>`, comentário, instrução,
-  declaração e CDATA), que podem atravessar linha em branco, são mascarados
-  inteiros, como a especificação os delimita. Marcação não vira citação nem
+  conferida; os blocos HTML cujo conteúdo o navegador esconde (seção 4.6:
+  `<script>` e `<style>`, comentário, instrução, declaração e CDATA), que
+  podem atravessar linha em branco, são mascarados inteiros, como a
+  especificação os delimita; `<pre>` e `<textarea>` mostram o conteúdo ao
+  leitor e continuam conferidos. Marcação não vira citação nem
   pareia com as aspas da prosa em volta. O Rust
   pulava a aspa reta depois de qualquer `<` sem `>` adiante, ou logo depois de
   um `=`: prosa como `2 < 3 e "..."` escondia uma citação direta sem fonte,
