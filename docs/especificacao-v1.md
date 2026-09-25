@@ -194,13 +194,17 @@ no Rust em `68528f9`:
   ou só letras que o dobramento ASCII descarta, dobram para vazio, e o
   `contains("")` do Rust é verdadeiro para qualquer texto: citação,
   referência, marcador de nota ou chave de autor ausentes passavam por
-  presentes;
-- **a marcação HTML é mascarada antes da busca de aspas:** tags de abertura
-  completas, comentários, declarações (`<!DOCTYPE ...>`) e instruções de
-  processamento. Marcação não vira citação nem pareia com as aspas da prosa
-  em volta. Cada marcação termina no seu fechamento real, e o texto entre
-  aspas dentro dela pode conter `<` e `>`; comentário sem `-->` e instrução
-  sem `?>` não são mascarados. O Rust
+  presentes. Dois valores que dobram os dois para vazio, como dois nomes
+  gregos, são comparados sem o dobramento, e a chave de autor que dobra para
+  vazio casa com a própria referência do mesmo jeito;
+- **o HTML cru do texto final é mascarado antes da busca de aspas.** O texto
+  final é Markdown, e quem reconhece o HTML é a `commonmark-java`, pela seção
+  6.6 da especificação CommonMark: tag, comentário, instrução de
+  processamento, declaração e CDATA, cada um até o fechamento que a
+  especificação define (decisão do operador de 24/09/2026, no lugar de um
+  reconhecimento escrito à mão). O bloco HTML fica desligado, para que a
+  prosa dentro de um `<div>` continue conferida. Marcação não vira citação
+  nem pareia com as aspas da prosa em volta. O Rust
   pulava a aspa reta depois de qualquer `<` sem `>` adiante, ou logo depois de
   um `=`: prosa como `2 < 3 e "..."` escondia uma citação direta sem fonte,
   e a aspa que fecha um atributo pareava com a que abre o seguinte;
@@ -219,7 +223,8 @@ no Rust em `68528f9`:
   cobria todas as ocorrências iguais, e a segunda afirmação saía sem
   verificação própria. Texto com forma de citação dentro da seção de
   referências, como um título, não consome entrada: só precisa estar
-  representado, como no Rust;
+  representado, como no Rust. A seção termina no próximo cabeçalho, e um
+  apêndice depois dela é corpo;
 - **manifesto com chave JSON repetida é recusado** (decisão do operador de
   24/09/2026). O Rust o lê primeiro como `Value` e fica com o último valor:
   dois leitores do mesmo arquivo veriam manifestos diferentes.

@@ -4,6 +4,16 @@ import java.time.Instant
 import java.util.Locale
 import java.util.TreeMap
 import java.util.TreeSet
+import org.commonmark.node.AbstractVisitor
+import org.commonmark.node.BlockQuote
+import org.commonmark.node.FencedCodeBlock
+import org.commonmark.node.Heading
+import org.commonmark.node.HtmlInline
+import org.commonmark.node.IndentedCodeBlock
+import org.commonmark.node.ListBlock
+import org.commonmark.node.ThematicBreak
+import org.commonmark.parser.IncludeSourceSpans
+import org.commonmark.parser.Parser
 
 /**
  * O portão determinístico de citações e referências ABNT — o "par Maestro"
@@ -207,6 +217,19 @@ public object AuditoriaAbnt {
         return agulha.isNotEmpty() && dobrado.contains(agulha)
     }
 
+    /**
+     * Se [a] e [b] são o mesmo valor pelo dobramento. Pela mesma regra de
+     * [contemDobrado]: dois valores que dobram para vazio (autores em
+     * alfabeto não latino, por exemplo) não são iguais só por isso, e são
+     * comparados sem o dobramento ([chaveCanonica]).
+     */
+    private fun mesmoValorDobrado(a: String, b: String): Boolean {
+        val dobradoA = dobrarAscii(a)
+        val dobradoB = dobrarAscii(b)
+        if (dobradoA.isEmpty() && dobradoB.isEmpty()) return chaveCanonica(a) == chaveCanonica(b)
+        return dobradoA == dobradoB
+    }
+
     /** `canonical_author_key`: espaços colapsados e caixa alta. */
     internal fun chaveCanonica(valor: String): String =
         EspacoUnicode.dividirPorEspacos(valor).joinToString(" ").uppercase(Locale.ROOT)
@@ -300,8 +323,13 @@ public object AuditoriaAbnt {
     )
 
     /** `raw_citations`. */
-    internal fun citacoesBrutas(texto: String): List<Citacao> {
-        val linhas = mutableListOf<Citacao>()
+    internal fun citacoesBrutas(texto: String): List<Citacao> = lerCitacoesBrutas(texto)
+        .map { it.second }
+        .sortedWith { esquerda, direita -> OrdemRust.compare(esquerda.claimId, direita.claimId) }
+
+    /** As citações de `raw_citations`, cada uma com a posição em que começa no texto. */
+    private fun lerCitacoesBrutas(texto: String): List<Pair<Int, Citacao>> {
+        val linhas = mutableListOf<Pair<Int, Citacao>>()
         val vistos = HashSet<Pair<Int, Int>>()
         for (padrao in PADROES_DE_CITACAO) {
             for (achado in padrao.findAll(texto)) {
@@ -321,7 +349,7 @@ public object AuditoriaAbnt {
                 // O `claim_id` do canônico mede posição em bytes UTF-8.
                 val inicioEmBytes = TextoRust.bytesAte(texto, inicio)
                 val fimEmBytes = inicioEmBytes + inteiro.toByteArray(Charsets.UTF_8).size
-                linhas += Citacao(
+                linhas += inicio to Citacao(
                     versaoDoEsquema = ESQUEMA_DA_CITACAO,
                     claimId = TextoRust.sha256("$inicioEmBytes|$fimEmBytes|$inteiro"),
                     tipo = if (temContextoDeCitacaoDireta(texto, inicio)) {
@@ -343,11 +371,14 @@ public object AuditoriaAbnt {
                 )
             }
         }
-        return linhas.sortedWith { esquerda, direita -> OrdemRust.compare(esquerda.claimId, direita.claimId) }
+        return linhas
     }
 
-    /** `RawReference`. */
-    internal data class ReferenciaBruta(val chave: String, val ano: String?, val texto: String)
+    /**
+     * `RawReference`, e mais a chave do autor sem o dobramento ASCII
+     * ([chaveCanonica]), para o autor que o dobramento esvazia.
+     */
+    internal data class ReferenciaBruta(val chave: String, val chaveSemDobrar: String, val ano: String?, val texto: String)
 
     /**
      * `reference_section`. Rust (linhas 389 e 397):
@@ -369,11 +400,30 @@ public object AuditoriaAbnt {
             val chave = antesDaVirgula(autor)
             referencias += ReferenciaBruta(
                 chave = dobrarAscii(chave),
+                chaveSemDobrar = chaveCanonica(chave),
                 ano = ANO_DA_REFERENCIA.find(semMarcador)?.groups?.get(1)?.value,
                 texto = Saneamento.texto(semMarcador, 1200),
             )
         }
         return referencias
+    }
+
+    /**
+     * Onde termina a seção de referências cujo cabeçalho acaba em [inicio]: na
+     * primeira linha que, aparada, começa com `#`, como em
+     * [secaoDeReferencias], ou no fim do texto. As linhas terminam em `\n`,
+     * como no `str::lines` do Rust.
+     */
+    private fun fimDaSecaoDeReferencias(texto: String, inicio: Int): Int {
+        var linha = inicio
+        while (linha < texto.length) {
+            val quebra = texto.indexOf('\n', linha)
+            val fim = if (quebra < 0) texto.length else quebra
+            if (EspacoUnicode.aparar(texto.substring(linha, fim)).startsWith('#')) return linha
+            if (quebra < 0) break
+            linha = quebra + 1
+        }
+        return texto.length
     }
 
     private val CABECALHO_DE_REFERENCIAS = Regex(
@@ -395,7 +445,7 @@ public object AuditoriaAbnt {
     private fun bloqueiosDeAspas(texto: String, citacoes: List<Citacao>): List<BloqueioDeCitacao> {
         val bloqueios = mutableListOf<BloqueioDeCitacao>()
         var vistos = 0
-        for (achado in ASPAS.findAll(semTags(texto))) {
+        for (achado in ASPAS.findAll(semHtmlCru(texto))) {
             if (vistos++ >= MAXIMO_DE_CITACOES) break
             val inteiro = texto.substring(achado.range)
             val fim = achado.range.last + 1
@@ -422,13 +472,21 @@ public object AuditoriaAbnt {
     private val ASPAS = Regex("[“\"]([^“”\"\\n]{12,400})[”\"]")
 
     /**
-     * O texto com a marcação HTML trocada por espaços, do mesmo tamanho: tags
-     * de abertura completas, comentários, declarações (`<!DOCTYPE ...>`) e
-     * instruções de processamento (`<?xml ...?>`). As aspas da marcação somem,
-     * e as da prosa ficam nas mesmas posições do texto original. Cada marcação
-     * termina no seu fechamento real, e o que está entre aspas dentro dela pode
-     * conter `<` e `>`. Comentário sem `-->` e instrução sem `?>` não são
-     * mascarados: o que vem depois deles continua conferido.
+     * O texto com o HTML cru trocado por espaços, do mesmo tamanho: as aspas
+     * da marcação somem, e as da prosa ficam nas mesmas posições do texto
+     * original.
+     *
+     * Quem reconhece o HTML é a commonmark-java, pela seção 6.6 da
+     * especificação CommonMark ("Raw HTML"): tag de abertura e de fechamento,
+     * comentário, instrução de processamento, declaração e CDATA, cada um até
+     * o fechamento que a especificação define. O texto final é Markdown, e esta
+     * é a especificação dele. Decisão do operador de 24/09/2026: o
+     * reconhecimento escrito à mão, que levou seis rodadas de revisão, saiu.
+     *
+     * O bloco HTML fica desligado no parser. No CommonMark, uma linha que abre
+     * com `<div>` faz do bloco inteiro HTML cru, inclusive a prosa visível
+     * dentro dele; sem o bloco, essas linhas viram parágrafo, cada tag vira um
+     * `HtmlInline` exato, e o texto continua conferido.
      *
      * Divergência do canônico, corrigindo uma falha dele: lá a aspa reta era
      * pulada depois de qualquer `<` sem `>` adiante, ou logo depois de um `=`.
@@ -436,42 +494,40 @@ public object AuditoriaAbnt {
      * sem fonte; e a aspa que fecha um atributo pareava com a que abre o
      * seguinte, desalinhando as aspas da prosa que vinham depois da tag.
      */
-    private fun semTags(texto: String): String {
+    private fun semHtmlCru(texto: String): String {
         val mascarado = StringBuilder(texto)
-        fun mascarar(faixa: IntRange) {
-            for (indice in faixa) mascarado.setCharAt(indice, ' ')
-        }
-        for (tag in TAG_HTML.findAll(texto)) mascarar(tag.range)
-        // O fechamento é procurado a partir de cada abertura, e a busca
-        // seguinte começa depois dele: tempo linear, sem expressão regular
-        // preguiçosa, e com `<` e `>` livres no meio.
-        for ((abertura, fechamento) in listOf("<!--" to "-->", "<?" to "?>")) {
-            var abre = texto.indexOf(abertura)
-            while (abre >= 0) {
-                val fecha = texto.indexOf(fechamento, abre + abertura.length)
-                if (fecha < 0) break
-                mascarar(abre until fecha + fechamento.length)
-                abre = texto.indexOf(abertura, fecha + fechamento.length)
-            }
-        }
+        MARKDOWN.parse(texto).accept(
+            object : AbstractVisitor() {
+                override fun visit(htmlInline: HtmlInline) {
+                    for (trecho in htmlInline.sourceSpans) {
+                        for (indice in trecho.inputIndex until trecho.inputIndex + trecho.length) {
+                            mascarado.setCharAt(indice, ' ')
+                        }
+                    }
+                }
+            },
+        )
         return mascarado.toString()
     }
 
     /**
-     * Uma tag de abertura HTML completa (nome, atributos com valor entre aspas
-     * duplas, simples ou sem aspas, e `>`) ou uma declaração (`<!DOCTYPE ...>`).
-     * Entre aspas vale qualquer caractere, e o valor termina na aspa seguinte;
-     * fora delas, nenhuma parte aceita `<`. A busca que começa num `<` para,
-     * então, no `<` ou na aspa seguintes, e o custo fica linear.
+     * Todos os blocos do CommonMark menos o bloco HTML, e com a posição de
+     * origem de cada nó. O `Parser` montado uma vez serve a qualquer thread,
+     * como a documentação da commonmark-java garante.
      */
-    private val TAG_HTML = Regex(
-        "<[A-Za-z][A-Za-z0-9:-]*" +
-            "(?:${TextoRust.ESPACO}+[^${TextoRust.ESPACO_CLASSE}\"'<>/=]+" +
-            "(?:${TextoRust.ESPACO}*=${TextoRust.ESPACO}*" +
-            "(?:\"[^\"]*\"|'[^']*'|[^${TextoRust.ESPACO_CLASSE}\"'<>=`]+))?)*" +
-            "${TextoRust.ESPACO}*/?>" +
-            "|<![A-Za-z](?:\"[^\"]*\"|'[^']*'|[^\"'<>])*>",
-    )
+    private val MARKDOWN: Parser = Parser.builder()
+        .enabledBlockTypes(
+            setOf(
+                Heading::class.java,
+                ThematicBreak::class.java,
+                FencedCodeBlock::class.java,
+                IndentedCodeBlock::class.java,
+                BlockQuote::class.java,
+                ListBlock::class.java,
+            ),
+        )
+        .includeSourceSpans(IncludeSourceSpans.BLOCKS_AND_INLINES)
+        .build()
 
     /**
      * `unstructured_citation_signals`. Rust (linhas 474–476):
@@ -512,7 +568,7 @@ public object AuditoriaAbnt {
                 if (trechos.size > MAXIMO_DE_CITACOES) return true
             }
         }
-        if (ASPAS.findAll(semTags(texto)).take(MAXIMO_DE_CITACOES + 1).count() > MAXIMO_DE_CITACOES) return true
+        if (ASPAS.findAll(semHtmlCru(texto)).take(MAXIMO_DE_CITACOES + 1).count() > MAXIMO_DE_CITACOES) return true
         if (SINAIS.any { it.findAll(texto).take(MAXIMO_DE_CITACOES + 1).count() > MAXIMO_DE_CITACOES }) return true
         return secaoDeReferencias(texto, MAXIMO_DE_FONTES + 1).size > MAXIMO_DE_FONTES
     }
@@ -589,8 +645,12 @@ public object AuditoriaAbnt {
             val chave = dobrarAscii(citacao.chaveDoAutor)
             val primeiroToken = EspacoUnicode.dividirPorEspacos(citacao.chaveDoAutor)
                 .firstOrNull()?.let(::dobrarAscii) ?: ""
+            // Autor que o dobramento esvazia (alfabeto não latino) casa pela
+            // chave sem dobrar; `contains("")` casaria qualquer referência.
+            val chaveSemDobrar = if (chave.isEmpty()) chaveCanonica(citacao.chaveDoAutor) else ""
             val casada = referencias.withIndex().firstOrNull { (_, referencia) ->
                 ((chave.isNotEmpty() && referencia.chave.contains(chave)) ||
+                    (chaveSemDobrar.isNotEmpty() && referencia.chaveSemDobrar.contains(chaveSemDobrar)) ||
                     (primeiroToken.length >= 4 && referencia.chave.contains(primeiroToken))) &&
                     referencia.ano == citacao.ano
             }
@@ -847,7 +907,7 @@ public object AuditoriaAbnt {
                     "error", claimId, fonteId, citacao.textoOriginal, true,
                 )
             }
-            if (dobrarAscii(sobrenomeExibido(citacao)) != dobrarAscii(EspacoUnicode.aparar(citacao.chaveDoAutor))) {
+            if (!mesmoValorDobrado(sobrenomeExibido(citacao), EspacoUnicode.aparar(citacao.chaveDoAutor))) {
                 bloqueios += bloqueio(
                     "citation_canonical_author_mismatch",
                     "author_display da citacao deve preservar integralmente a chave canonica author_key.",
@@ -944,7 +1004,7 @@ public object AuditoriaAbnt {
                 }
                 val chaveExibida = EspacoUnicode.aparar(antesDaVirgula(autor.autorExibido))
                 if (chaveExibida.isEmpty() ||
-                    dobrarAscii(chaveExibida) != dobrarAscii(EspacoUnicode.aparar(autor.chaveDoAutor))
+                    !mesmoValorDobrado(chaveExibida, EspacoUnicode.aparar(autor.chaveDoAutor))
                 ) {
                     bloqueios += bloqueio(
                         "canonical_author_display_mismatch",
@@ -987,21 +1047,20 @@ public object AuditoriaAbnt {
         // o mesmo autor, ano e localizador saía sem verificação própria. A
         // ocorrência dentro da seção de referências (num título, por exemplo)
         // não consome entrada: só precisa estar representada, como no canônico.
-        // As do corpo são as lidas só no texto antes do cabeçalho; o
-        // `claim_id` depende da posição, e o começo do texto não muda.
-        val cabecalho = CABECALHO_DE_REFERENCIAS.find(texto)
-        val doCorpo = cabecalho?.let { achado ->
-            this.citacoesBrutas(texto.substring(0, achado.range.first)).mapTo(HashSet()) { it.claimId }
-        }
+        // A seção vai do cabeçalho à linha que começa o próximo, como em
+        // [secaoDeReferencias]; um apêndice depois dela é corpo.
+        val naSecaoDeReferencias = CABECALHO_DE_REFERENCIAS.find(texto)?.let { achado ->
+            val secao = achado.range.first until fimDaSecaoDeReferencias(texto, achado.range.last + 1)
+            lerCitacoesBrutas(texto).filter { it.first in secao }.mapTo(HashSet()) { it.second.claimId }
+        }.orEmpty()
         val livres = citacoes.toMutableList()
         for (bruta in citacoesBrutas) {
             val casa = { estruturada: Citacao ->
-                dobrarAscii(estruturada.chaveDoAutor) == dobrarAscii(bruta.chaveDoAutor) &&
+                mesmoValorDobrado(estruturada.chaveDoAutor, bruta.chaveDoAutor) &&
                     EspacoUnicode.aparar(estruturada.ano) == EspacoUnicode.aparar(bruta.ano) &&
-                    (estruturada.localizador?.let(::dobrarAscii) ?: "") ==
-                    (bruta.localizador?.let(::dobrarAscii) ?: "")
+                    mesmoValorDobrado(estruturada.localizador ?: "", bruta.localizador ?: "")
             }
-            val representada = if (doCorpo == null || bruta.claimId in doCorpo) {
+            val representada = if (bruta.claimId !in naSecaoDeReferencias) {
                 val indice = livres.indexOfFirst(casa)
                 if (indice >= 0) livres.removeAt(indice)
                 indice >= 0

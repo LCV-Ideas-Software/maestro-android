@@ -53,7 +53,8 @@ All material changes to Maestro Android are recorded here.
   two claims, takes two entries. In the canonical one entry covered every equal
   occurrence, so the second claim went out without its own verification.
   Citation-shaped text inside the references section, such as a title, takes
-  no entry: it only has to be represented, as in the canonical.
+  no entry: it only has to be represented, as in the canonical. The section
+  ends at the next heading, so an appendix after it is body text.
 
   More places are deliberately stricter than the canonical. Each fixes a
   defect Codex found in review that is also present in `68528f9`:
@@ -73,14 +74,16 @@ All material changes to Maestro Android are recorded here.
   - a value that folds to nothing (only punctuation, or only letters the ASCII
     fold drops) is never found in the text. The canonical's `contains("")` was
     true for any text, so an absent citation, reference, footnote marker or
-    author key passed as present;
-  - HTML markup (complete start tags, comments, declarations such as
-    `<!DOCTYPE ...>` and processing instructions) is masked before quotes are
+    author key passed as present. Two values that both fold to nothing, such
+    as two Greek names, are compared without folding, and an author key that
+    folds to nothing is matched against its reference the same way;
+  - the raw HTML in the Markdown final text is masked before quotes are
     searched, so markup is neither taken for a quotation nor paired with the
-    quotes of the prose around it. Each piece of markup ends at its real
-    close, and quoted text inside it may hold `<` and `>`; a comment with no
-    `-->` or an instruction with no `?>` is not masked. The
-    canonical skipped a straight quote after any `<` with
+    quotes of the prose around it. `commonmark-java` (0.30.0, BSD-2-Clause)
+    recognises it by section 6.6 of the CommonMark specification, which the
+    operator chose on 24/09/2026 over a hand-written recogniser; the HTML
+    block type is turned off so that prose inside a `<div>` is still checked.
+    The canonical skipped a straight quote after any `<` with
     no `>` after it, or right after an `=`: prose such as `2 < 3 e "..."` hid
     an uncited direct quotation, and the quote closing one attribute could
     pair with the one opening the next;

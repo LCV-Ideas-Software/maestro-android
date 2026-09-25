@@ -45,6 +45,7 @@ commit-history releases.
 | `com.fasterxml.jackson.core:jackson-annotations` | 2.22 | [Apache-2.0](https://github.com/FasterXML/jackson-annotations/blob/jackson-annotations-2.22/LICENSE) | Transitive of `jackson-databind` |
 | FastDoubleParser, shaded inside `jackson-core` | bundled | MIT, © 2023 Werner Randelshofer | Number parsing inside `jackson-core`; not a separate artifact |
 | Schubfach, copied inside `jackson-core` | bundled | MIT, © 2018-2020 Raffaello Giulietti | Number writing inside `jackson-core`; not a separate artifact |
+| `org.commonmark:commonmark` | 0.30.0 | [BSD-2-Clause](https://github.com/commonmark/commonmark-java/blob/commonmark-parent-0.30.0/LICENSE.txt), © 2015 Atlassian Pty Ltd | Recognise the raw HTML in the Markdown final text (CommonMark 0.31.2, section 6.6) for the citation audit in `:core:protocolo` |
 
 Version alignment across the three is held by the `jackson-bom` platform that
 `jackson-databind` brings in, so the catalogue pins one version and the BOM
@@ -67,12 +68,20 @@ records both as bundled MIT code and names their licence files. Each of the
 three jars also carries its own `META-INF/LICENSE` (Apache-2.0) and
 `META-INF/NOTICE`.
 
+`commonmark` has no runtime dependencies of its own; its POM declares only
+test-scoped ones. It contributes 215 KB to the runtime classpath. The final
+text is Markdown, and the citation audit has to tell raw HTML from prose to
+find direct quotations; a hand-written recogniser took six review rounds and
+kept disagreeing with the specification, so the operator decided on 24/09/2026
+to use the Java implementation of CommonMark instead.
+
 No binary this repository distributes contains them yet: `:app` does not depend
 on `:core:protocolo`. The first APK that includes the module has to carry what
 the licences require of a distributed work — a copy of the Apache-2.0 text and
-the attribution in the three Jackson `NOTICE` files, and the MIT notices of
-FastDoubleParser and Schubfach — and the repository `NOTICE` does not carry
-them today.
+the attribution in the three Jackson `NOTICE` files, the MIT notices of
+FastDoubleParser and Schubfach, and the BSD-2-Clause copyright notice,
+conditions and disclaimer of `commonmark` — and the repository `NOTICE` does
+not carry them today.
 
 ### `:core:provedores`
 

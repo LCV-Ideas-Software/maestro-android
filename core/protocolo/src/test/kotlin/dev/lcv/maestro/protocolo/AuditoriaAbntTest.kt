@@ -221,9 +221,19 @@ class AuditoriaAbntTest {
         // Nota de rodapé cujo marcador dobra para vazio.
         val comNota = textoVerificado.replace("(Silva, 2026, p. 12).", "(Silva, 2026, p. 12). Nota[^*].")
         assertTrue(auditar(comNota, "protocol-sha256", manifestoVerificado()).temBloqueio("unstructured_citation_signal"))
-        // Autor que o dobramento esvazia não casa com a referência de outro autor.
+        // Autor que o dobramento esvazia não casa com a referência de outro
+        // autor, e casa com a própria pela chave sem dobrar.
         assertTrue(
             auditar("Texto (Ωμέγα, 2020).\n\n## Referencias\nSILVA, Ana. Obra. Rio: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+        assertFalse(
+            auditar("Texto (Ωμέγα, 2020).\n\n## Referencias\nΩΜΈΓΑ, Άλφα. Obra. Atenas: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+        // Autor ASCII de outro sobrenome, no mesmo ano, também não casa.
+        assertTrue(
+            auditar("Texto (Souza, 2020).\n\n## Referencias\nSILVA, Ana. Obra. Rio: Editora, 2020.")
                 .temBloqueio("citation_without_reference"),
         )
         // Controles: com a citação no texto, nada disso bloqueia.
@@ -237,6 +247,42 @@ class AuditoriaAbntTest {
             auditar("Texto (Silva, 2020).\n\n## Referencias\nSILVA, Ana. Obra. Rio: Editora, 2020.")
                 .temBloqueio("citation_without_reference"),
         )
+    }
+
+    @Test
+    fun `autores diferentes que dobram para vazio nao sao o mesmo autor`() {
+        // Dois nomes gregos dobram os dois para vazio; pela regra do texto que
+        // dobra para vazio, isso não os torna iguais.
+        val texto = "Texto (Ωμέγα, 2026, p. 12).\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026."
+        fun comChave(chave: String) = manifestoVerificado().let { base ->
+            base.copy(
+                citacoes = listOf(
+                    base.citacoes[0].copy(
+                        autorExibido = "Ωμέγα, Α.",
+                        chaveDoAutor = chave,
+                        textoOriginal = "(Ωμέγα, 2026, p. 12)",
+                    ),
+                ),
+                fontes = listOf(base.fontes[0].copy(autores = listOf(AutorDaFonte("Ωμέγα, Α.", chave)))),
+            )
+        }
+        val outro = auditar(texto, "protocol-sha256", comChave("ΑΛΦΑ"))
+        for (codigo in listOf(
+            "body_citation_not_in_manifest",
+            "citation_canonical_author_mismatch",
+            "canonical_author_display_mismatch",
+        )) {
+            assertTrue(outro.temBloqueio(codigo), codigo)
+        }
+        // Controle: com a chave do próprio autor, as três conferências passam.
+        val proprio = auditar(texto, "protocol-sha256", comChave(AuditoriaAbnt.chaveCanonica("Ωμέγα")))
+        for (codigo in listOf(
+            "body_citation_not_in_manifest",
+            "citation_canonical_author_mismatch",
+            "canonical_author_display_mismatch",
+        )) {
+            assertFalse(proprio.temBloqueio(codigo), codigo)
+        }
     }
 
     @Test
@@ -267,6 +313,14 @@ class AuditoriaAbntTest {
         // bloqueando, como no canônico.
         val semEntrada = textoVerificado.replace("SILVA, Maria. Obra.", "SILVA, Maria. Obra (Souza, 2020).")
         assertTrue(auditar(semEntrada, "protocol-sha256", manifestoVerificado()).temBloqueio("body_citation_not_in_manifest"))
+        // A seção termina no próximo cabeçalho: citação num apêndice depois
+        // dela é do corpo e consome entrada própria.
+        val comApendice = "$textoVerificado\n\n## Apendice\nOutra afirmacao (Silva, 2026, p. 12)."
+        assertTrue(auditar(comApendice, "protocol-sha256", manifestoVerificado()).temBloqueio("body_citation_not_in_manifest"))
+        val duasEntradas = manifestoVerificado().let { base ->
+            base.copy(citacoes = base.citacoes + base.citacoes[0].copy(claimId = "claim-2"))
+        }
+        assertFalse(auditar(comApendice, "protocol-sha256", duasEntradas).temBloqueio("body_citation_not_in_manifest"))
     }
 
     @Test
@@ -276,20 +330,33 @@ class AuditoriaAbntTest {
             "Texto <!-- $citacao --> fim.",
             "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"x\">\nTexto.",
             "<?xml version=\"1.0\" encoding=\"um texto com quatro palavras\"?>\nTexto.",
-            // `>` entre aspas não fecha a declaração nem a instrução.
-            "<!DOCTYPE x PUBLIC \"a>b\" $citacao>\nTexto.",
+            // A instrução só termina em `?>`, com `<` e `>` livres dentro.
             "<?alvo dado=\"x>y\" titulo=$citacao?>\nTexto.",
-            // `<` entre aspas não impede a tag, a declaração nem a instrução.
+            "<?alvo dado=\"<no>\" titulo=$citacao?>\nTexto.",
+            // `<` entre aspas não impede a tag nem a declaração.
             "Veja <a title=\"a<b\" data-x=$citacao>isto</a>.",
             "<!DOCTYPE x SYSTEM \"a<b\" $citacao>\nTexto.",
-            "<?alvo dado=\"<no>\" titulo=$citacao?>\nTexto.",
+            // As posições valem com fim de linha `\r\n`.
+            "A\r\nB\r\nVeja <a title=$citacao>isto</a>.",
         )) {
             assertFalse(auditar(texto).temBloqueio("direct_quote_without_citation"), texto)
         }
-        // Controles: comentário sem `-->` e instrução sem `?>` não escondem a
-        // aspa que vem depois.
-        assertTrue(auditar("Texto <!-- $citacao fim.").temBloqueio("direct_quote_without_citation"))
-        assertTrue(auditar("Texto <?alvo titulo=$citacao > fim.").temBloqueio("direct_quote_without_citation"))
+        // Controles: o que não é marcação pela especificação CommonMark
+        // continua conferido. Comentário sem `-->`, instrução sem `?>`, um `<?`
+        // dentro de um comentário já fechado, a prosa dentro de um `<div>`, e a
+        // aspa logo depois de uma tag num texto com `\r\n`.
+        for (texto in listOf(
+            "Texto <!-- $citacao fim.",
+            "Texto <?alvo titulo=$citacao > fim.",
+            "Texto <!-- <? --> $citacao ?> fim.",
+            "<div>\n$citacao sem fonte.\n</div>",
+            "A\r\nB\r\nTexto <b>x</b>$citacao sem fonte.",
+            // A tag na mesma coluna da aspa, duas linhas abaixo: a máscara usa
+            // a posição no texto, e não a coluna da linha.
+            "$citacao sem fonte.\r\n\r\n<b>x</b> fim.",
+        )) {
+            assertTrue(auditar(texto).temBloqueio("direct_quote_without_citation"), texto)
+        }
     }
 
     @Test
