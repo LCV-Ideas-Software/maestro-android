@@ -191,13 +191,235 @@ class AuditoriaAbntTest {
         fun notas(n: Int) = (1..n).joinToString(" ") { "nota[^$it]" }
         fun referencias(n: Int) =
             "Texto.\n\n## Referencias\n" + (1..n).joinToString("\n") { "SILVA, Ana. Obra $it. Rio: Editora, 2020." }
-        for (gerar in listOf(::citacoes, ::aspas, ::notas, ::referencias)) {
+        // O HTML cru também: acima do limite, a capacidade reprova, e o leitor
+        // de HTML para em 500 bloqueios como os outros leitores.
+        fun html(n: Int) = "Texto " + (1..n).joinToString(" ") { "<br>" }
+        for (gerar in listOf(::citacoes, ::aspas, ::notas, ::referencias, ::html)) {
             assertFalse(AuditoriaAbnt.excedeCapacidade(gerar(500)), gerar(1))
             assertTrue(AuditoriaAbnt.excedeCapacidade(gerar(501)), gerar(1))
         }
         val resultado = auditar(citacoes(501), "protocol-sha256", AuditoriaAbnt.manifestoVazio("protocol-sha256"))
         assertTrue(resultado.temBloqueio("citation_capacity_exceeded"))
         assertEquals(StatusDoParMaestro.NAO_PRONTO, resultado.statusDoParMaestro)
+        val comHtml = auditar(html(501))
+        assertTrue(comHtml.temBloqueio("citation_capacity_exceeded"))
+        assertEquals(500, comHtml.bloqueios.count { it.codigo == "raw_html_in_final_text" })
+    }
+
+    private fun comOriginal(original: String): ManifestoDeCitacoes = manifestoVerificado().let { base ->
+        base.copy(citacoes = listOf(base.citacoes[0].copy(textoOriginal = original)))
+    }
+
+    @Test
+    fun `texto que dobra para vazio nunca conta como presente`() {
+        // Divergência do canônico: lá `contains("")` era verdadeiro para
+        // qualquer texto, e o que dobrava para vazio passava por presente.
+        val semCitacao = "Texto sem a citacao.\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026."
+        // Citação do manifesto ausente do texto, com `original_text` ".".
+        assertTrue(auditar(semCitacao, "protocol-sha256", comOriginal(".")).temBloqueio("manifest_citation_absent_from_text"))
+        // Aspa seguida só de "." não fica ligada à citação de texto ".".
+        val aspa = "“Trecho direto com mais de quatro palavras”.\n\n## Referencias\n" +
+            "SILVA, Maria. Obra. Sao Paulo: Editora, 2026."
+        assertTrue(auditar(aspa, "protocol-sha256", comOriginal(".")).temBloqueio("direct_quote_without_citation"))
+        // Nota de rodapé cujo marcador dobra para vazio.
+        val comNota = textoVerificado.replace("(Silva, 2026, p. 12).", "(Silva, 2026, p. 12). Nota[^*].")
+        assertTrue(auditar(comNota, "protocol-sha256", manifestoVerificado()).temBloqueio("unstructured_citation_signal"))
+        // Autor que o dobramento esvazia não casa com a referência de outro
+        // autor, e casa com a própria pela chave sem dobrar.
+        assertTrue(
+            auditar("Texto (Ωμέγα, 2020).\n\n## Referencias\nSILVA, Ana. Obra. Rio: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+        assertFalse(
+            auditar("Texto (Ωμέγα, 2020).\n\n## Referencias\nΩΜΈΓΑ, Άλφα. Obra. Atenas: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+        // Letra fora do plano básico (Deseret) é um par de surrogates: é
+        // letra por ponto de código, e o nome casa com a própria referência.
+        assertFalse(
+            auditar("Texto (\uD801\uDC00\uD801\uDC29\uD801\uDC32\uD801\uDC34, 2020).\n\n## Referencias\n" +
+                "\uD801\uDC00\uD801\uDC29\uD801\uDC32\uD801\uDC34, X. Obra. Salt Lake: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+        // Vários autores: o primeiro, com quatro letras ou mais, basta para
+        // casar, medido na representação em que é comparado. O Rust media o
+        // dobrado, e um nome grego tinha comprimento zero.
+        assertFalse(
+            auditar("Texto (Ωμέγα e Άλφα, 2020).\n\n## Referencias\nΩΜΈΓΑ, Άλφα. Obra. Atenas: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+        // Controles: primeiro autor de três letras não basta, grego ou ASCII,
+        // embora a chave inteira, que não tem mínimo, case como no ASCII; e o
+        // primeiro autor grego não casa com a referência de outro.
+        assertFalse(
+            auditar("Texto (Ωμέ, 2020).\n\n## Referencias\nΩΜΈ, Άλφα. Obra. Atenas: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+        assertTrue(
+            auditar("Texto (Ωμέ e Άλφα, 2020).\n\n## Referencias\nΩΜΈ, Άλφα. Obra. Atenas: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+        // A pontuação não vale por letra no mínimo: `Ω-μέ` tem três letras.
+        assertTrue(
+            auditar("Texto (Ω-μέ e Άλφα, 2020).\n\n## Referencias\nΩ-ΜΈ, Άλφα. Obra. Atenas: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+        assertTrue(
+            auditar("Texto (Sil e Alfa, 2020).\n\n## Referencias\nSIL, Alfa. Obra. Rio: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+        assertTrue(
+            auditar("Texto (Ωμέγα e Άλφα, 2020).\n\n## Referencias\nΒΉΤΑ, Γάμμα. Obra. Atenas: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+        // Autor ASCII de outro sobrenome, no mesmo ano, também não casa.
+        assertTrue(
+            auditar("Texto (Souza, 2020).\n\n## Referencias\nSILVA, Ana. Obra. Rio: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+        // Controles: com a citação no texto, nada disso bloqueia.
+        val controle = auditar(textoVerificado, "protocol-sha256", comOriginal("."))
+        assertFalse(controle.temBloqueio("manifest_citation_absent_from_text"))
+        assertFalse(controle.temBloqueio("direct_quote_without_citation"))
+        assertFalse(
+            auditar(textoVerificado, "protocol-sha256", manifestoVerificado()).temBloqueio("unstructured_citation_signal"),
+        )
+        assertFalse(
+            auditar("Texto (Silva, 2020).\n\n## Referencias\nSILVA, Ana. Obra. Rio: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
+    }
+
+    @Test
+    fun `autores diferentes que dobram para vazio nao sao o mesmo autor`() {
+        // Dois nomes gregos dobram os dois para vazio; pela regra do texto que
+        // dobra para vazio, isso não os torna iguais.
+        val texto = "Texto (Ωμέγα, 2026, p. 12).\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026."
+        fun comChave(chave: String) = manifestoVerificado().let { base ->
+            base.copy(
+                citacoes = listOf(
+                    base.citacoes[0].copy(
+                        autorExibido = "Ωμέγα, Α.",
+                        chaveDoAutor = chave,
+                        textoOriginal = "(Ωμέγα, 2026, p. 12)",
+                    ),
+                ),
+                fontes = listOf(base.fontes[0].copy(autores = listOf(AutorDaFonte("Ωμέγα, Α.", chave)))),
+            )
+        }
+        val outro = auditar(texto, "protocol-sha256", comChave("ΑΛΦΑ"))
+        for (codigo in listOf(
+            "body_citation_not_in_manifest",
+            "citation_canonical_author_mismatch",
+            "canonical_author_display_mismatch",
+        )) {
+            assertTrue(outro.temBloqueio(codigo), codigo)
+        }
+        // Controle: com a chave do próprio autor, as três conferências passam.
+        val proprio = auditar(texto, "protocol-sha256", comChave(AuditoriaAbnt.chaveCanonica("Ωμέγα")))
+        for (codigo in listOf(
+            "body_citation_not_in_manifest",
+            "citation_canonical_author_mismatch",
+            "canonical_author_display_mismatch",
+        )) {
+            assertFalse(proprio.temBloqueio(codigo), codigo)
+        }
+    }
+
+    @Test
+    fun `cada ocorrencia no corpo consome uma entrada propria do manifesto`() {
+        // Divergência do canônico, por decisão do operador de 24/09/2026: lá
+        // uma entrada cobria todas as ocorrências iguais.
+        val duasVezes = textoVerificado.replace(
+            "(Silva, 2026, p. 12).",
+            "(Silva, 2026, p. 12). Outra afirmacao (Silva, 2026, p. 12).",
+        )
+        assertTrue(auditar(duasVezes, "protocol-sha256", manifestoVerificado()).temBloqueio("body_citation_not_in_manifest"))
+        // Controle: com duas entradas, uma para cada afirmação, passa.
+        val duasEntradas = manifestoVerificado().let { base ->
+            base.copy(citacoes = base.citacoes + base.citacoes[0].copy(claimId = "claim-2"))
+        }
+        val resultado = auditar(duasVezes, "protocol-sha256", duasEntradas)
+        assertFalse(resultado.temBloqueio("body_citation_not_in_manifest"), resultado.bloqueios.toString())
+        assertEquals(StatusDoParMaestro.PRONTO, resultado.statusDoParMaestro, resultado.bloqueios.toString())
+    }
+
+    @Test
+    fun `citacao dentro da secao de referencias nao consome a entrada do corpo`() {
+        // Um título com a mesma forma da citação do corpo não pede entrada a
+        // mais: só a ocorrência do corpo consome entrada do manifesto.
+        val comTitulo = textoVerificado.replace("SILVA, Maria. Obra.", "SILVA, Maria. Obra (Silva, 2026, p. 12).")
+        assertFalse(auditar(comTitulo, "protocol-sha256", manifestoVerificado()).temBloqueio("body_citation_not_in_manifest"))
+        // Controle: nas referências, citação sem entrada nenhuma continua
+        // bloqueando, como no canônico.
+        val semEntrada = textoVerificado.replace("SILVA, Maria. Obra.", "SILVA, Maria. Obra (Souza, 2020).")
+        assertTrue(auditar(semEntrada, "protocol-sha256", manifestoVerificado()).temBloqueio("body_citation_not_in_manifest"))
+        // A seção termina no próximo cabeçalho: citação num apêndice depois
+        // dela é do corpo e consome entrada própria.
+        val comApendice = "$textoVerificado\n\n## Apendice\nOutra afirmacao (Silva, 2026, p. 12)."
+        assertTrue(auditar(comApendice, "protocol-sha256", manifestoVerificado()).temBloqueio("body_citation_not_in_manifest"))
+        val duasEntradas = manifestoVerificado().let { base ->
+            base.copy(citacoes = base.citacoes + base.citacoes[0].copy(claimId = "claim-2"))
+        }
+        assertFalse(auditar(comApendice, "protocol-sha256", duasEntradas).temBloqueio("body_citation_not_in_manifest"))
+    }
+
+    @Test
+    fun `HTML cru no texto final bloqueia a liberacao`() {
+        // Decisão do operador de 25/09/2026: o texto final é Markdown sem HTML.
+        // Tudo que a especificação CommonMark reconhece como HTML cru, em
+        // linha (6.6) ou em bloco (4.6), é recusado, apontando o trecho.
+        val citacao = "\"esta e uma citacao direta suficientemente longa\""
+        for (texto in listOf(
+            "Veja <a title=$citacao href=\"#x\">isto</a>.",
+            "Nota<sup>1</sup> e quebra<br>.",
+            "Texto <!-- comentario --> fim.",
+            "<div>\n$citacao sem fonte.\n</div>",
+            "<a title=$citacao>\nisto</a> e fim.",
+            "Texto.\n\n<!--\ncomentario\n\n-->\n\nFim.",
+            "Texto.\n\n<script>\nvar x = 1;\n</script>\n\nFim.",
+            "<?xml version=\"1.0\"?>\nTexto.",
+            "<!DOCTYPE html>\nTexto.",
+            "Texto.\n\n   <![CDATA[\nx\n]]>\n\nFim.",
+            "Texto </b> solto.",
+            "A\r\nB\r\nVeja <b>x</b>.",
+        )) {
+            val resultado = auditar(texto)
+            assertTrue(resultado.temBloqueio("raw_html_in_final_text"), texto)
+            assertNotEquals(StatusDoParMaestro.PRONTO, resultado.statusDoParMaestro, texto)
+        }
+        // O trecho apontado é o HTML, não a prosa em volta.
+        val trechos = auditar("Veja <a title=$citacao href=\"#x\">isto</a>.").bloqueios
+            .filter { it.codigo == "raw_html_in_final_text" }.map { it.trecho }
+        assertEquals(listOf("<a title=$citacao href=\"#x\">", "</a>"), trechos)
+        // Controles: o que a especificação não lê como HTML cru segue prosa —
+        // `<` solto, link automático, código em linha e bloco de código.
+        for (texto in listOf(
+            "Sabe-se que 2 < 3 e a < b.",
+            "Veja <https://example.org/x> e <mailto:a@b.c>.",
+            "Use `<b>` no codigo.",
+            "```html\n<div>x</div>\n```",
+            "    <div>indentado</div>",
+        )) {
+            assertFalse(auditar(texto).temBloqueio("raw_html_in_final_text"), texto)
+        }
+    }
+
+    @Test
+    fun `aspa na prosa depois de menor ou de igual e conferida`() {
+        // Divergência do canônico: lá um `<` sem `>` depois, ou um `=` logo
+        // antes, escondia a aspa do portão.
+        for (texto in listOf(
+            "Sabe-se que 2 < 3 e \"esta e uma citacao direta suficientemente longa\" sem fonte.",
+            "A tese = \"esta e uma citacao direta suficientemente longa\" sem fonte.",
+        )) {
+            assertTrue(auditar(texto).temBloqueio("direct_quote_without_citation"), texto)
+        }
+        // Controle: `<` na prosa não é HTML cru.
+        assertFalse(
+            auditar("Sabe-se que 2 < 3 e \"esta e uma citacao direta suficientemente longa\" sem fonte.")
+                .temBloqueio("raw_html_in_final_text"),
+        )
     }
 
     @Test

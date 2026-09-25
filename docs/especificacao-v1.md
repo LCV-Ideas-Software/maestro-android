@@ -32,6 +32,14 @@ e nada disso existe num Android. Confirmado pelo operador em 21/09/2026: *"O
 Kotlin novo. Não empacota o produto existente, não carrega webview e não executa
 código do web por baixo.
 
+**Produto para público externo, não cópia.** Dito pelo operador em 25/09/2026:
+os aplicativos Android são portes dos originais, mas destinados a público
+variado e externo; não devem depender da estrutura interna dele
+(`admin-app/MainSite`, D1, Secret Store, convenções de uso próprio) e não são
+cópias idênticas. Tolerância ou atalho do original que só faz sentido no
+ambiente interno não se porta; onde o uso por terceiros pede outra solução
+(seções 2.2 e 4.4), a especificação diz qual, e a decisão fica registrada.
+
 ### Uma diferença de partida em relação à calculadora, dita agora
 
 A calculadora foi portada de um produto web que funcionava; o produto web era a
@@ -163,16 +171,27 @@ escolheu os cinco. O que a escolha pede, e como fica:
 - **Onde mora cada parte:** regras puras no `:core:protocolo`; rede (parser de
   URL, DNS, coleta, busca) no `:core:provedores`.
 
-Onde o porte é **mais estrito que o canônico**, de propósito. Os cinco
-primeiros pontos corrigem defeitos que a revisão do Codex achou na PR #57 e
-que também estão no Rust em `68528f9`:
+Onde o porte é **mais estrito que o canônico**, de propósito. Salvo os dois
+últimos, que são decisões do operador, os pontos corrigem defeitos que a
+revisão do Codex achou na PR #57 e depois do merge dela, e que também estão
+no Rust em `68528f9`:
 
 - **só se aceita link cuja verificação mecânica passou.** O Rust só conferia o
   código HTTP: página de captcha, de login ou de paywall, ou evidência
-  bloqueada, servida com 200, podia ser aceita como suporte. Cada linha guarda
-  a classificação mecânica à parte da que a revisão escreve
+  bloqueada, servida com 200, podia ser aceita como suporte. Só passa evidência
+  pronta e sem interação pendente. Na fila, em coleta, vencida ou à espera do
+  operador, ou com pedido de consentimento ou de confirmação de download, ela
+  vai para quarentena, qualquer que seja o código HTTP guardado nela de uma
+  coleta anterior. A linha conta como bloqueada sempre que alguém precisa
+  agir antes de a evidência valer (bloqueada, coleta que não terminou, ação
+  do operador, interação pendente, captcha incluído) — o mesmo predicado da
+  quarentena; só a coleta que terminou sem pendência e falhou conta como erro.
+  Cada linha guarda a classificação mecânica à parte da que a revisão escreve
   (`mechanical_classification`), e um aceite anterior só é preservado enquanto
   a verificação nova ainda passar;
+- **aceitar link HTTP(S) exige o hash do conteúdo da evidência.** O Rust
+  conferia hash ausente com hash ausente, e o aceite, preso a conteúdo nenhum,
+  sobrevivia a qualquer mudança do destino;
 - **URL que o saneamento alteraria fica bloqueada.** O Rust guarda a URL
   normalizada já saneada — cortada em 1.000 pontos de código, com padrão de
   segredo trocado por `<redacted>` — e coleta essa URL alterada: a revisão
@@ -180,12 +199,52 @@ que também estão no Rust em `68528f9`:
 - **sem manifesto, nota de rodapé, `<cite>`, `<blockquote>`, `<q>` e `apud`,
   `ibid.`, `op. cit.` bloqueiam** mesmo num texto sem citação autor-data; no
   Rust esses sinais só eram conferidos com manifesto;
-- **acima de 500 citações, aspas, sinais de um tipo ou referências, o texto é
-  recusado.** O Rust para de ler no limite e ignora o excedente em silêncio;
+- **acima de 500 citações, aspas, sinais de um tipo, referências ou marcações
+  de HTML cru, o texto é recusado.** O Rust para de ler no limite e ignora o
+  excedente em silêncio;
+- **valor que dobra para vazio nunca está presente no texto.** Só pontuação,
+  ou só letras que o dobramento ASCII descarta, dobram para vazio, e o
+  `contains("")` do Rust é verdadeiro para qualquer texto: citação,
+  referência, marcador de nota ou chave de autor ausentes passavam por
+  presentes. Uma regra só, em toda comparação: valor sem letra nem dígito
+  nunca está presente (letra e dígito contados por ponto de código, para a
+  letra fora do plano básico não passar por pontuação); valor cujas letras o
+  dobramento descarta, como um nome grego, é comparado pela chave canônica,
+  e o mínimo de quatro letras do primeiro autor é medido nessa mesma
+  representação, contando só letras e dígitos;
+- **HTML cru no texto final bloqueia a liberação** (`raw_html_in_final_text`;
+  decisão do operador de 25/09/2026). O texto final é Markdown sem HTML:
+  qualquer tag, comentário, instrução de processamento, declaração ou CDATA,
+  em linha ou em bloco, que a especificação CommonMark reconheça como HTML
+  cru (seções 4.6 e 6.6, lidas pela `commonmark-java` — decisão do operador
+  de 24/09/2026, no lugar de um reconhecimento escrito à mão) é recusado,
+  apontando o trecho. `<` na prosa (`2 < 3`), link automático e código não
+  são HTML cru. Não há máscara: as aspas são procuradas no texto tal qual. É
+  também o que impede o modelo de injetar marcação no que o aparelho exibe
+  (seção 4.4). O Rust tolerava o HTML e pulava a aspa reta depois de qualquer `<` sem `>`
+  adiante, ou logo depois de um `=`: prosa como `2 < 3 e "..."` escondia uma
+  citação direta sem fonte, e a aspa que fecha um atributo pareava com a que
+  abre o seguinte;
+- **o site-local IPv6 (`fec0::/10`) é recusado; o IPv4 dentro do NAT64
+  bem-conhecido (`64:ff9b::/96`) e do 6to4 (`2002::/16`) é julgado como
+  IPv4; e o prefixo NAT64 de uso local (`64:ff9b:1::/48`, RFC 8215) é
+  recusado inteiro** (decisão do operador de 24/09/2026): ele admite qualquer
+  comprimento do RFC 6052, o endereço sozinho não diz qual, e existe para a
+  tradução local. O bem-conhecido não é recusado inteiro porque, numa rede
+  com DNS64, todo site só IPv4 resolve para ele. O Rust deixava todos
+  chegarem à rede local do usuário;
 - **os auxiliares do turno que não revisou o texto recebem o contexto de
   citações da sessão.** No Rust eles auditam sem manifesto, e na retomada da
   sessão (`restore_circular_resume_progress`) um revisor `READY` sobre texto
   com manifesto válido deixava de contar como aprovação estável;
+- **cada citação do corpo consome uma entrada própria do manifesto**
+  (decisão do operador de 24/09/2026). Citar o mesmo autor, ano e localizador
+  duas vezes, para duas afirmações, pede duas entradas. No Rust uma entrada
+  cobria todas as ocorrências iguais, e a segunda afirmação saía sem
+  verificação própria. Texto com forma de citação dentro da seção de
+  referências, como um título, não consome entrada: só precisa estar
+  representado, como no Rust. A seção termina no próximo cabeçalho, e um
+  apêndice depois dela é corpo;
 - **manifesto com chave JSON repetida é recusado** (decisão do operador de
   24/09/2026). O Rust o lê primeiro como `Value` e fica com o último valor:
   dois leitores do mesmo arquivo veriam manifestos diferentes.
@@ -511,6 +570,39 @@ parou".
 A retomada já existe no web e porta inteira (309 linhas de estado circular):
 ela reconstrói o ponto da rodada a partir dos artefatos aceitos e do jornal. O
 que muda é apenas quem a dispara.
+
+### 4.4 Exibição e exportação do texto final (decisão do operador de 25/09/2026)
+
+Aqui o Android difere dos dois aplicativos internos, e a diferença só foi dita
+em 25/09/2026. No `maestro-app` e no `admin-app/Maestro AI`, de uso exclusivo
+do operador, o texto final é Markdown que o `admin-app/MainSite` interpreta.
+O `maestro-android` é produto para usuários diversos: o texto final é
+**exibido formatado na tela do aparelho** e **exportado em Markdown, TXT e
+PDF**. Isso é requisito do `:app` e se cumpre só com peças oficiais, sem
+layout próprio:
+
+- **Exibição.** A `commonmark-java` — o mesmo parser que a auditoria da
+  seção 2.2 usa, então o que a auditoria aprova é exatamente o que a tela
+  mostra — gera HTML com o seu `HtmlRenderer`, e o `WebView` do Android exibe
+  esse HTML com uma folha de estilo do aplicativo. O `WebView` roda com
+  JavaScript desligado, sem acesso a arquivo nem a conteúdo, carregando só a
+  string gerada localmente (`loadDataWithBaseURL` com base nula) — é
+  componente de exibição de HTML produzido no aparelho, não o produto web da
+  seção 1. O HTML que
+  chega ao `WebView` é sempre o que o renderizador produziu a partir do
+  Markdown: HTML cru no texto final é recusado pela auditoria (seção 2.2,
+  `raw_html_in_final_text`), e por isso o modelo não tem como injetar
+  marcação nem script no que o aparelho renderiza.
+- **PDF.** O print framework do Android: `PrintManager.print` com o
+  `PrintDocumentAdapter` que o próprio `WebView` fornece. A paginação, a
+  caixa de diálogo e o "Salvar como PDF" são do sistema.
+- **Markdown.** O artefato, tal qual.
+- **TXT.** Texto puro, pelo `TextContentRenderer` da `commonmark-java`:
+  títulos, listas e ênfases viram texto plano legível, sem marcas.
+
+Nenhuma biblioteca de Markdown de terceiro (Markwon ou similar) nem gerador
+de PDF próprio. Os três exportáveis saem do mesmo artefato que a auditoria
+aprovou, e a exportação só é oferecida para texto liberado.
 
 ## 5. Os seis provedores
 

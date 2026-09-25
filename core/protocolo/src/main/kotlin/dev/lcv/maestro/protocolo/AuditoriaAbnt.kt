@@ -4,6 +4,10 @@ import java.time.Instant
 import java.util.Locale
 import java.util.TreeMap
 import java.util.TreeSet
+import org.commonmark.node.AbstractVisitor
+import org.commonmark.node.HtmlBlock
+import org.commonmark.node.HtmlInline
+import org.commonmark.parser.Parser
 
 /**
  * O portão determinístico de citações e referências ABNT — o "par Maestro"
@@ -72,18 +76,21 @@ public object AuditoriaAbnt {
             ?.let { Saneamento.curto(it, 128) }
         val referenciasBrutas = secaoDeReferencias(texto)
         val citacoesBrutas = citacoesBrutas(texto)
+        // Uma leitura só do HTML cru serve à capacidade e aos bloqueios: a
+        // árvore do CommonMark de um texto grande não se monta duas vezes.
+        val htmlCru = lerHtmlCru(texto)
         val bloqueios = mutableListOf<BloqueioDeCitacao>()
         val citacoes: List<Citacao>
         val referenciasNormalizadas: List<String>
         if (manifesto != null) {
             val (validadas, referencias) =
                 validarManifesto(texto, citacoesBrutas, referenciasBrutas, hash, manifesto, bloqueios)
-            bloqueios += bloqueiosDePolitica(texto, citacoesBrutas + validadas)
+            bloqueios += bloqueiosDePolitica(texto, citacoesBrutas + validadas, htmlCru.bloqueios)
             citacoes = validadas
             referenciasNormalizadas = referencias
         } else {
             citacoes = citacoesBrutas
-            bloqueios += bloqueiosDeTextoLivre(texto, citacoes, referenciasBrutas)
+            bloqueios += bloqueiosDeTextoLivre(texto, citacoes, referenciasBrutas, htmlCru.bloqueios)
             if (citacoes.isNotEmpty()) {
                 bloqueios += bloqueio(
                     "structured_manifest_missing",
@@ -111,7 +118,7 @@ public object AuditoriaAbnt {
         // referências, e ignora o resto em silêncio — uma citação sem suporte
         // depois da 500ª nunca era comparada com o manifesto. Aqui o excesso
         // reprova o texto.
-        if (excedeCapacidade(texto)) {
+        if (excedeCapacidade(texto, htmlCru.marcacoes)) {
             bloqueios += bloqueio(
                 "citation_capacity_exceeded",
                 "O texto excede o limite seguro de citacoes, aspas, notas ou referencias auditaveis; o " +
@@ -193,6 +200,65 @@ public object AuditoriaAbnt {
             }
         }
         return construtor.toString()
+    }
+
+    /**
+     * Um texto pronto para a busca por valor dobrado, com a regra que o
+     * canônico não tem: a comparação por [dobrarAscii] é indefinida quando o
+     * dobramento esvazia o valor. Lá o `contains("")` era verdadeiro para
+     * qualquer texto, e uma citação, uma referência ou um sinal ausentes
+     * passavam por presentes.
+     *
+     * - valor sem letra nem dígito (só pontuação) nunca está presente;
+     * - valor com letras que o dobramento descarta (alfabeto não latino) é
+     *   comparado pela [chaveCanonica], sem dobrar.
+     */
+    internal class TextoDobrado(texto: String) {
+        private val dobrado = dobrarAscii(texto)
+        private val canonico by lazy { chaveCanonica(texto) }
+
+        fun contem(valor: String): Boolean {
+            val agulha = dobrarAscii(valor)
+            if (agulha.isNotEmpty()) return dobrado.contains(agulha)
+            return representaAlgo(valor) && canonico.contains(chaveCanonica(valor))
+        }
+    }
+
+    /**
+     * Se [valor] tem alguma letra ou dígito: só pontuação não representa nada.
+     * Contado por ponto de código: uma letra fora do plano básico (Deseret,
+     * por exemplo) é um par de surrogates, e nenhuma das duas unidades é
+     * letra sozinha.
+     */
+    private fun representaAlgo(valor: String): Boolean =
+        valor.codePoints().anyMatch { Character.isLetterOrDigit(it) }
+
+    /**
+     * O comprimento de [valor] na representação em que [TextoDobrado] o
+     * compara: o dobrado ou, quando o dobramento o esvazia, a chave canônica.
+     * Nos dois, só letras e dígitos contam, por ponto de código — o dobrado
+     * já é só isso, e a pontuação de um nome não latino não pode valer por
+     * letra. O canônico media só o dobrado, e um nome grego tinha
+     * comprimento zero.
+     */
+    private fun comprimentoDobrado(valor: String): Int {
+        val dobrado = dobrarAscii(valor)
+        if (dobrado.isNotEmpty()) return dobrado.length
+        if (!representaAlgo(valor)) return 0
+        val canonico = chaveCanonica(valor)
+        return canonico.codePoints().filter { Character.isLetterOrDigit(it) }.count().toInt()
+    }
+
+    /**
+     * Se [a] e [b] são o mesmo valor pelo dobramento, pela regra de
+     * [TextoDobrado]: dois valores que dobram para vazio são comparados pela
+     * [chaveCanonica], e não iguais só por isso.
+     */
+    private fun mesmoValorDobrado(a: String, b: String): Boolean {
+        val dobradoA = dobrarAscii(a)
+        val dobradoB = dobrarAscii(b)
+        if (dobradoA.isEmpty() && dobradoB.isEmpty()) return chaveCanonica(a) == chaveCanonica(b)
+        return dobradoA == dobradoB
     }
 
     /** `canonical_author_key`: espaços colapsados e caixa alta. */
@@ -288,8 +354,13 @@ public object AuditoriaAbnt {
     )
 
     /** `raw_citations`. */
-    internal fun citacoesBrutas(texto: String): List<Citacao> {
-        val linhas = mutableListOf<Citacao>()
+    internal fun citacoesBrutas(texto: String): List<Citacao> = lerCitacoesBrutas(texto)
+        .map { it.second }
+        .sortedWith { esquerda, direita -> OrdemRust.compare(esquerda.claimId, direita.claimId) }
+
+    /** As citações de `raw_citations`, cada uma com a posição em que começa no texto. */
+    private fun lerCitacoesBrutas(texto: String): List<Pair<Int, Citacao>> {
+        val linhas = mutableListOf<Pair<Int, Citacao>>()
         val vistos = HashSet<Pair<Int, Int>>()
         for (padrao in PADROES_DE_CITACAO) {
             for (achado in padrao.findAll(texto)) {
@@ -309,7 +380,7 @@ public object AuditoriaAbnt {
                 // O `claim_id` do canônico mede posição em bytes UTF-8.
                 val inicioEmBytes = TextoRust.bytesAte(texto, inicio)
                 val fimEmBytes = inicioEmBytes + inteiro.toByteArray(Charsets.UTF_8).size
-                linhas += Citacao(
+                linhas += inicio to Citacao(
                     versaoDoEsquema = ESQUEMA_DA_CITACAO,
                     claimId = TextoRust.sha256("$inicioEmBytes|$fimEmBytes|$inteiro"),
                     tipo = if (temContextoDeCitacaoDireta(texto, inicio)) {
@@ -331,11 +402,13 @@ public object AuditoriaAbnt {
                 )
             }
         }
-        return linhas.sortedWith { esquerda, direita -> OrdemRust.compare(esquerda.claimId, direita.claimId) }
+        return linhas
     }
 
-    /** `RawReference`. */
-    internal data class ReferenciaBruta(val chave: String, val ano: String?, val texto: String)
+    /** `RawReference`. A chave do autor busca pela regra de [TextoDobrado]. */
+    internal class ReferenciaBruta(chave: String, val ano: String?, val texto: String) {
+        val chave = TextoDobrado(chave)
+    }
 
     /**
      * `reference_section`. Rust (linhas 389 e 397):
@@ -343,12 +416,11 @@ public object AuditoriaAbnt {
      * `(?i)\b((?:18|19|20)\d{2}[a-z]?)\b`
      */
     internal fun secaoDeReferencias(texto: String, limite: Int = MAXIMO_DE_FONTES): List<ReferenciaBruta> {
-        val achado = CABECALHO_DE_REFERENCIAS.find(texto) ?: return emptyList()
-        val corpo = texto.substring(achado.range.last + 1)
+        val faixa = faixaDaSecaoDeReferencias(texto) ?: return emptyList()
         val referencias = mutableListOf<ReferenciaBruta>()
-        for (bruta in TextoRust.linhas(corpo)) {
+        // A primeira linha da faixa é o cabeçalho.
+        for (bruta in TextoRust.linhas(texto.substring(faixa)).drop(1)) {
             val linha = EspacoUnicode.aparar(bruta)
-            if (linha.startsWith('#')) break
             if (linha.isEmpty()) continue
             val semMarcador = EspacoUnicode.aparar(linha.trimStart('-', '*'))
             if (semMarcador.isEmpty()) continue
@@ -356,12 +428,30 @@ public object AuditoriaAbnt {
             val autor = semMarcador.substringBefore('.')
             val chave = antesDaVirgula(autor)
             referencias += ReferenciaBruta(
-                chave = dobrarAscii(chave),
+                chave = chave,
                 ano = ANO_DA_REFERENCIA.find(semMarcador)?.groups?.get(1)?.value,
                 texto = Saneamento.texto(semMarcador, 1200),
             )
         }
         return referencias
+    }
+
+    /**
+     * A seção de referências: do cabeçalho (`reference_section`, Rust linha
+     * 389) até a linha que, aparada, começa com `#`, ou até o fim do texto.
+     * As linhas terminam em `\n`, como no `str::lines` do Rust.
+     */
+    private fun faixaDaSecaoDeReferencias(texto: String): IntRange? {
+        val cabecalho = CABECALHO_DE_REFERENCIAS.find(texto) ?: return null
+        var linha = cabecalho.range.last + 1
+        while (linha < texto.length) {
+            val quebra = texto.indexOf('\n', linha).let { if (it < 0) texto.length else it }
+            if (EspacoUnicode.aparar(texto.substring(linha, quebra)).startsWith('#')) {
+                return cabecalho.range.first until linha
+            }
+            linha = quebra + 1
+        }
+        return cabecalho.range.first until texto.length
     }
 
     private val CABECALHO_DE_REFERENCIAS = Regex(
@@ -385,21 +475,16 @@ public object AuditoriaAbnt {
         var vistos = 0
         for (achado in ASPAS.findAll(texto)) {
             if (vistos++ >= MAXIMO_DE_CITACOES) break
-            val inteiro = achado.value
-            val inicio = achado.range.first
+            val inteiro = texto.substring(achado.range)
             val fim = achado.range.last + 1
-            if (inteiro.startsWith('"')) {
-                val antes = texto.substring(0, inicio)
-                val abre = antes.lastIndexOf('<')
-                val fecha = antes.lastIndexOf('>')
-                val dentroDeTag = abre >= 0 && (fecha < 0 || abre > fecha)
-                if (dentroDeTag || EspacoUnicode.apararFim(antes).endsWith('=')) continue
-            }
             if (EspacoUnicode.dividirPorEspacos(inteiro).size < 4) continue
             val depois = TextoRust.avancarPontosDeCodigo(texto, fim, 220)
             val proximo = texto.substring(fim, depois)
+            // Texto de citação só de pontuação não liga aspa nenhuma (regra de
+            // [TextoDobrado]): `"."` ligaria toda aspa seguida de ponto.
             val citado = citacoes.any { citacao ->
-                listOfNotNull(citacao.textoOriginal, citacao.textoNormalizado).any { proximo.contains(it) }
+                listOfNotNull(citacao.textoOriginal, citacao.textoNormalizado)
+                    .any { representaAlgo(it) && proximo.contains(it) }
             }
             if (!citado) {
                 bloqueios += bloqueio(
@@ -413,6 +498,58 @@ public object AuditoriaAbnt {
     }
 
     private val ASPAS = Regex("[“\"]([^“”\"\\n]{12,400})[”\"]")
+
+    /**
+     * `raw_html_in_final_text`. Divergência do canônico, por decisão do
+     * operador de 25/09/2026: o texto final é Markdown sem HTML, e qualquer
+     * HTML cru — tag, comentário, instrução de processamento, declaração ou
+     * CDATA, em linha ou em bloco — bloqueia a liberação, apontando o trecho.
+     * Quem reconhece o HTML cru é a commonmark-java, pela especificação
+     * CommonMark 0.31.2 (seções 4.6 e 6.6): o texto final é Markdown, e esta
+     * é a especificação dele (decisão do operador de 24/09/2026, no lugar de
+     * um reconhecimento escrito à mão). `<` na prosa (`2 < 3`) não é HTML e
+     * segue prosa; o link automático (`<https://…>`) e o código (`` `<b>` ``)
+     * também não são HTML cru para a especificação.
+     *
+     * O Rust tolerava o HTML e pulava a aspa reta depois de qualquer `<` sem
+     * `>` adiante, ou logo depois de um `=`: prosa como `2 < 3 e "..."` ou
+     * `x = "..."` escondia uma citação direta sem fonte, e a aspa que fecha
+     * um atributo pareava com a que abre o seguinte. Aqui não há máscara: as
+     * aspas são procuradas no texto tal qual, e o HTML, se houver, é recusado.
+     */
+    private fun lerHtmlCru(texto: String): HtmlCru {
+        val bloqueios = mutableListOf<BloqueioDeCitacao>()
+        var marcacoes = 0
+        // Uma árvore só, percorrida uma vez: a contagem inteira, para a
+        // capacidade, e no máximo MAXIMO_DE_CITACOES bloqueios, como os outros
+        // leitores — o excesso reprova o texto pela capacidade, e a primeira
+        // marcação já bloqueia a liberação.
+        fun recusar(literal: String) {
+            marcacoes++
+            if (bloqueios.size >= MAXIMO_DE_CITACOES) return
+            bloqueios += bloqueio(
+                "raw_html_in_final_text",
+                "O texto final contem HTML cru; o texto final e Markdown sem HTML.",
+                "error", null, null, literal, false,
+            )
+        }
+        MARKDOWN.parse(texto).accept(
+            object : AbstractVisitor() {
+                override fun visit(htmlBlock: HtmlBlock) = recusar(htmlBlock.literal)
+                override fun visit(htmlInline: HtmlInline) = recusar(htmlInline.literal)
+            },
+        )
+        return HtmlCru(bloqueios, marcacoes)
+    }
+
+    /** O que a leitura única do HTML cru dá: os bloqueios, no máximo [MAXIMO_DE_CITACOES], e a contagem inteira. */
+    private class HtmlCru(val bloqueios: List<BloqueioDeCitacao>, val marcacoes: Int)
+
+    /**
+     * O parser da especificação CommonMark inteira. Montado uma vez, serve a
+     * qualquer thread, como a documentação da commonmark-java garante.
+     */
+    private val MARKDOWN: Parser = Parser.builder().build()
 
     /**
      * `unstructured_citation_signals`. Rust (linhas 474–476):
@@ -442,10 +579,14 @@ public object AuditoriaAbnt {
     )
 
     /**
-     * Se o texto tem mais citações, aspas, sinais ou referências do que os
-     * leitores acima examinam. Conta até um além do limite, sem cortar.
+     * Se o texto tem mais citações, aspas, sinais, referências ou marcações
+     * de HTML cru do que os leitores acima examinam. Conta até um além do
+     * limite, sem cortar. Vale também para o HTML cru, cujo leitor,
+     * [lerHtmlCru], para em [MAXIMO_DE_CITACOES] bloqueios como os outros; a
+     * auditoria passa a contagem da leitura que já fez, para a árvore do
+     * CommonMark não se montar duas vezes.
      */
-    internal fun excedeCapacidade(texto: String): Boolean {
+    internal fun excedeCapacidade(texto: String, marcacoesDeHtmlCru: Int = lerHtmlCru(texto).marcacoes): Boolean {
         val trechos = HashSet<Pair<Int, Int>>()
         for (padrao in PADROES_DE_CITACAO) {
             for (achado in padrao.findAll(texto)) {
@@ -455,12 +596,17 @@ public object AuditoriaAbnt {
         }
         if (ASPAS.findAll(texto).take(MAXIMO_DE_CITACOES + 1).count() > MAXIMO_DE_CITACOES) return true
         if (SINAIS.any { it.findAll(texto).take(MAXIMO_DE_CITACOES + 1).count() > MAXIMO_DE_CITACOES }) return true
+        if (marcacoesDeHtmlCru > MAXIMO_DE_CITACOES) return true
         return secaoDeReferencias(texto, MAXIMO_DE_FONTES + 1).size > MAXIMO_DE_FONTES
     }
 
     /** `document_policy_blockers`. */
-    private fun bloqueiosDePolitica(texto: String, citacoes: List<Citacao>): List<BloqueioDeCitacao> {
-        val bloqueios = bloqueiosDeAspas(texto, citacoes).toMutableList()
+    private fun bloqueiosDePolitica(
+        texto: String,
+        citacoes: List<Citacao>,
+        htmlCru: List<BloqueioDeCitacao>,
+    ): List<BloqueioDeCitacao> {
+        val bloqueios = (htmlCru + bloqueiosDeAspas(texto, citacoes)).toMutableList()
         val dobrado = dobrarAscii(texto)
         if (dobrado.contains("wikipediaorg") || dobrado.contains("ptwikipediaorg")) {
             bloqueios += bloqueio(
@@ -509,8 +655,9 @@ public object AuditoriaAbnt {
         texto: String,
         citacoes: List<Citacao>,
         referencias: List<ReferenciaBruta>,
+        htmlCru: List<BloqueioDeCitacao>,
     ): List<BloqueioDeCitacao> {
-        val bloqueios = bloqueiosDePolitica(texto, citacoes).toMutableList()
+        val bloqueios = bloqueiosDePolitica(texto, citacoes, htmlCru).toMutableList()
         if (citacoes.isNotEmpty() && referencias.isEmpty()) {
             bloqueios += bloqueio(
                 "reference_section_missing",
@@ -527,12 +674,10 @@ public object AuditoriaAbnt {
                     "error", citacao.claimId, citacao.fonteId, citacao.textoOriginal, true,
                 )
             }
-            val chave = dobrarAscii(citacao.chaveDoAutor)
-            val primeiroToken = EspacoUnicode.dividirPorEspacos(citacao.chaveDoAutor)
-                .firstOrNull()?.let(::dobrarAscii) ?: ""
+            val primeiroToken = EspacoUnicode.dividirPorEspacos(citacao.chaveDoAutor).firstOrNull() ?: ""
             val casada = referencias.withIndex().firstOrNull { (_, referencia) ->
-                (referencia.chave.contains(chave) ||
-                    (primeiroToken.length >= 4 && referencia.chave.contains(primeiroToken))) &&
+                (referencia.chave.contem(citacao.chaveDoAutor) ||
+                    (comprimentoDobrado(primeiroToken) >= 4 && referencia.chave.contem(primeiroToken))) &&
                     referencia.ano == citacao.ano
             }
             if (casada != null) {
@@ -748,7 +893,7 @@ public object AuditoriaAbnt {
         val fontesUsadas = HashSet<String>()
         val claimsVistos = HashSet<String>()
         val citacoes = mutableListOf<Citacao>()
-        val textoDobrado = dobrarAscii(texto)
+        val textoDobrado = TextoDobrado(texto)
         for (citacao in manifesto.citacoes.take(MAXIMO_DE_CITACOES)) {
             val claimId = Saneamento.curto(citacao.claimId, 120)
             val fonteId = Saneamento.curto(citacao.fonteId, 120)
@@ -788,7 +933,7 @@ public object AuditoriaAbnt {
                     "error", claimId, fonteId, citacao.textoOriginal, true,
                 )
             }
-            if (dobrarAscii(sobrenomeExibido(citacao)) != dobrarAscii(EspacoUnicode.aparar(citacao.chaveDoAutor))) {
+            if (!mesmoValorDobrado(sobrenomeExibido(citacao), EspacoUnicode.aparar(citacao.chaveDoAutor))) {
                 bloqueios += bloqueio(
                     "citation_canonical_author_mismatch",
                     "author_display da citacao deve preservar integralmente a chave canonica author_key.",
@@ -851,8 +996,8 @@ public object AuditoriaAbnt {
             }
             val normalizada = citacaoNoTexto(citacao, fonte)
             val originalPresente = preenchido(citacao.textoOriginal)
-                ?.let { textoDobrado.contains(dobrarAscii(it)) } ?: false
-            val normalizadaPresente = textoDobrado.contains(dobrarAscii(normalizada))
+                ?.let { textoDobrado.contem(it) } ?: false
+            val normalizadaPresente = textoDobrado.contem(normalizada)
             if (!originalPresente && !normalizadaPresente) {
                 bloqueios += bloqueio(
                     "manifest_citation_absent_from_text",
@@ -885,7 +1030,7 @@ public object AuditoriaAbnt {
                 }
                 val chaveExibida = EspacoUnicode.aparar(antesDaVirgula(autor.autorExibido))
                 if (chaveExibida.isEmpty() ||
-                    dobrarAscii(chaveExibida) != dobrarAscii(EspacoUnicode.aparar(autor.chaveDoAutor))
+                    !mesmoValorDobrado(chaveExibida, EspacoUnicode.aparar(autor.chaveDoAutor))
                 ) {
                     bloqueios += bloqueio(
                         "canonical_author_display_mismatch",
@@ -902,7 +1047,7 @@ public object AuditoriaAbnt {
                 )
             }
             val formatada = referenciaFormatada(fonte)
-            if (formatada.isNotEmpty() && !textoDobrado.contains(dobrarAscii(formatada))) {
+            if (formatada.isNotEmpty() && !textoDobrado.contem(formatada)) {
                 bloqueios += bloqueio(
                     "reference_not_normalized",
                     "A referencia estruturada ainda nao aparece no texto com a forma normalizada gerada " +
@@ -922,12 +1067,30 @@ public object AuditoriaAbnt {
                 )
             }
         }
+        // Divergência do canônico, por decisão do operador de 24/09/2026: cada
+        // ocorrência no corpo consome uma entrada própria do manifesto. Lá uma
+        // entrada cobria todas as ocorrências iguais, e a segunda afirmação com
+        // o mesmo autor, ano e localizador saía sem verificação própria. A
+        // ocorrência dentro da seção de referências (num título, por exemplo)
+        // não consome entrada: só precisa estar representada, como no canônico.
+        // A seção vai do cabeçalho à linha que começa o próximo, como em
+        // [secaoDeReferencias]; um apêndice depois dela é corpo.
+        val naSecaoDeReferencias = faixaDaSecaoDeReferencias(texto)?.let { faixa ->
+            lerCitacoesBrutas(texto).filter { it.first in faixa }.mapTo(HashSet()) { it.second.claimId }
+        }.orEmpty()
+        val livres = citacoes.toMutableList()
         for (bruta in citacoesBrutas) {
-            val representada = citacoes.any { estruturada ->
-                dobrarAscii(estruturada.chaveDoAutor) == dobrarAscii(bruta.chaveDoAutor) &&
+            val casa = { estruturada: Citacao ->
+                mesmoValorDobrado(estruturada.chaveDoAutor, bruta.chaveDoAutor) &&
                     EspacoUnicode.aparar(estruturada.ano) == EspacoUnicode.aparar(bruta.ano) &&
-                    (estruturada.localizador?.let(::dobrarAscii) ?: "") ==
-                    (bruta.localizador?.let(::dobrarAscii) ?: "")
+                    mesmoValorDobrado(estruturada.localizador ?: "", bruta.localizador ?: "")
+            }
+            val representada = if (bruta.claimId !in naSecaoDeReferencias) {
+                val indice = livres.indexOfFirst(casa)
+                if (indice >= 0) livres.removeAt(indice)
+                indice >= 0
+            } else {
+                citacoes.any(casa)
             }
             if (!representada) {
                 bloqueios += bloqueio(
@@ -938,10 +1101,9 @@ public object AuditoriaAbnt {
             }
         }
         for (sinal in sinaisDeCitacaoSemEstrutura(texto)) {
-            val sinalDobrado = dobrarAscii(sinal)
             val representado = citacoes.any { citacao ->
                 listOfNotNull(citacao.textoOriginal, citacao.textoNormalizado)
-                    .any { dobrarAscii(it).contains(sinalDobrado) }
+                    .any { TextoDobrado(it).contem(sinal) }
             }
             if (!representado) {
                 bloqueios += bloqueio(

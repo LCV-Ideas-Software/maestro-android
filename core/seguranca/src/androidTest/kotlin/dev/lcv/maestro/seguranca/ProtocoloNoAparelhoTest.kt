@@ -90,6 +90,15 @@ class ProtocoloNoAparelhoTest {
     }
 
     @Test
+    fun htmlCruBloqueiaEMenorNaProsaNao() {
+        val citacao = "\"esta e uma citacao direta suficientemente longa\""
+        val prosa = auditar("Sabe-se que 2 < 3 e $citacao sem fonte.")
+        assertTrue(prosa.temBloqueio("direct_quote_without_citation"))
+        assertFalse(prosa.temBloqueio("raw_html_in_final_text"))
+        assertTrue(auditar("Veja <a title=$citacao href=\"#x\">isto</a>.").temBloqueio("raw_html_in_final_text"))
+    }
+
+    @Test
     fun manifestoSoELidoEmUtf8Valido() {
         fun extrair(bytes: ByteArray) = ManifestosDosAnexos.extrair(
             listOf(ManifestosDosAnexos.Anexo("citation-manifest.json", "application/json") { bytes }),

@@ -88,9 +88,31 @@ public object RedePublica {
         if (segmentos.take(5).all { it == 0 } && segmentos[5] == 0xFFFF) return ipv4Bloqueado(v4())
         // IPv4 compatível (::a.b.c.d), que o canônico também desembrulha.
         if (segmentos.take(5).all { it == 0 } && segmentos[5] == 0) return ipv4Bloqueado(v4())
+        // Divergência do canônico, corrigindo uma falha dele: o IPv4 embutido
+        // no prefixo NAT64 bem-conhecido (64:ff9b::a.b.c.d, RFC 6052 §2.2) e no
+        // 6to4 (2002:AABB:CCDD::, RFC 3056) tem leiaute fixo, chega ao endereço
+        // IPv4 e é julgado como tal. Numa rede com DNS64 todo site só IPv4
+        // resolve para 64:ff9b::, então esse prefixo não é recusado inteiro.
+        if (segmentos[0] == 0x0064 && segmentos[1] == 0xFF9B && segmentos.slice(2..5).all { it == 0 }) {
+            return ipv4Bloqueado(v4())
+        }
+        if (segmentos[0] == 0x2002) {
+            return ipv4Bloqueado(listOf(bytes[2], bytes[3], bytes[4], bytes[5]).map { it.toInt() and 0xFF })
+        }
+        // O prefixo NAT64 de uso local, 64:ff9b:1::/48 (RFC 8215), é recusado
+        // inteiro, por decisão do operador de 24/09/2026. Ele admite qualquer
+        // comprimento do RFC 6052, e o endereço sozinho não diz qual: o mesmo
+        // endereço lê-se como vários IPv4, e qualquer regra para escolher tem
+        // furo. O RFC 6052 (§3.1) proíbe o prefixo bem-conhecido para IPv4 não
+        // global; o de uso local existe para a tradução local, que é o que este
+        // módulo protege.
+        if (segmentos[0] == 0x0064 && segmentos[1] == 0xFF9B && segmentos[2] == 0x0001) return true
         val primeiro = segmentos[0]
         return (primeiro and 0xFE00) == 0xFC00 ||
             (primeiro and 0xFFC0) == 0xFE80 ||
+            // O site-local (fec0::/10), obsoleto mas ainda roteado em redes
+            // antigas; o canônico não o recusa.
+            (primeiro and 0xFFC0) == 0xFEC0 ||
             (primeiro and 0xFF00) == 0xFF00 ||
             (segmentos[0] == 0x2001 && segmentos[1] == 0x0DB8)
     }

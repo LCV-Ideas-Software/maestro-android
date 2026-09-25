@@ -43,27 +43,77 @@ All material changes to Maestro Android are recorded here.
   field, `null` in a non-optional field, a `null` list and an unknown enum
   variant are errors; unknown fields are ignored; the attachment must be valid
   UTF-8, as `serde_json::from_slice` requires (Jackson reading bytes would
-  detect and accept UTF-16 or UTF-32). A manifest with a repeated key is
-  refused — deliberately stricter than the canonical, which reads it as a
-  `Value` first and keeps the last value.
+  detect and accept UTF-16 or UTF-32), and an escaped surrogate without its
+  pair (`"\uD800"`) is refused, as `serde_json` refuses it. A manifest with a
+  repeated key is refused — deliberately stricter than the canonical, which
+  reads it as a `Value` first and keeps the last value.
 
-  Five more places are deliberately stricter than the canonical. Each fixes a
+  Each body citation needs a manifest entry of its own, by the operator's
+  decision of 24/09/2026: citing the same author, year and locator twice, for
+  two claims, takes two entries. In the canonical one entry covered every equal
+  occurrence, so the second claim went out without its own verification.
+  Citation-shaped text inside the references section, such as a title, takes
+  no entry: it only has to be represented, as in the canonical. The section
+  ends at the next heading, so an appendix after it is body text.
+
+  More places are deliberately stricter than the canonical. Each fixes a
   defect Codex found in review that is also present in `68528f9`:
   - a link is accepted only if its mechanical check passed. The canonical
     checked only the HTTP status, so a captcha, login or paywall page, or
-    blocked evidence, served with 200 could be accepted as support. Each row
-    keeps its mechanical classification (`mechanical_classification`) apart
-    from the one the review sets, and an earlier acceptance is preserved only
-    while the new check still passes;
+    blocked evidence, served with 200 could be accepted as support. Only
+    evidence that is ready, with no interaction pending, passes; queued,
+    collecting, stale or operator-pending evidence, and consent or download
+    prompts, are quarantined, whatever HTTP status they still carry from an
+    earlier fetch. A row is counted as blocked whenever someone has to act
+    before its evidence can count (blocked, unfinished, awaiting the
+    operator or with an interaction pending, captcha included), by the same
+    predicate as the quarantine; only evidence that finished with nothing
+    pending and failed counts as an error. Each row keeps its
+    mechanical classification (`mechanical_classification`) apart from the
+    one the review sets, and an
+    earlier acceptance is preserved only while the new check still passes;
+  - accepting an HTTP(S) link requires the content hash of its evidence. The
+    canonical compared a missing hash with a missing hash, so the acceptance
+    was tied to no content and survived any change at the target;
+  - a value that folds to nothing (only punctuation, or only letters the ASCII
+    fold drops) is never found in the text. The canonical's `contains("")` was
+    true for any text, so an absent citation, reference, footnote marker or
+    author key passed as present. One rule covers every comparison: a value
+    with no letter or digit is never present (letters and digits counted by
+    code point, so a letter outside the basic plane does not pass for
+    punctuation); a value whose letters the fold drops, such as a Greek
+    name, is compared by its canonical key instead, and the four-letter
+    minimum of the first author is measured in that same representation,
+    counting letters and digits only;
+  - raw HTML in the Markdown final text blocks the release
+    (`raw_html_in_final_text`; operator's decision of 25/09/2026). The final
+    text is Markdown with no HTML: any tag, comment, processing instruction,
+    declaration or CDATA, inline or block, that the CommonMark specification
+    recognises as raw HTML (sections 4.6 and 6.6, read by `commonmark-java`
+    0.30.0, BSD-2-Clause — the operator's choice of 24/09/2026 over a
+    hand-written recogniser) is refused, pointing at the snippet. A `<` in
+    prose (`2 < 3`), an autolink and code are not raw HTML. Nothing is
+    masked: quotes are searched in the text as it is. The canonical
+    tolerated HTML and skipped a straight quote after any `<` with no `>`
+    after it, or right after an `=`: prose such as `2 < 3 e "..."` hid an
+    uncited direct quotation, and the quote closing one attribute could pair
+    with the one opening the next;
+  - the IPv6 site-local range (`fec0::/10`) is blocked, the IPv4 address
+    inside the well-known NAT64 prefix (`64:ff9b::/96`) and 6to4
+    (`2002::/16`) is judged as IPv4, and the local-use NAT64 prefix
+    (`64:ff9b:1::/48`, RFC 8215) is blocked whole, by the operator's decision
+    of 24/09/2026: it allows any RFC 6052 prefix length, the address alone
+    does not say which, and it exists for local translation. The canonical
+    let all of them reach the user's local network;
   - a URL that sanitization would change (over 1,000 code points, or holding a
     secret pattern) is blocked. The canonical stored the sanitized URL and
     fetched it, so a review could approve evidence for a different target;
   - without a manifest, footnote markers, `<cite>`, `<blockquote>`, `<q>` and
     `apud`, `ibid.`, `op. cit.` block delivery even in a text with no
     author-date citation; the canonical checked them only with a manifest;
-  - beyond 500 citations, quotes, signals of one kind or references, the text
-    is refused; the canonical stopped reading at the limit and ignored the
-    rest;
+  - beyond 500 citations, quotes, signals of one kind, references or raw HTML
+    markups, the text is refused; the canonical stopped reading at the limit
+    and ignored the rest;
   - the helpers for a serial turn that did not revise the text take the
     session's citation context. The canonical audits them without a manifest,
     so on session resume a `READY` reviewer of a text with a valid manifest
@@ -73,11 +123,12 @@ All material changes to Maestro Android are recorded here.
   8 ABNT cases, the 7 link-integrity cases (two of them against a stand-in
   URL parser until the real one arrives), the blocked ranges of
   `link_audit_blocks_local_and_private_targets`, and 5 final-audit and
-  serial-turn cases. 81 tests in the new files, plus 8 in
+  serial-turn cases. 90 tests in the new files, plus 9 in
   `ProtocoloNoAparelhoTest`, which runs on the `:core:seguranca` emulator in CI
-  to prove the regular expressions and the UTF-8 decoder on Android's ICU
-  rather than the JVM's. Three deliberate-mutation runs (9, 9 and 15
-  mutations) were all caught, with a green control run before and after.
+  to prove the regular expressions and the UTF-8 decoder on Android rather
+  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 40 mutations,
+  the last one written per rule) were all caught, with a green control run
+  before and after.
 
 - Add `:core:seguranca`, the Android library that keeps each provider's API key
   on this device only (MAEANDR-19, specification section 6). The key is

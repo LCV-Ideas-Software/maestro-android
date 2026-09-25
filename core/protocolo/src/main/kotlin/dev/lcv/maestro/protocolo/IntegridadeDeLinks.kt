@@ -315,7 +315,22 @@ public object IntegridadeDeLinks {
         return caminhoEhPdf != respostaEhPdf && (caminhoEhPdf || respostaEhPdf)
     }
 
-    /** `mechanical_failure_class`. */
+    /**
+     * `mechanical_failure_class`, com uma regra a mais que o canônico: um
+     * registro de evidência só prova algo se a coleta terminou e nada ficou
+     * pendente. A ordem é a do canônico, com a regra nova entre a interação e
+     * o código HTTP:
+     *
+     * 1. captcha, login e paywall têm classe própria (o motor de evidências
+     *    grava essas interações junto com o estado "ação do operador", então a
+     *    classe só existe nesse estado, e é lida antes dele);
+     * 2. coleta que não terminou (na fila, em coleta, vencida, ou à espera do
+     *    operador por outra interação) e interação pendente (consentimento,
+     *    confirmação de download) vão para quarentena, antes de o código HTTP
+     *    guardado de uma coleta anterior ser lido — no canônico caíam em
+     *    "passou";
+     * 3. o código HTTP e os estados bloqueada e falhou, como no canônico.
+     */
     private fun classeDeFalhaMecanica(registro: RegistroDeEvidencia): ClassificacaoDoLink? {
         when (registro.estadoDeInteracao) {
             EstadoDeInteracao.EXIGE_CAPTCHA -> return ClassificacaoDoLink.EXIGE_CAPTCHA
@@ -323,6 +338,7 @@ public object IntegridadeDeLinks {
             EstadoDeInteracao.PAYWALL -> return ClassificacaoDoLink.PAYWALL
             else -> Unit
         }
+        if (!terminouSemPendencia(registro)) return ClassificacaoDoLink.EM_QUARENTENA
         val status = registro.status
         return when {
             status == 401 -> ClassificacaoDoLink.EXIGE_AUTENTICACAO
@@ -342,6 +358,41 @@ public object IntegridadeDeLinks {
             else -> null
         }
     }
+
+    /**
+     * A regra que a quarentena e o tom compartilham: um registro só prova
+     * algo se a coleta terminou e nada ficou pendente com uma pessoa. Antes
+     * disso, o que ele guarda (código HTTP, hash) é de uma coleta que não
+     * vale, e alguém ainda precisa agir.
+     */
+    private fun terminouSemPendencia(registro: RegistroDeEvidencia): Boolean =
+        registro.estado in ESTADOS_FINAIS && registro.estadoDeInteracao in INTERACOES_CONCLUIDAS
+
+    /** As interações que não deixam nada pendente entre a coleta e o conteúdo. */
+    private val INTERACOES_CONCLUIDAS = setOf(EstadoDeInteracao.NENHUMA, EstadoDeInteracao.RESOLVIDA_POR_PESSOA)
+
+    /**
+     * Os estados em que a coleta terminou: pronta, bloqueada ou falhou. Só
+     * neles o código HTTP guardado é o da coleta que vale.
+     */
+    private val ESTADOS_FINAIS = setOf(EstadoDaEvidencia.PRONTA, EstadoDaEvidencia.BLOQUEADA, EstadoDaEvidencia.FALHOU)
+
+    /**
+     * O tom da linha cuja evidência falhou na verificação mecânica. `blocked`
+     * é o que precisa de alguém agir antes de valer: evidência bloqueada,
+     * coleta que não terminou e interação pendente (captcha, login, paywall,
+     * consentimento, download) — o mesmo predicado da quarentena,
+     * [terminouSemPendencia]. `error` é a coleta que terminou sem pendência e
+     * falhou: pronta com código ruim, ou falhou. O canônico só dava `blocked`
+     * à bloqueada; o resumo da auditoria conta as linhas `blocked` em
+     * `bloqueadas`.
+     */
+    private fun tomDaFalha(evidencia: RegistroDeEvidencia): String =
+        if (terminouSemPendencia(evidencia) && evidencia.estado != EstadoDaEvidencia.BLOQUEADA) {
+            "error"
+        } else {
+            "blocked"
+        }
 
     /** `apply_web_evidence`. */
     internal fun aplicarEvidencia(
@@ -368,7 +419,7 @@ public object IntegridadeDeLinks {
                 status = evidencia.status?.let { "HTTP $it" } ?: "falha mecanica",
                 invalidade = evidencia.notas.lastOrNull()?.let { Saneamento.texto(it, 180) }
                     ?: "o link nao passou pela verificacao mecanica",
-                tom = if (evidencia.estado == EstadoDaEvidencia.BLOQUEADA) "blocked" else "error",
+                tom = tomDaFalha(evidencia),
             )
         }
         if (tipoDivergente(comEvidencia.urlNormalizada, comEvidencia.tipoDeConteudo, analisador)) {
@@ -434,9 +485,18 @@ public object IntegridadeDeLinks {
      * link pode ser aceito.
      */
     private fun motivoParaNaoAceitar(linha: LinhaDeLink): String? {
+        val correio = linha.urlNormalizada.startsWith("mailto:")
         val alcancavel = linha.statusHttp?.let { it in 200..299 } ?: false
-        if (!alcancavel && !linha.urlNormalizada.startsWith("mailto:")) {
+        if (!alcancavel && !correio) {
             return "cannot accept a link that did not pass mechanical validation"
+        }
+        // Divergência do canônico, corrigindo uma falha dele: sem hash do
+        // conteúdo, o aceite não fica preso a conteúdo nenhum — a revisão
+        // conferia `null` com `null`, e mudar o destino nunca a derrubava. O
+        // hash tem o formato do identificador (64 dígitos hexadecimais
+        // minúsculos). O `mailto:`, que não é coletado, segue sem hash.
+        if (!correio && linha.sha256?.let(::idValido) != true) {
+            return "cannot accept a link without the content hash of its evidence"
         }
         if (linha.classificacaoMecanica == ClassificacaoDoLink.TIPO_DE_CONTEUDO_DIVERGENTE) {
             return "content-type mismatch must be corrected before acceptance"

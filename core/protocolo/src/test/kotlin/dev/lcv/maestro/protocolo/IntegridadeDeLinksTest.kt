@@ -21,6 +21,12 @@ import kotlin.test.assertTrue
  */
 class IntegridadeDeLinksTest {
 
+    private companion object {
+        /** Hashes de conteúdo no formato real: 64 dígitos hexadecimais minúsculos. */
+        val HASH_1 = "1".repeat(64)
+        val HASH_2 = "2".repeat(64)
+    }
+
     private val agora: Instant = Instant.parse("2026-09-24T12:00:00Z")
 
     /** Dublê do parser: `java.net.URI`, só para exercitar as regras em volta dele. */
@@ -60,7 +66,7 @@ class IntegridadeDeLinksTest {
     private fun evidencia(
         url: String,
         status: Int? = 200,
-        sha: String? = "sha-1",
+        sha: String? = HASH_1,
         tipo: String? = "text/html",
         estado: EstadoDaEvidencia = EstadoDaEvidencia.PRONTA,
         interacao: EstadoDeInteracao = EstadoDeInteracao.NENHUMA,
@@ -209,20 +215,20 @@ class IntegridadeDeLinksTest {
         // Origem, contexto, âncora e URL já entram no identificador; o hash do
         // conteúdo é a única conferência da preservação que não é redundante.
         val registro = RegistroEmMemoria()
-        var sha = "sha-1"
+        var sha = HASH_1
         val coletorMutavel = IntegridadeDeLinks.ColetorDeEvidencia { url -> evidencia(url, sha = sha) }
         val texto = "Ver [x](https://example.com/a)."
         fun rodar() = IntegridadeDeLinks.auditar(texto, analisador, coletorMutavel, registro) { agora }
         val linha = rodar().linhas.single()
         IntegridadeDeLinks.revisar(
             IntegridadeDeLinks.PedidoDeRevisao(
-                linha.linkId, DecisaoDeRevisao.ACEITAR, "fonte oficial confere", "operator", linha.urlNormalizada, "sha-1",
+                linha.linkId, DecisaoDeRevisao.ACEITAR, "fonte oficial confere", "operator", linha.urlNormalizada, HASH_1,
             ),
             registro,
             agora,
         )
         assertEquals("ok", rodar().linhas.single().tom)
-        sha = "sha-2"
+        sha = HASH_2
         val depois = rodar().linhas.single()
         assertEquals(linha.linkId, depois.linkId)
         assertEquals(StatusDaRevisao.PENDENTE, depois.statusDaRevisao)
@@ -278,24 +284,70 @@ class IntegridadeDeLinksTest {
         agora,
     )
 
+    private fun auditarCom(evidencia: RegistroDeEvidencia, registro: RegistroEmMemoria = RegistroEmMemoria()) =
+        IntegridadeDeLinks.auditar("Ver [x](https://example.com/a).", analisador, { evidencia }, registro) {
+            agora
+        }.linhas.single()
+
     @Test
-    fun `captcha, login, paywall e evidencia bloqueada servidos com 200 nao sao aceitos`() {
-        // Divergência do canônico: lá o aceite só conferia o código HTTP.
-        val casos = listOf(
-            evidencia("https://example.com/a", interacao = EstadoDeInteracao.EXIGE_CAPTCHA),
-            evidencia("https://example.com/a", interacao = EstadoDeInteracao.EXIGE_LOGIN),
-            evidencia("https://example.com/a", interacao = EstadoDeInteracao.PAYWALL),
-            evidencia("https://example.com/a", estado = EstadoDaEvidencia.BLOQUEADA),
-        )
-        for (caso in casos) {
+    fun `so evidencia pronta e sem interacao pendente pode ser aceita, mesmo com 200`() {
+        // Divergência do canônico: lá o aceite só conferia o código HTTP. A
+        // regra é a lista do que passa, não a do que falha: todo outro estado
+        // e toda outra interação são recusados.
+        val url = "https://example.com/a"
+        val estados = EstadoDaEvidencia.entries.filter { it != EstadoDaEvidencia.PRONTA }
+            .map { evidencia(url, estado = it) }
+        val interacoes = EstadoDeInteracao.entries
+            .filter { it != EstadoDeInteracao.NENHUMA && it != EstadoDeInteracao.RESOLVIDA_POR_PESSOA }
+            .map { evidencia(url, interacao = it) }
+        for (caso in estados + interacoes) {
             val registro = RegistroEmMemoria()
-            val linha = IntegridadeDeLinks.auditar("Ver [x](https://example.com/a).", analisador, { caso }, registro) {
-                agora
-            }.linhas.single()
+            val linha = auditarCom(caso, registro)
             assertEquals(200, linha.statusHttp)
             val erro = assertFailsWith<IntegridadeDeLinks.Falha>(caso.toString()) { aceitar(linha, registro) }
-            assertEquals("cannot accept a link that did not pass mechanical validation", erro.message)
+            assertEquals("cannot accept a link that did not pass mechanical validation", erro.message, caso.toString())
         }
+        // O tom segue o estado: `blocked` é o que precisa de alguém agir
+        // (bloqueada, coleta que não terminou, ação do operador), e conta em
+        // `bloqueadas`; `error` é a coleta que terminou e falhou.
+        val terminadas = setOf(EstadoDaEvidencia.PRONTA, EstadoDaEvidencia.FALHOU)
+        for (estado in EstadoDaEvidencia.entries) {
+            val esperado = if (estado in terminadas) "error" else "blocked"
+            assertEquals(esperado, auditarCom(evidencia(url, status = 404, estado = estado)).tom, estado.toString())
+        }
+        // Pronta, mas com interação pendente (consentimento, download, e
+        // também captcha, login e paywall): alguém ainda precisa agir, então
+        // o tom é `blocked`, pelo mesmo predicado da quarentena.
+        for (interacao in EstadoDeInteracao.entries) {
+            val pendente = interacao != EstadoDeInteracao.NENHUMA && interacao != EstadoDeInteracao.RESOLVIDA_POR_PESSOA
+            val linha = auditarCom(evidencia(url, status = 404, interacao = interacao))
+            assertEquals(if (pendente) "blocked" else "error", linha.tom, interacao.toString())
+        }
+        // A evidência que não terminou vai para quarentena antes de o código
+        // HTTP guardado nela ser lido: vencida com 404 é quarentena, e não
+        // "não encontrada". Já captcha, login e paywall, que o motor grava
+        // junto com o estado "ação do operador", têm classe própria e contam
+        // como bloqueadas pelo estado.
+        val finais = setOf(EstadoDaEvidencia.PRONTA, EstadoDaEvidencia.BLOQUEADA, EstadoDaEvidencia.FALHOU)
+        for (estado in EstadoDaEvidencia.entries.filter { it !in finais }) {
+            val linha = auditarCom(evidencia(url, status = 404, estado = estado))
+            assertEquals(ClassificacaoDoLink.EM_QUARENTENA, linha.classificacao, estado.toString())
+        }
+        val captcha = auditarCom(
+            evidencia(url, estado = EstadoDaEvidencia.EXIGE_ACAO_DO_OPERADOR, interacao = EstadoDeInteracao.EXIGE_CAPTCHA),
+        )
+        assertEquals(ClassificacaoDoLink.EXIGE_CAPTCHA, captcha.classificacao)
+        assertEquals("blocked", captcha.tom)
+        // Controle: nos estados finais, o código HTTP segue a ordem do canônico.
+        assertEquals(ClassificacaoDoLink.NAO_ENCONTRADO, auditarCom(evidencia(url, status = 404)).classificacao)
+        assertEquals(
+            ClassificacaoDoLink.PROIBIDO,
+            auditarCom(evidencia(url, status = 403, estado = EstadoDaEvidencia.BLOQUEADA)).classificacao,
+        )
+        // Controle: interação que uma pessoa resolveu é aceita.
+        val resolvida = RegistroEmMemoria()
+        val linha = auditarCom(evidencia(url, interacao = EstadoDeInteracao.RESOLVIDA_POR_PESSOA), resolvida)
+        assertEquals(StatusDaRevisao.ACEITA, aceitar(linha, resolvida).statusDaRevisao)
         // Controle: a mesma página sem interação pendente é aceita, inclusive
         // depois de uma quarentena, que troca a classificação exibida mas não
         // a mecânica.
@@ -309,6 +361,23 @@ class IntegridadeDeLinksTest {
             agora,
         )
         assertEquals(StatusDaRevisao.ACEITA, aceitar(limpa, registro).statusDaRevisao)
+    }
+
+    @Test
+    fun `aceite exige o hash do conteudo da evidencia`() {
+        // Divergência do canônico: lá a revisão conferia `null` com `null`, e
+        // o aceite sem hash sobrevivia a qualquer mudança do destino.
+        for (sha in listOf(null, "", "sha-1", "A".repeat(64))) {
+            val registro = RegistroEmMemoria()
+            val linha = auditarCom(evidencia("https://example.com/a", sha = sha), registro)
+            val erro = assertFailsWith<IntegridadeDeLinks.Falha>(sha.toString()) { aceitar(linha, registro) }
+            assertEquals("cannot accept a link without the content hash of its evidence", erro.message)
+        }
+        // Controle: o mailto, que não é coletado, é aceito sem hash.
+        val registro = RegistroEmMemoria()
+        val correio = auditar("Escreva para mailto:editor@example.com hoje.", registro).linhas.single()
+        assertNull(correio.sha256)
+        assertEquals(StatusDaRevisao.ACEITA, aceitar(correio, registro).statusDaRevisao)
     }
 
     @Test
@@ -435,6 +504,34 @@ class IntegridadeDeLinksTest {
         assertTrue(RedePublica.ipBloqueado(mapeado))
         assertFalse(RedePublica.ipBloqueado(ip("93.184.216.34")))
         assertFalse(RedePublica.ipBloqueado(ip("2606:2800:220:1::1")))
+    }
+
+    @Test
+    fun `faixas IPv6 locais que o canonico deixa passar`() {
+        // O site-local obsoleto, e o IPv4 privado embutido no NAT64 e no 6to4.
+        for (bloqueado in listOf("fec0::1", "feff::1", "64:ff9b::a00:1", "64:ff9b::c0a8:101", "2002:c0a8:101::1")) {
+            assertTrue(RedePublica.ipBloqueado(ip(bloqueado)), bloqueado)
+        }
+        // Controle: o IPv4 público embutido passa, porque numa rede com DNS64
+        // todo site só IPv4 resolve para 64:ff9b::; e o vizinho de fec0::/10
+        // fora da faixa também passa.
+        for (publico in listOf("64:ff9b::5db8:d822", "2002:5db8:d822::1", "fe00::1")) {
+            assertFalse(RedePublica.ipBloqueado(ip(publico)), publico)
+        }
+        // O prefixo NAT64 de uso local (RFC 8215) é recusado inteiro, em
+        // qualquer leiaute do RFC 6052, inclusive com IPv4 público dentro: o
+        // endereço não diz o comprimento do prefixo, e o prefixo é local.
+        for (bloqueado in listOf(
+            "64:ff9b:1:c0a8:1:100::",
+            "64:ff9b:1::c0a8:101",
+            "64:ff9b:1::5db8:d822",
+            "64:ff9b:1:5db8:d8:2200::",
+            "64:ff9b:1:ffff:ffff:ffff:ffff:ffff",
+        )) {
+            assertTrue(RedePublica.ipBloqueado(ip(bloqueado)), bloqueado)
+        }
+        // Controle: o vizinho fora do /48 é julgado pelo IPv4 embutido.
+        assertFalse(RedePublica.ipBloqueado(ip("64:ff9b:2::5db8:d822")))
     }
 
     @Test

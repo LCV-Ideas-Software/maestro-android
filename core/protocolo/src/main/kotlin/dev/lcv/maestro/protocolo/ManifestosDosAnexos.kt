@@ -130,16 +130,40 @@ public object ManifestosDosAnexos {
 
     /**
      * `serde_json::from_slice::<Value>`: JSON estrito, sem texto depois do
-     * valor. A marca BOM no começo o `serde_json` recusa, e o Jackson aceitaria
-     * em silêncio; aqui é recusada como no canônico.
+     * valor. Duas coisas que o `serde_json` recusa e o Jackson aceitaria em
+     * silêncio são recusadas aqui como no canônico: a marca BOM no começo e o
+     * escape de surrogate sem par (`"\uD800"`), que viraria um texto que o
+     * UTF-8 não representa.
      */
     private fun lerJson(texto: String): JsonNode? {
         if (texto.startsWith('\uFEFF')) return null
         return try {
-            LEITOR_DE_CLASSIFICACAO.readTree(texto)?.takeUnless { it.isMissingNode }
+            LEITOR_DE_CLASSIFICACAO.readTree(texto)?.takeUnless { it.isMissingNode || temSurrogateSemPar(it) }
         } catch (erro: JacksonException) {
             null
         }
+    }
+
+    /** Se algum texto ou chave do JSON tem surrogate UTF-16 sem par. */
+    private fun temSurrogateSemPar(no: JsonNode): Boolean = when {
+        no.isTextual -> surrogateSemPar(no.textValue())
+        no.isObject -> no.properties().any { (chave, valor) -> surrogateSemPar(chave) || temSurrogateSemPar(valor) }
+        no.isArray -> no.any(::temSurrogateSemPar)
+        else -> false
+    }
+
+    private fun surrogateSemPar(valor: String): Boolean {
+        var indice = 0
+        while (indice < valor.length) {
+            val atual = valor[indice]
+            if (Character.isLowSurrogate(atual)) return true
+            if (Character.isHighSurrogate(atual)) {
+                if (indice + 1 >= valor.length || !Character.isLowSurrogate(valor[indice + 1])) return true
+                indice++
+            }
+            indice++
+        }
+        return false
     }
 
     internal sealed interface Leitura {

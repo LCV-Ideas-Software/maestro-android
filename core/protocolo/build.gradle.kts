@@ -17,6 +17,10 @@ dependencies {
     // varredor escrito à mão discorda da especificação em algum lugar, sempre,
     // e num portão de integridade cada discordância é uma autorização indevida.
     implementation(libs.jackson.databind)
+    // O mesmo vale para o HTML dentro do Markdown do texto final: a auditoria
+    // de citações o reconhece pela especificação CommonMark, não por varredura
+    // própria.
+    implementation(libs.commonmark)
 
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter)
