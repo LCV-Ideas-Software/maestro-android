@@ -191,13 +191,19 @@ class AuditoriaAbntTest {
         fun notas(n: Int) = (1..n).joinToString(" ") { "nota[^$it]" }
         fun referencias(n: Int) =
             "Texto.\n\n## Referencias\n" + (1..n).joinToString("\n") { "SILVA, Ana. Obra $it. Rio: Editora, 2020." }
-        for (gerar in listOf(::citacoes, ::aspas, ::notas, ::referencias)) {
+        // O HTML cru também: acima do limite, a capacidade reprova, e o leitor
+        // de HTML para em 500 bloqueios como os outros leitores.
+        fun html(n: Int) = "Texto " + (1..n).joinToString(" ") { "<br>" }
+        for (gerar in listOf(::citacoes, ::aspas, ::notas, ::referencias, ::html)) {
             assertFalse(AuditoriaAbnt.excedeCapacidade(gerar(500)), gerar(1))
             assertTrue(AuditoriaAbnt.excedeCapacidade(gerar(501)), gerar(1))
         }
         val resultado = auditar(citacoes(501), "protocol-sha256", AuditoriaAbnt.manifestoVazio("protocol-sha256"))
         assertTrue(resultado.temBloqueio("citation_capacity_exceeded"))
         assertEquals(StatusDoParMaestro.NAO_PRONTO, resultado.statusDoParMaestro)
+        val comHtml = auditar(html(501))
+        assertTrue(comHtml.temBloqueio("citation_capacity_exceeded"))
+        assertEquals(500, comHtml.bloqueios.count { it.codigo == "raw_html_in_final_text" })
     }
 
     private fun comOriginal(original: String): ManifestoDeCitacoes = manifestoVerificado().let { base ->

@@ -315,6 +315,14 @@ class IntegridadeDeLinksTest {
             val esperado = if (estado in terminadas) "error" else "blocked"
             assertEquals(esperado, auditarCom(evidencia(url, status = 404, estado = estado)).tom, estado.toString())
         }
+        // Pronta, mas com interação pendente (consentimento, download, e
+        // também captcha, login e paywall): alguém ainda precisa agir, então
+        // o tom é `blocked`, pelo mesmo predicado da quarentena.
+        for (interacao in EstadoDeInteracao.entries) {
+            val pendente = interacao != EstadoDeInteracao.NENHUMA && interacao != EstadoDeInteracao.RESOLVIDA_POR_PESSOA
+            val linha = auditarCom(evidencia(url, status = 404, interacao = interacao))
+            assertEquals(if (pendente) "blocked" else "error", linha.tom, interacao.toString())
+        }
         // A evidência que não terminou vai para quarentena antes de o código
         // HTTP guardado nela ser lido: vencida com 404 é quarentena, e não
         // "não encontrada". Já captcha, login e paywall, que o motor grava

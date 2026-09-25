@@ -65,9 +65,10 @@ All material changes to Maestro Android are recorded here.
     collecting, stale or operator-pending evidence, and consent or download
     prompts, are quarantined, whatever HTTP status they still carry from an
     earlier fetch. A row is counted as blocked whenever someone has to act
-    before its evidence can count (blocked, unfinished, or awaiting the
-    operator, captcha included); only finished evidence that failed counts
-    as an error. Each row keeps its
+    before its evidence can count (blocked, unfinished, awaiting the
+    operator or with an interaction pending, captcha included), by the same
+    predicate as the quarantine; only evidence that finished with nothing
+    pending and failed counts as an error. Each row keeps its
     mechanical classification (`mechanical_classification`) apart from the
     one the review sets, and an
     earlier acceptance is preserved only while the new check still passes;
@@ -110,9 +111,9 @@ All material changes to Maestro Android are recorded here.
   - without a manifest, footnote markers, `<cite>`, `<blockquote>`, `<q>` and
     `apud`, `ibid.`, `op. cit.` block delivery even in a text with no
     author-date citation; the canonical checked them only with a manifest;
-  - beyond 500 citations, quotes, signals of one kind or references, the text
-    is refused; the canonical stopped reading at the limit and ignored the
-    rest;
+  - beyond 500 citations, quotes, signals of one kind, references or raw HTML
+    markups, the text is refused; the canonical stopped reading at the limit
+    and ignored the rest;
   - the helpers for a serial turn that did not revise the text take the
     session's citation context. The canonical audits them without a manifest,
     so on session resume a `READY` reviewer of a text with a valid manifest
@@ -125,7 +126,7 @@ All material changes to Maestro Android are recorded here.
   serial-turn cases. 90 tests in the new files, plus 9 in
   `ProtocoloNoAparelhoTest`, which runs on the `:core:seguranca` emulator in CI
   to prove the regular expressions and the UTF-8 decoder on Android rather
-  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 36 mutations,
+  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 39 mutations,
   the last one written per rule) were all caught, with a green control run
   before and after.
 

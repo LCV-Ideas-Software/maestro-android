@@ -516,7 +516,11 @@ public object AuditoriaAbnt {
      */
     private fun bloqueiosDeHtmlCru(texto: String): List<BloqueioDeCitacao> {
         val bloqueios = mutableListOf<BloqueioDeCitacao>()
+        // Como os outros leitores: no máximo MAXIMO_DE_CITACOES bloqueios; o
+        // excesso já reprovou o texto pela capacidade, e a primeira marcação
+        // já bloqueia a liberação.
         fun recusar(literal: String) {
+            if (bloqueios.size >= MAXIMO_DE_CITACOES) return
             bloqueios += bloqueio(
                 "raw_html_in_final_text",
                 "O texto final contem HTML cru; o texto final e Markdown sem HTML.",
@@ -530,6 +534,23 @@ public object AuditoriaAbnt {
             },
         )
         return bloqueios
+    }
+
+    /** Quantas marcações de HTML cru, em linha ou em bloco, o texto tem — só a contagem, sem criar nada. */
+    private fun marcacoesDeHtmlCru(texto: String): Int {
+        var vistas = 0
+        MARKDOWN.parse(texto).accept(
+            object : AbstractVisitor() {
+                override fun visit(htmlBlock: HtmlBlock) {
+                    vistas++
+                }
+
+                override fun visit(htmlInline: HtmlInline) {
+                    vistas++
+                }
+            },
+        )
+        return vistas
     }
 
     /**
@@ -566,8 +587,11 @@ public object AuditoriaAbnt {
     )
 
     /**
-     * Se o texto tem mais citações, aspas, sinais ou referências do que os
-     * leitores acima examinam. Conta até um além do limite, sem cortar.
+     * Se o texto tem mais citações, aspas, sinais, referências ou marcações
+     * de HTML cru do que os leitores acima examinam. Conta até um além do
+     * limite, sem cortar. Vale também para o HTML cru, cujo leitor,
+     * [bloqueiosDeHtmlCru], para em [MAXIMO_DE_CITACOES] bloqueios como os
+     * outros.
      */
     internal fun excedeCapacidade(texto: String): Boolean {
         val trechos = HashSet<Pair<Int, Int>>()
@@ -579,6 +603,7 @@ public object AuditoriaAbnt {
         }
         if (ASPAS.findAll(texto).take(MAXIMO_DE_CITACOES + 1).count() > MAXIMO_DE_CITACOES) return true
         if (SINAIS.any { it.findAll(texto).take(MAXIMO_DE_CITACOES + 1).count() > MAXIMO_DE_CITACOES }) return true
+        if (marcacoesDeHtmlCru(texto) > MAXIMO_DE_CITACOES) return true
         return secaoDeReferencias(texto, MAXIMO_DE_FONTES + 1).size > MAXIMO_DE_FONTES
     }
 

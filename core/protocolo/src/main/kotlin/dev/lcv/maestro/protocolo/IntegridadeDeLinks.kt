@@ -338,9 +338,7 @@ public object IntegridadeDeLinks {
             EstadoDeInteracao.PAYWALL -> return ClassificacaoDoLink.PAYWALL
             else -> Unit
         }
-        if (registro.estado !in ESTADOS_FINAIS || registro.estadoDeInteracao !in INTERACOES_CONCLUIDAS) {
-            return ClassificacaoDoLink.EM_QUARENTENA
-        }
+        if (!terminouSemPendencia(registro)) return ClassificacaoDoLink.EM_QUARENTENA
         val status = registro.status
         return when {
             status == 401 -> ClassificacaoDoLink.EXIGE_AUTENTICACAO
@@ -361,6 +359,15 @@ public object IntegridadeDeLinks {
         }
     }
 
+    /**
+     * A regra que a quarentena e o tom compartilham: um registro só prova
+     * algo se a coleta terminou e nada ficou pendente com uma pessoa. Antes
+     * disso, o que ele guarda (código HTTP, hash) é de uma coleta que não
+     * vale, e alguém ainda precisa agir.
+     */
+    private fun terminouSemPendencia(registro: RegistroDeEvidencia): Boolean =
+        registro.estado in ESTADOS_FINAIS && registro.estadoDeInteracao in INTERACOES_CONCLUIDAS
+
     /** As interações que não deixam nada pendente entre a coleta e o conteúdo. */
     private val INTERACOES_CONCLUIDAS = setOf(EstadoDeInteracao.NENHUMA, EstadoDeInteracao.RESOLVIDA_POR_PESSOA)
 
@@ -373,13 +380,15 @@ public object IntegridadeDeLinks {
     /**
      * O tom da linha cuja evidência falhou na verificação mecânica. `blocked`
      * é o que precisa de alguém agir antes de valer: evidência bloqueada,
-     * coleta que não terminou e ação do operador (captcha, login, paywall,
-     * consentimento). `error` é a coleta que terminou e falhou: pronta com
-     * código ruim, ou falhou. O canônico só dava `blocked` à bloqueada; o
-     * resumo da auditoria conta as linhas `blocked` em `bloqueadas`.
+     * coleta que não terminou e interação pendente (captcha, login, paywall,
+     * consentimento, download) — o mesmo predicado da quarentena,
+     * [terminouSemPendencia]. `error` é a coleta que terminou sem pendência e
+     * falhou: pronta com código ruim, ou falhou. O canônico só dava `blocked`
+     * à bloqueada; o resumo da auditoria conta as linhas `blocked` em
+     * `bloqueadas`.
      */
     private fun tomDaFalha(evidencia: RegistroDeEvidencia): String =
-        if (evidencia.estado == EstadoDaEvidencia.PRONTA || evidencia.estado == EstadoDaEvidencia.FALHOU) {
+        if (terminouSemPendencia(evidencia) && evidencia.estado != EstadoDaEvidencia.BLOQUEADA) {
             "error"
         } else {
             "blocked"

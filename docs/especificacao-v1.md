@@ -184,8 +184,8 @@ no Rust em `68528f9`:
   vai para quarentena, qualquer que seja o código HTTP guardado nela de uma
   coleta anterior. A linha conta como bloqueada sempre que alguém precisa
   agir antes de a evidência valer (bloqueada, coleta que não terminou, ação
-  do operador, captcha incluído); só a coleta que terminou e falhou conta
-  como erro.
+  do operador, interação pendente, captcha incluído) — o mesmo predicado da
+  quarentena; só a coleta que terminou sem pendência e falhou conta como erro.
   Cada linha guarda a classificação mecânica à parte da que a revisão escreve
   (`mechanical_classification`), e um aceite anterior só é preservado enquanto
   a verificação nova ainda passar;
@@ -199,8 +199,9 @@ no Rust em `68528f9`:
 - **sem manifesto, nota de rodapé, `<cite>`, `<blockquote>`, `<q>` e `apud`,
   `ibid.`, `op. cit.` bloqueiam** mesmo num texto sem citação autor-data; no
   Rust esses sinais só eram conferidos com manifesto;
-- **acima de 500 citações, aspas, sinais de um tipo ou referências, o texto é
-  recusado.** O Rust para de ler no limite e ignora o excedente em silêncio;
+- **acima de 500 citações, aspas, sinais de um tipo, referências ou marcações
+  de HTML cru, o texto é recusado.** O Rust para de ler no limite e ignora o
+  excedente em silêncio;
 - **valor que dobra para vazio nunca está presente no texto.** Só pontuação,
   ou só letras que o dobramento ASCII descarta, dobram para vazio, e o
   `contains("")` do Rust é verdadeiro para qualquer texto: citação,
