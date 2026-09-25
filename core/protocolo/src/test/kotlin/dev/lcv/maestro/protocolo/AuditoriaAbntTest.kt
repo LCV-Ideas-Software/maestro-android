@@ -344,6 +344,14 @@ class AuditoriaAbntTest {
             )
         }
         assertTrue(auditar(misto, "protocol-sha256", comChaveMista("ΑΛΦΑ BO")).temBloqueio("body_citation_not_in_manifest"))
+        // Só pontuação: `.` e `-` dobram os dois para `""` e não são o mesmo
+        // localizador; a comparação vai pela chave canônica.
+        val pontuacao = "Texto (Silva, 2026, -).\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026."
+        fun comLocalizador(localizador: String) = manifestoVerificado().let { base ->
+            base.copy(citacoes = listOf(base.citacoes[0].copy(localizador = localizador, textoOriginal = "(Silva, 2026, -)")))
+        }
+        assertTrue(auditar(pontuacao, "protocol-sha256", comLocalizador(".")).temBloqueio("body_citation_not_in_manifest"))
+        assertFalse(auditar(pontuacao, "protocol-sha256", comLocalizador("-")).temBloqueio("body_citation_not_in_manifest"))
         assertFalse(
             auditar(misto, "protocol-sha256", comChaveMista(AuditoriaAbnt.chaveCanonica("Ωμέγα Bo")))
                 .temBloqueio("body_citation_not_in_manifest"),

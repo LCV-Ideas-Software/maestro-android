@@ -221,19 +221,21 @@ public object AuditoriaAbnt {
         private val canonico by lazy { chaveCanonica(texto) }
 
         fun contem(valor: String): Boolean {
-            val agulha = dobrarAscii(valor)
-            if (dobramentoFiel(valor) && agulha.isNotEmpty()) return dobrado.contains(agulha)
+            if (dobramentoFiel(valor)) return dobrado.contains(dobrarAscii(valor))
             return representaAlgo(valor) && canonico.contains(chaveCanonica(valor))
         }
     }
 
     /**
      * Se o dobramento de [valor] guarda todas as letras e dígitos dele, por
-     * ponto de código. Só então o dobrado representa o valor; quando descarta
-     * alguma letra, a comparação vai pela [chaveCanonica].
+     * ponto de código, e há pelo menos um. Só então o dobrado representa o
+     * valor; quando descarta alguma letra, ou quando não há letra nenhuma
+     * (só pontuação, ou vazio: tudo dobra para `""`), a comparação vai pela
+     * [chaveCanonica].
      */
     private fun dobramentoFiel(valor: String): Boolean =
-        valor.codePoints().filter { Character.isLetterOrDigit(it) }.count() == dobrarAscii(valor).length.toLong()
+        representaAlgo(valor) &&
+            valor.codePoints().filter { Character.isLetterOrDigit(it) }.count() == dobrarAscii(valor).length.toLong()
 
     /**
      * Se [valor] tem alguma letra ou dígito: só pontuação não representa nada.
@@ -257,8 +259,9 @@ public object AuditoriaAbnt {
     /**
      * Se [a] e [b] são o mesmo valor pelo dobramento, pela regra de
      * [TextoDobrado]: quando o dobramento descarta alguma letra de um deles,
-     * os dois são comparados pela [chaveCanonica], e não iguais só pelo que
-     * sobrou.
+     * ou um deles não tem letra nenhuma, os dois são comparados pela
+     * [chaveCanonica], e não iguais só pelo que sobrou — `.` e `-` dobram os
+     * dois para `""` e não são o mesmo localizador.
      */
     private fun mesmoValorDobrado(a: String, b: String): Boolean {
         if (!dobramentoFiel(a) || !dobramentoFiel(b)) return chaveCanonica(a) == chaveCanonica(b)
