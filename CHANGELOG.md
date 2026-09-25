@@ -78,10 +78,11 @@ All material changes to Maestro Android are recorded here.
     fold drops) is never found in the text. The canonical's `contains("")` was
     true for any text, so an absent citation, reference, footnote marker or
     author key passed as present. One rule covers every comparison: a value
-    with no letter or digit is never present; a value whose letters the fold
-    drops, such as a Greek name, is compared by its canonical key instead,
-    and the four-letter minimum of the first author is measured in that same
-    representation;
+    with no letter or digit is never present (letters and digits counted by
+    code point, so a letter outside the basic plane does not pass for
+    punctuation); a value whose letters the fold drops, such as a Greek
+    name, is compared by its canonical key instead, and the four-letter
+    minimum of the first author is measured in that same representation;
   - the raw HTML in the Markdown final text is masked before quotes are
     searched, so markup is neither taken for a quotation nor paired with the
     quotes of the prose around it. `commonmark-java` (0.30.0, BSD-2-Clause)
@@ -90,9 +91,11 @@ All material changes to Maestro Android are recorded here.
     HTML is read with the HTML block type off, so prose inside a `<div>` is
     still checked; the HTML blocks whose content the browser hides (section
     4.6: `<script>` and `<style>`, comment, processing instruction,
-    declaration and CDATA), which may span a blank line, are masked whole,
-    as the specification delimits them; `<pre>` and `<textarea>` show their
-    content to the reader and stay checked.
+    declaration and CDATA), which may span a blank line, are masked from
+    their start through the terminator the specification defines for the
+    type; what follows the terminator on that line is shown by the browser
+    and stays checked; `<pre>` and `<textarea>` show their content to the
+    reader and stay checked.
     The canonical skipped a straight quote after any `<` with
     no `>` after it, or right after an `=`: prose such as `2 < 3 e "..."` hid
     an uncited direct quotation, and the quote closing one attribute could
@@ -125,7 +128,7 @@ All material changes to Maestro Android are recorded here.
   serial-turn cases. 90 tests in the new files, plus 9 in
   `ProtocoloNoAparelhoTest`, which runs on the `:core:seguranca` emulator in CI
   to prove the regular expressions and the UTF-8 decoder on Android rather
-  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 39 mutations,
+  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 42 mutations,
   the last one written per rule) were all caught, with a green control run
   before and after.
 

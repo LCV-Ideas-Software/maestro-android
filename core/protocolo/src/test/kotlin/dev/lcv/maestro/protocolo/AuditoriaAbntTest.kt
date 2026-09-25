@@ -231,6 +231,13 @@ class AuditoriaAbntTest {
             auditar("Texto (Ωμέγα, 2020).\n\n## Referencias\nΩΜΈΓΑ, Άλφα. Obra. Atenas: Editora, 2020.")
                 .temBloqueio("citation_without_reference"),
         )
+        // Letra fora do plano básico (Deseret) é um par de surrogates: é
+        // letra por ponto de código, e o nome casa com a própria referência.
+        assertFalse(
+            auditar("Texto (\uD801\uDC00\uD801\uDC29\uD801\uDC32\uD801\uDC34, 2020).\n\n## Referencias\n" +
+                "\uD801\uDC00\uD801\uDC29\uD801\uDC32\uD801\uDC34, X. Obra. Salt Lake: Editora, 2020.")
+                .temBloqueio("citation_without_reference"),
+        )
         // Vários autores: o primeiro, com quatro letras ou mais, basta para
         // casar, medido na representação em que é comparado. O Rust media o
         // dobrado, e um nome grego tinha comprimento zero.
@@ -369,13 +376,15 @@ class AuditoriaAbntTest {
             "<a title=$citacao>\nisto</a> e fim.",
             // Blocos cujo conteúdo o navegador esconde (CommonMark 4.6:
             // `<script>` e `<style>`, comentário, instrução, declaração e
-            // CDATA), que podem atravessar linha em branco: mascarados
-            // inteiros, como a especificação os delimita, inclusive o resto
-            // da linha do fechamento e, sem fechamento, até o fim do texto.
+            // CDATA), que podem atravessar linha em branco: mascarados do
+            // início até o fechamento do tipo e, sem fechamento, até o fim do
+            // texto.
             "Texto.\n\n<!--\n$citacao\n\n-->\n\nFim.",
             "Texto.\n\n<?alvo\n$citacao\n\n?>\n\nFim.",
-            "Texto.\n\n<!-- c --> $citacao fim.",
+            "Texto.\n\n<!-- $citacao --> fim.",
             "Texto.\n\n<!--\n$citacao\n\nsem fechamento.",
+            "Texto.\n\n<script>\nvar x = $citacao;\n\nsem fechamento.",
+            "Texto.\n\n<!--\n c\n\n$citacao na ultima linha, sem fechamento",
             "Texto.\n\n<script>\nvar x = $citacao;\n</script>\n\nFim.",
             "Texto.\n\n<style>\n.a::before { content: $citacao; }\n</style>\n\nFim.",
             "Texto.\n\n   <![CDATA[\n$citacao\n]]>\n\nFim.",
@@ -398,6 +407,15 @@ class AuditoriaAbntTest {
             "Texto.\n\n<textarea>\n$citacao sem fonte.\n</textarea>\n\nFim.",
             // `<?` que sobrou num comentário de bloco não abre instrução.
             "Texto.\n\n<!-- <? -->\n\n$citacao ?> fim.",
+            // O que vem depois do fechamento de um bloco escondido, na mesma
+            // linha, o navegador mostra: a especificação põe a linha inteira
+            // no bloco, mas o leitor vê a aspa.
+            "Texto.\n\n<script>x</script> $citacao sem fonte.",
+            "Texto.\n\n<!-- c --> $citacao sem fonte.",
+            "Texto.\n\n<!--\n c\n\n--> $citacao sem fonte.",
+            "Texto.\n\n<?alvo?> $citacao sem fonte.",
+            "Texto.\n\n<!DOCTYPE x> $citacao sem fonte.",
+            "Texto.\n\n<![CDATA[x]]> $citacao sem fonte.",
             "A\r\nB\r\nTexto <b>x</b>$citacao sem fonte.",
             // A tag na mesma coluna da aspa, duas linhas abaixo: a máscara usa
             // a posição no texto, e não a coluna da linha.

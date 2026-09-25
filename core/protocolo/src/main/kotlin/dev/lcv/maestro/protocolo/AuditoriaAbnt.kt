@@ -229,8 +229,14 @@ public object AuditoriaAbnt {
         }
     }
 
-    /** Se [valor] tem alguma letra ou dígito: só pontuação não representa nada. */
-    private fun representaAlgo(valor: String): Boolean = valor.any(Char::isLetterOrDigit)
+    /**
+     * Se [valor] tem alguma letra ou dígito: só pontuação não representa nada.
+     * Contado por ponto de código: uma letra fora do plano básico (Deseret,
+     * por exemplo) é um par de surrogates, e nenhuma das duas unidades é
+     * letra sozinha.
+     */
+    private fun representaAlgo(valor: String): Boolean =
+        valor.codePoints().anyMatch { Character.isLetterOrDigit(it) }
 
     /**
      * O comprimento de [valor] na representação em que [TextoDobrado] o
@@ -514,11 +520,13 @@ public object AuditoriaAbnt {
      * 2. Blocos HTML cujo conteúdo o navegador esconde (seção 4.6: `<script>`
      *    e `<style>` do tipo 1, e comentário, instrução, declaração e CDATA,
      *    tipos 2 a 5), que podem atravessar linha em branco. O bloco é
-     *    mascarado inteiro, como a especificação o delimita, inclusive o resto
-     *    da linha do fechamento e, sem fechamento, até o fim do texto — o que
-     *    o navegador também esconde. `<pre>` e `<textarea>`, também do tipo 1,
-     *    mostram o conteúdo ao leitor, e os blocos de elemento (tipos 6 e 7)
-     *    também: ficam para o passe 1, que já conferiu a prosa deles.
+     *    mascarado do início até o fechamento que a especificação define
+     *    para o tipo dele (a condição de fim); o que vem depois do fechamento
+     *    na mesma linha o navegador mostra, e continua conferido. Sem
+     *    fechamento, o bloco vai até o fim do texto, e o navegador também
+     *    esconde tudo. `<pre>` e `<textarea>`, também do tipo 1, mostram o
+     *    conteúdo ao leitor, e os blocos de elemento (tipos 6 e 7) também:
+     *    ficam para o passe 1, que já conferiu a prosa deles.
      *
      * Divergência do canônico, corrigindo uma falha dele: lá a aspa reta era
      * pulada depois de qualquer `<` sem `>` adiante, ou logo depois de um `=`.
@@ -528,13 +536,13 @@ public object AuditoriaAbnt {
      */
     private fun semHtmlCru(texto: String): String {
         val mascarado = StringBuilder(texto)
-        fun mascarar(trechos: List<SourceSpan>) {
-            for (trecho in trechos) {
-                for (indice in trecho.inputIndex until trecho.inputIndex + trecho.length) {
-                    mascarado.setCharAt(indice, ' ')
-                }
-            }
+        fun mascarar(inicio: Int, fim: Int) {
+            for (indice in inicio until fim) mascarado.setCharAt(indice, ' ')
         }
+        fun mascarar(trechos: List<SourceSpan>) {
+            for (trecho in trechos) mascarar(trecho.inputIndex, trecho.inputIndex + trecho.length)
+        }
+        fun linha(trecho: SourceSpan) = texto.substring(trecho.inputIndex, trecho.inputIndex + trecho.length)
         MARKDOWN_SEM_BLOCO_HTML.parse(texto).accept(
             object : AbstractVisitor() {
                 override fun visit(htmlInline: HtmlInline) = mascarar(htmlInline.sourceSpans)
@@ -543,9 +551,16 @@ public object AuditoriaAbnt {
         MARKDOWN.parse(texto).accept(
             object : AbstractVisitor() {
                 override fun visit(htmlBlock: HtmlBlock) {
-                    val primeira = htmlBlock.sourceSpans.firstOrNull() ?: return
-                    val primeiraLinha = texto.substring(primeira.inputIndex, primeira.inputIndex + primeira.length)
-                    if (INICIO_DE_BLOCO_DE_MARCACAO.containsMatchIn(primeiraLinha)) mascarar(htmlBlock.sourceSpans)
+                    val trechos = htmlBlock.sourceSpans
+                    if (trechos.isEmpty()) return
+                    val fechamento = BLOCOS_ESCONDIDOS.firstOrNull { it.first.containsMatchIn(linha(trechos.first())) }
+                        ?.second ?: return
+                    mascarar(trechos.dropLast(1))
+                    // Só a última linha pode conter o fechamento: é a condição
+                    // de fim do bloco. Sem ele, o bloco foi até o fim do texto.
+                    val ultima = trechos.last()
+                    val fim = fechamento.find(linha(ultima))?.let { it.range.last + 1 } ?: ultima.length
+                    mascarar(ultima.inputIndex, ultima.inputIndex + fim)
                 }
             },
         )
@@ -553,17 +568,22 @@ public object AuditoriaAbnt {
     }
 
     /**
-     * As condições de início dos blocos HTML cujo conteúdo o navegador
-     * esconde (CommonMark 0.31.2, seção 4.6): `<script` ou `<style` seguidos
-     * de espaço, tabulação, `>` ou fim de linha (tipo 1, sem `<pre` e
-     * `<textarea`, cujo conteúdo é visível); `<!--`; `<?`; `<!` e letra;
-     * `<![CDATA[` (tipos 2 a 5). A indentação de até três espaços, que a
-     * especificação admite, já vem fora do trecho de origem que a
-     * commonmark-java dá ao bloco.
+     * Os blocos HTML cujo conteúdo o navegador esconde (CommonMark 0.31.2,
+     * seção 4.6), cada um com a condição de início e a de fim da
+     * especificação: `<script` ou `<style` seguidos de espaço, tabulação, `>`
+     * ou fim de linha (tipo 1, sem `<pre` e `<textarea`, cujo conteúdo é
+     * visível), até uma tag de fim de tipo 1; `<!--` até `-->`; `<?` até
+     * `?>`; `<!` e letra até `>`; `<![CDATA[` até `]]>`. A indentação de até
+     * três espaços, que a especificação admite, já vem fora do trecho de
+     * origem que a commonmark-java dá ao bloco.
      */
-    private val INICIO_DE_BLOCO_DE_MARCACAO = Regex(
-        "^(?:<(?:script|style)(?:[ \\t>]|$)|<!--|<\\?|<![A-Za-z]|<!\\[CDATA\\[)",
-        RegexOption.IGNORE_CASE,
+    private val BLOCOS_ESCONDIDOS: List<Pair<Regex, Regex>> = listOf(
+        Regex("^<(?:script|style)(?:[ \\t>]|$)", RegexOption.IGNORE_CASE) to
+            Regex("</(?:pre|script|style|textarea)>", RegexOption.IGNORE_CASE),
+        Regex("^<!--") to Regex("-->"),
+        Regex("^<\\?") to Regex("\\?>"),
+        Regex("^<![A-Za-z]") to Regex(">"),
+        Regex("^<!\\[CDATA\\[") to Regex("]]>"),
     )
 
     /**
