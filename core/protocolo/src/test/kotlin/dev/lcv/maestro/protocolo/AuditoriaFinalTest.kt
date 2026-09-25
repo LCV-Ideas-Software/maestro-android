@@ -14,7 +14,7 @@ import kotlin.test.fail
  * A auditoria do candidato final, com os testes de `session_orchestration.rs`
  * (linhas 4194, 4258, 4609, 4618 e 4632 em `68528f9`). O motor de links corre
  * com dublês de parser, coleta e registro; o parser e a coleta reais são do
- * `:core:provedores`.
+ * `:core:provedores` (`IntegridadeComRedeTest`).
  */
 class AuditoriaFinalTest {
 

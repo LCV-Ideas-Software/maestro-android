@@ -286,7 +286,8 @@ a evidência de origem, e **não voltam a ser investigadas**.
 - ~~**`java-kotlin` continua fora do CodeQL.** Não por falta de Kotlin, mas porque
   o CodeQL não suporta o Kotlin 2.4.20 da frota — medido em 18/09/2026 e
   rastreado pela CALANDR-14.~~ **Superado em 24/09/2026 (MAEANDR-16):** o CodeQL
-  2.27.1 suporta o Kotlin 2.4.20, e a configuração padrão analisa `java-kotlin`
+  2.27.1 suporta o Kotlin 2.4.20 ([registro oficial de
+  mudanças](https://github.blog/changelog/2026-09-25-codeql-2-27-1-adds-c-and-c-query-and-kotlin-2-4-20-support/)), e a configuração padrão analisa `java-kotlin`
   com *autobuild*. O `quality/code-quality-probe.js` permanece como
   *placeholder* e é a única fonte JavaScript do repositório, agora por causa do
   Code Quality: a análise por regras dele cobre C#, Go, Java, JavaScript,
@@ -736,6 +737,94 @@ existir passa a ser **proteger a rede do usuário**, não a nossa. O comentário
 no código diz isso (`RedePublica`); herdar a defesa sem herdar a razão é como
 ela apodrece.
 
+#### O lado de rede, decidido em 25/09/2026
+
+A segunda entrega da MAEANDR-18 implementa no `:core:provedores` as interfaces
+do `:core:protocolo`, com componentes oficiais e sem parser próprio, por
+decisão do operador de 25/09/2026, depois de uma rodada de revisão cruzada
+sobre o plano:
+
+1. **Parser de URL: o `HttpUrl` do OkHttp.** Lê `http` e `https` como um
+   navegador. Um host que é IP literal — IPv4 com 1 a 4 partes dentro dos
+   limites do `inet_aton`, ou IPv6 entre colchetes — é julgado pelo texto e
+   nunca vai a resolvedor; uma sequência numérica fora dos limites
+   (`999.999.999.999`) é nome, e como nome não resolve, falha fechada.
+   Senha vazia (`https://:@host`) é credencial, e é recusada.
+2. **DNS: só o DNS sobre HTTPS do Google (`dns.google`)**, pelo módulo
+   oficial `okhttp-dnsoverhttps`, com arranque fixo em 8.8.8.8 e 8.8.4.4 e
+   **sem recaída para o DNS da rede**: numa rede que bloqueia o `dns.google`
+   todo link falha como erro de DNS, e isso é aceito. O resolvedor tem duas
+   faces: a conferência prévia da `RedePublica` vê todos os endereços, e
+   por isso um nome que resolve para faixa privada é recusado com o motivo
+   canônico antes de qualquer conexão; a conexão em si falha fechada, e
+   recusa inteira uma resposta que misture público e privado — o caso do
+   *rebinding*.
+3. **`robots.txt`: o crawler-commons 1.6**, parser de referência da RFC 9309,
+   no lugar do `robots_disallows_path` escrito à mão. Os códigos de status
+   são os do canônico (401 e 403 proíbem; 404 e 410 liberam; outro erro é
+   indisponível e a coleta segue), a comparação é só do caminho, e o nome
+   do robô é o do canônico, `maestroeditorialai`, com ou sem versão, para
+   que uma regra escrita para o crawler do desktop valha aqui. Duas leituras
+   diferem do canônico e ficam travadas por teste: um grupo dirigido a este
+   robô **substitui** o grupo `*`, em vez de somar-se a ele (RFC 9309, seção
+   2.2.1), e `Crawl-delay` é ignorado, como no canônico — o teto do parser,
+   que proibiria tudo quando excedido, fica desligado.
+4. **Só `https://` é coletado.** O Android não envia texto claro por padrão,
+   e liberar `http://` para a auditoria liberaria o aplicativo inteiro. O
+   link em texto claro fica bloqueado com a nota que diz isso.
+5. **A coleta é a de `execute_public_request`**, com um cliente novo e
+   guardado — sem proxy, sem cookies, sem autenticador, sem interceptador,
+   sem redirecionamento automático, só TLS moderno —, cinco saltos no máximo,
+   cada um validado de novo, cabeçalhos presos à origem que nunca a
+   atravessam, teto de 8 MiB conferido no `Content-Length` e na leitura, e a
+   classificação de interação do canônico. Um `304` **não** é
+   redirecionamento: o canônico testa `is_redirection()` (300–399) antes do
+   `304`, e como um `304` não traz `Location`, o ramo do `304` dele nunca é
+   alcançado — furo do canônico, registrado na MAESTRO-34.
+6. **A gravação é uma interface** (`ArmazemDeEvidencias`), do `:core:sessao`.
+   Com ela, registro pronto e fresco é reaproveitado sem requisição, a
+   revalidação envia os validadores guardados — só quando a origem final da
+   evidência é a origem requisitada: `ETag` de um destino em outra origem
+   nunca viaja ao host original — e um `304` renova o registro
+   — com a URL final da resposta que o renovou —, e `created_at` é
+   preservado. Só o registro pronto carrega corpo, e **só o registro pronto
+   guardado pode ser revalidado ou renovado por `304`**: o que falhou ou
+   parou numa interação guarda os cabeçalhos, mas não é conteúdo, e um
+   `304` sobre ele é o erro do canônico. Uma recoleta que falhou ou esbarrou
+   numa interação nunca sobrescreve os bytes do último registro pronto.
+7. **Identidade e contato.** O `User-Agent` é o do canônico,
+   `MaestroEditorialAI/<versão> (Android; +<repositório>)`, em todo salto.
+   O aplicativo pode guardar um **e-mail de contato opcional, do usuário**,
+   que vai **só ao Crossref**, no parâmetro `mailto` e na variante polida do
+   `User-Agent`, como a documentação do Crossref pede; o OpenAlex não usa
+   e-mail. Nada da LCV Ideas & Software identifica o usuário em requisição
+   nenhuma.
+8. **A coleta é serial**, como no canônico, e bloqueante: o `:core:sessao` a
+   roda em `Dispatchers.IO` e chama `cancelarTudo()` ao cancelar, porque a
+   chamada bloqueante não vê o cancelamento da corrotina. O cancelamento é
+   uma regra só, no transporte: depois de `cancelarTudo()` nada mais começa
+   — nem um salto, nem a página depois do `robots.txt`, nem uma validação
+   que consultaria o DNS; e a flag é conferida de novo depois de uma
+   validação, que pode ter esperado uma consulta de nome —, e a coleta
+   sobe como `ColetaCancelada`, que
+   não é falha registrada: a auditoria cancelada para, em vez de seguir
+   link a link. Um coletor cancelado não volta; o `:core:sessao` cria um
+   por auditoria. O resolvedor DoH é do aplicativo e serve a mais de uma
+   auditoria ao mesmo tempo; por isso **não é cancelado** (decisão do
+   operador de 25/09/2026): uma consulta já em voo termina pelo próprio
+   prazo de 10 s, e esse é o custo aceito.
+9. **O registro nunca guarda credencial.** A URL do registro bloqueado pela
+   validação é gravada sem usuário e senha e com o valor de toda chave
+   sensível trocado por `<redacted>`; o canônico grava a URL bruta
+   (furo 15 da MAESTRO-34). E uma recoleta que falhou ou parou numa
+   interação nunca apaga do armazém o último corpo pronto: o registro
+   novo é gravado com o corpo que já estava lá.
+
+Não portados, por decisão do operador: a sondagem legada de 15 s do web e os
+conectores de busca configuráveis (seção 11). Os hashes e os ids não são
+comparáveis aos do desktop: o Jackson e o `serde` ordenam chaves de modo
+diferente, e o `HttpUrl` serializa diferente da crate `url`.
+
 ## 6. A chave é do usuário e fica no aparelho
 
 Decisão do operador em 21/09/2026: *"Se as chaves não ficarem no aparelho,
@@ -989,7 +1078,15 @@ de teste, porque compra confiança sem entregá-la.
   chegaram ao servidor, porque cada tentativa é uma chamada paga — inclusive
   nos casos em que o próprio OkHttp repetiria a requisição sozinho (408, 503
   com `Retry-After: 0`, redirecionamento). Nenhum teste fala com provedor
-  real.
+  real. O lado de rede da auditoria de links (seção 5.4) corre no mesmo
+  módulo, contra um servidor falso em **HTTPS** — certificado de mentira do
+  `okhttp-tls`, porque só `https://` é coletado — e um DNS de tabela: a
+  cadeia de redirecionamentos e os cabeçalhos presos à origem, os tetos de
+  corpo e de `robots.txt` na fronteira exata, o nome do robô com e sem
+  versão, o nome que resolve para rede privada sem abrir socket, o
+  *rebinding*, o armazém com reaproveitamento e `304`, e o motor do
+  `:core:protocolo` com o parser e a coleta reais (`IntegridadeComRedeTest`).
+  Nenhum teste toca a rede.
 - **`:core:seguranca`, instrumentado.** O Keystore só existe em aparelho ou
   emulador, então estes testes são instrumentados — e são poucos justamente
   porque a fronteira manteve tudo o mais fora deles. Cinco casos não podem
@@ -1082,7 +1179,15 @@ Decisões de produto vigentes, no mesmo espírito das da calculadora:
   "não configurada", nunca o valor;
 - o texto do usuário vai aos provedores que ele mesmo escolheu ativar, e a nada
   mais; o banco local e o segredo cifrado ficam **fora do backup do Android**
-  (seção 4.2).
+  (seção 4.2);
+- as consultas de nome da auditoria de links vão ao **DNS sobre HTTPS do
+  Google** (`dns.google`), não ao DNS da rede em que o aparelho está — decisão
+  do operador de 25/09/2026 (seção 5.4). É a única parte do aplicativo que fala
+  com o Google sem o usuário ter ativado o Gemini, e leva só o nome do host
+  citado no texto;
+- o **e-mail de contato é opcional e do usuário**: se ele o preencher, vai só
+  ao Crossref, na busca de evidências, como a documentação do Crossref pede;
+  nenhum e-mail ou identificador da LCV vai em requisição nenhuma.
 
 A publicação segue a esteira já em paridade (seção 3), com notas de versão em
 `play/release-notes/pt-BR.txt` e o teto de 500 caracteres por idioma verificado

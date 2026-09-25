@@ -6,6 +6,75 @@ All material changes to Maestro Android are recorded here.
 
 ### Added
 
+- Add the network side of the link audit to `:core:provedores` (MAEANDR-18,
+  second of two pull requests): the implementations of the `:core:protocolo`
+  interfaces for URL parsing, name resolution, evidence fetching and evidence
+  search, ported from `maestro-app` `68528f9` (`web_evidence.rs`) over
+  official components, by the operator's decisions of 25/09/2026:
+  - URLs are parsed by OkHttp's `HttpUrl`; a host that is an IP literal is
+    judged from the text alone, within the `inet_aton` bounds, and never
+    reaches a resolver;
+  - every name is resolved through Google Public DNS over HTTPS
+    (`okhttp-dnsoverhttps`, `dns.google`, bootstrap 8.8.8.8 and 8.8.4.4),
+    with no fallback to the network's own DNS; on a network that blocks
+    `dns.google` every link fails as a DNS error. The resolver has two faces:
+    the pre-check sees every address, so a name that resolves to a private
+    range is refused with the canonical reason before any connection, and the
+    connection itself fails closed, refusing a mixed answer whole;
+  - `robots.txt` is read by crawler-commons 1.6, the reference parser for
+    RFC 9309, with the canonical status handling (401/403 disallow, 404/410
+    allow, other errors unavailable), path-only matching and the canonical
+    agent name `maestroeditorialai`, with or without a version. Two readings
+    differ from the desktop's hand-written matcher and are pinned by tests: a
+    group addressed to this crawler replaces the `*` group instead of being
+    merged with it, as the RFC says, and `Crawl-delay` is ignored;
+  - only `https://` links are collected; a cleartext link is blocked with a
+    note that says so;
+  - the fetch follows `execute_public_request`: a fresh guarded client with no
+    proxy, cookies, authenticator, interceptor or automatic redirect, modern
+    TLS only, five hops at most, each validated again, origin-bound headers
+    that never cross an origin, an 8 MiB body cap enforced on the declared
+    length and on the stream, and the canonical interaction classification.
+    A `304` is not treated as a redirect: the desktop tests
+    `is_redirection()` first, so its own `304` branch is unreachable;
+  - the store behind the evidence records is an interface for `:core:sessao`;
+    with it a ready and fresh record is reused without a request, a
+    revalidation sends the stored validators (only when the evidence's final
+    origin is the origin being requested: a validator from a cross-origin
+    destination never travels to the original host) and a `304` renews the
+    record with the final URL of the revalidating response, and `created_at` is
+    preserved; only a ready record carries its body, and only a stored
+    ready record can be revalidated or renewed by a `304` (a record that
+    failed or stopped at an interaction keeps its headers but is not
+    content, and a `304` over it is the canonical error);
+  - cancellation is one rule at the transport: after `cancelarTudo()`
+    nothing starts, not a hop, not the page after `robots.txt`, not a
+    validation that would resolve a name; the flag is checked again after
+    a validation, which may have waited on a name lookup; the collection surfaces
+    `ColetaCancelada`, which is not a failure record, so a cancelled audit
+    stops instead of continuing link by link. The application's DNS
+    resolver is shared by every audit and is not cancelled (operator's
+    decision of 25/09/2026): a query already in flight ends by its own
+    10-second timeout;
+  - a stored record never carries credentials: the URL of a record blocked
+    by validation is written without user info and with every sensitive
+    query value replaced by `<redacted>` (the desktop stores the raw URL,
+    MAESTRO-34 item 15); and a refresh that fails or stops at an
+    interaction never erases the last ready body from the store;
+  - an empty 2xx body from a search API is refused as invalid JSON, as
+    `serde_json` refuses it, since Jackson's `readTree` does not throw on
+    empty content;
+  - evidence search uses the Crossref and OpenAlex APIs without keys. An
+    optional contact e-mail, the user's own, goes only to Crossref, as the
+    `mailto` parameter and in the polite `User-Agent`; nothing from LCV Ideas
+    & Software identifies the user in any request.
+
+  `:core:provedores` now depends on `:core:protocolo`, and `THIRDPARTY.md`
+  records the new artifacts with the notices they require. The tests run
+  against a fake HTTPS server (`okhttp-tls`) and a fake DNS; none touches
+  the network. The specification's sections 5.4 and 9 record the decisions
+  and the privacy consequences.
+
 - Add the final-release audit's pure rules to `:core:protocolo` (MAEANDR-18,
   first of two pull requests). By the operator's decision of 24/09/2026 the
   audit ports the desktop's current five stages from `maestro-app` `68528f9`,
@@ -788,7 +857,8 @@ All material changes to Maestro Android are recorded here.
 
 - Record that CodeQL now analyzes the Kotlin code (MAEANDR-16). On 24/09/2026
   the Default setup added `java-kotlin`, built with autobuild, on CodeQL 2.27.1,
-  the first version that supports Kotlin 2.4.20; the first analysis on `main`
+  the first version that supports Kotlin 2.4.20 ([official
+  changelog](https://github.blog/changelog/2026-09-25-codeql-2-27-1-adds-c-and-c-query-and-kotlin-2-4-20-support/)); the first analysis on `main`
   finished green with no alerts. The `README.md` and section 3 of the
   specification still said `java-kotlin` stayed out of CodeQL, and now say it
   is in. They also correct why `quality/code-quality-probe.js` stays, and so
