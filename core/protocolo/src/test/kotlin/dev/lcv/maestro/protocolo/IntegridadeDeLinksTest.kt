@@ -304,20 +304,32 @@ class IntegridadeDeLinksTest {
             val registro = RegistroEmMemoria()
             val linha = auditarCom(caso, registro)
             assertEquals(200, linha.statusHttp)
-            // A quarentena conta entre as bloqueadas no resumo da auditoria.
-            if (linha.classificacao == ClassificacaoDoLink.EM_QUARENTENA) assertEquals("blocked", linha.tom, caso.toString())
             val erro = assertFailsWith<IntegridadeDeLinks.Falha>(caso.toString()) { aceitar(linha, registro) }
             assertEquals("cannot accept a link that did not pass mechanical validation", erro.message, caso.toString())
         }
+        // O tom segue o estado: `blocked` é o que precisa de alguém agir
+        // (bloqueada, coleta que não terminou, ação do operador), e conta em
+        // `bloqueadas`; `error` é a coleta que terminou e falhou.
+        val terminadas = setOf(EstadoDaEvidencia.PRONTA, EstadoDaEvidencia.FALHOU)
+        for (estado in EstadoDaEvidencia.entries) {
+            val esperado = if (estado in terminadas) "error" else "blocked"
+            assertEquals(esperado, auditarCom(evidencia(url, status = 404, estado = estado)).tom, estado.toString())
+        }
         // A evidência que não terminou vai para quarentena antes de o código
-        // HTTP guardado nela ser lido: vencida com 404 é bloqueada, e não
-        // "não encontrada".
+        // HTTP guardado nela ser lido: vencida com 404 é quarentena, e não
+        // "não encontrada". Já captcha, login e paywall, que o motor grava
+        // junto com o estado "ação do operador", têm classe própria e contam
+        // como bloqueadas pelo estado.
         val finais = setOf(EstadoDaEvidencia.PRONTA, EstadoDaEvidencia.BLOQUEADA, EstadoDaEvidencia.FALHOU)
         for (estado in EstadoDaEvidencia.entries.filter { it !in finais }) {
             val linha = auditarCom(evidencia(url, status = 404, estado = estado))
             assertEquals(ClassificacaoDoLink.EM_QUARENTENA, linha.classificacao, estado.toString())
-            assertEquals("blocked", linha.tom, estado.toString())
         }
+        val captcha = auditarCom(
+            evidencia(url, estado = EstadoDaEvidencia.EXIGE_ACAO_DO_OPERADOR, interacao = EstadoDeInteracao.EXIGE_CAPTCHA),
+        )
+        assertEquals(ClassificacaoDoLink.EXIGE_CAPTCHA, captcha.classificacao)
+        assertEquals("blocked", captcha.tom)
         // Controle: nos estados finais, o código HTTP segue a ordem do canônico.
         assertEquals(ClassificacaoDoLink.NAO_ENCONTRADO, auditarCom(evidencia(url, status = 404)).classificacao)
         assertEquals(
@@ -498,21 +510,20 @@ class IntegridadeDeLinksTest {
         for (publico in listOf("64:ff9b::5db8:d822", "2002:5db8:d822::1", "fe00::1")) {
             assertFalse(RedePublica.ipBloqueado(ip(publico)), publico)
         }
-        // O prefixo NAT64 de uso local (RFC 8215), nos leiautes do RFC 6052:
-        // 192.168.1.1 em /48 e em /96, 10.0.0.1 em /64, e 0.0.0.0.
+        // O prefixo NAT64 de uso local (RFC 8215) é recusado inteiro, em
+        // qualquer leiaute do RFC 6052, inclusive com IPv4 público dentro: o
+        // endereço não diz o comprimento do prefixo, e o prefixo é local.
         for (bloqueado in listOf(
             "64:ff9b:1:c0a8:1:100::",
             "64:ff9b:1::c0a8:101",
-            "64:ff9b:1:0:a:0:100:0",
-            "64:ff9b:1::",
+            "64:ff9b:1::5db8:d822",
+            "64:ff9b:1:5db8:d8:2200::",
+            "64:ff9b:1:ffff:ffff:ffff:ffff:ffff",
         )) {
             assertTrue(RedePublica.ipBloqueado(ip(bloqueado)), bloqueado)
         }
-        // Controle: 93.184.216.34 passa em /96 e em /48, cuja leitura /96 é
-        // 0.0.0.0.
-        for (publico in listOf("64:ff9b:1::5db8:d822", "64:ff9b:1:5db8:d8:2200::")) {
-            assertFalse(RedePublica.ipBloqueado(ip(publico)), publico)
-        }
+        // Controle: o vizinho fora do /48 é julgado pelo IPv4 embutido.
+        assertFalse(RedePublica.ipBloqueado(ip("64:ff9b:2::5db8:d822")))
     }
 
     @Test

@@ -173,8 +173,11 @@ no Rust em `68528f9`:
   bloqueada, servida com 200, podia ser aceita como suporte. Só passa evidência
   pronta e sem interação pendente. Na fila, em coleta, vencida ou à espera do
   operador, ou com pedido de consentimento ou de confirmação de download, ela
-  vai para quarentena e conta como bloqueada, qualquer que seja o código HTTP
-  guardado nela de uma coleta anterior.
+  vai para quarentena, qualquer que seja o código HTTP guardado nela de uma
+  coleta anterior. A linha conta como bloqueada sempre que alguém precisa
+  agir antes de a evidência valer (bloqueada, coleta que não terminou, ação
+  do operador, captcha incluído); só a coleta que terminou e falhou conta
+  como erro.
   Cada linha guarda a classificação mecânica à parte da que a revisão escreve
   (`mechanical_classification`), e um aceite anterior só é preservado enquanto
   a verificação nova ainda passar;
@@ -194,28 +197,30 @@ no Rust em `68528f9`:
   ou só letras que o dobramento ASCII descarta, dobram para vazio, e o
   `contains("")` do Rust é verdadeiro para qualquer texto: citação,
   referência, marcador de nota ou chave de autor ausentes passavam por
-  presentes. Dois valores que dobram os dois para vazio, como dois nomes
-  gregos, são comparados sem o dobramento, e a chave de autor que dobra para
-  vazio casa com a própria referência do mesmo jeito;
+  presentes. Uma regra só, em toda comparação: valor sem letra nem dígito
+  nunca está presente; valor cujas letras o dobramento descarta, como um
+  nome grego, é comparado pela chave canônica;
 - **o HTML cru do texto final é mascarado antes da busca de aspas.** O texto
   final é Markdown, e quem reconhece o HTML é a `commonmark-java`, pela seção
-  6.6 da especificação CommonMark: tag, comentário, instrução de
-  processamento, declaração e CDATA, cada um até o fechamento que a
-  especificação define (decisão do operador de 24/09/2026, no lugar de um
-  reconhecimento escrito à mão). O bloco HTML fica desligado, para que a
-  prosa dentro de um `<div>` continue conferida; num segundo passe, o bloco
-  de comentário, instrução, declaração ou CDATA, que pode atravessar uma
-  linha em branco, é mascarado até o seu fechamento. Marcação não vira citação
-  nem pareia com as aspas da prosa em volta. O Rust
+  6.6 da especificação CommonMark (decisão do operador de 24/09/2026, no
+  lugar de um reconhecimento escrito à mão). O HTML em linha é lido com o
+  bloco HTML desligado, para que a prosa dentro de um `<div>` continue
+  conferida; os blocos HTML de pura marcação (seção 4.6, tipos 1 a 5:
+  `<script>`, `<pre>`, `<style>`, `<textarea>`, comentário, instrução,
+  declaração e CDATA), que podem atravessar linha em branco, são mascarados
+  inteiros, como a especificação os delimita. Marcação não vira citação nem
+  pareia com as aspas da prosa em volta. O Rust
   pulava a aspa reta depois de qualquer `<` sem `>` adiante, ou logo depois de
   um `=`: prosa como `2 < 3 e "..."` escondia uma citação direta sem fonte,
   e a aspa que fecha um atributo pareava com a que abre o seguinte;
-- **o site-local IPv6 (`fec0::/10`) é recusado, e o IPv4 dentro do NAT64
-  (`64:ff9b::/96`, e o de uso local `64:ff9b:1::/48`, lido em cada leiaute
-  do RFC 6052 que os bytes permitem) e do 6to4 (`2002::/16`) é julgado como
-  IPv4.** O Rust deixava todos chegarem à rede local do usuário. O prefixo
-  NAT64 não é recusado inteiro porque, numa rede com DNS64, todo site só
-  IPv4 resolve para ele;
+- **o site-local IPv6 (`fec0::/10`) é recusado; o IPv4 dentro do NAT64
+  bem-conhecido (`64:ff9b::/96`) e do 6to4 (`2002::/16`) é julgado como
+  IPv4; e o prefixo NAT64 de uso local (`64:ff9b:1::/48`, RFC 8215) é
+  recusado inteiro** (decisão do operador de 24/09/2026): ele admite qualquer
+  comprimento do RFC 6052, o endereço sozinho não diz qual, e existe para a
+  tradução local. O bem-conhecido não é recusado inteiro porque, numa rede
+  com DNS64, todo site só IPv4 resolve para ele. O Rust deixava todos
+  chegarem à rede local do usuário;
 - **os auxiliares do turno que não revisou o texto recebem o contexto de
   citações da sessão.** No Rust eles auditam sem manifesto, e na retomada da
   sessão (`restore_circular_resume_progress`) um revisor `READY` sobre texto

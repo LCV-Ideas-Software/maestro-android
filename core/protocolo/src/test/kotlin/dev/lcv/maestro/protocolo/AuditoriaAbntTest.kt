@@ -341,29 +341,35 @@ class AuditoriaAbntTest {
             // Tag sozinha na própria linha (o bloco HTML de tipo 7 do
             // CommonMark): o atributo continua mascarado.
             "<a title=$citacao>\nisto</a> e fim.",
-            // Comentário e instrução que atravessam uma linha em branco.
+            // Blocos de pura marcação (CommonMark 4.6, tipos 1 a 5), que podem
+            // atravessar linha em branco: mascarados inteiros, como a
+            // especificação os delimita, inclusive o resto da linha do
+            // fechamento e, sem fechamento, até o fim do texto.
             "Texto.\n\n<!--\n$citacao\n\n-->\n\nFim.",
             "Texto.\n\n<?alvo\n$citacao\n\n?>\n\nFim.",
+            "Texto.\n\n<!-- c --> $citacao fim.",
+            "Texto.\n\n<!--\n$citacao\n\nsem fechamento.",
+            "Texto.\n\n<script>\nvar x = $citacao;\n</script>\n\nFim.",
+            "Texto.\n\n   <![CDATA[\n$citacao\n]]>\n\nFim.",
         )) {
             assertFalse(auditar(texto).temBloqueio("direct_quote_without_citation"), texto)
         }
         // Controles: o que não é marcação pela especificação CommonMark
-        // continua conferido. Comentário sem `-->`, instrução sem `?>`, um `<?`
-        // dentro de um comentário já fechado, a prosa dentro de um `<div>`, e a
-        // aspa logo depois de uma tag num texto com `\r\n`.
+        // continua conferido. Comentário e instrução em linha sem fechamento,
+        // um `<?` dentro de um comentário em linha já fechado, a prosa dentro
+        // de um bloco de elemento (`<div>`, tipo 6), e a aspa logo depois de
+        // uma tag num texto com `\r\n`.
         for (texto in listOf(
             "Texto <!-- $citacao fim.",
             "Texto <?alvo titulo=$citacao > fim.",
             "Texto <!-- <? --> $citacao ?> fim.",
             "<div>\n$citacao sem fonte.\n</div>",
+            // `<?` que sobrou num comentário de bloco não abre instrução.
+            "Texto.\n\n<!-- <? -->\n\n$citacao ?> fim.",
             "A\r\nB\r\nTexto <b>x</b>$citacao sem fonte.",
             // A tag na mesma coluna da aspa, duas linhas abaixo: a máscara usa
             // a posição no texto, e não a coluna da linha.
             "$citacao sem fonte.\r\n\r\n<b>x</b> fim.",
-            // O bloco de comentário é mascarado só até o `-->`, e o bloco sem
-            // fechamento não é mascarado.
-            "Texto.\n\n<!-- c --> $citacao fim.",
-            "Texto.\n\n<!--\n$citacao\n\nsem fechamento.",
         )) {
             assertTrue(auditar(texto).temBloqueio("direct_quote_without_citation"), texto)
         }

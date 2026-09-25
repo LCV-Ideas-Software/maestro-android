@@ -63,8 +63,11 @@ All material changes to Maestro Android are recorded here.
     blocked evidence, served with 200 could be accepted as support. Only
     evidence that is ready, with no interaction pending, passes; queued,
     collecting, stale or operator-pending evidence, and consent or download
-    prompts, are quarantined and counted as blocked, whatever HTTP status they
-    still carry from an earlier fetch. Each row keeps its
+    prompts, are quarantined, whatever HTTP status they still carry from an
+    earlier fetch. A row is counted as blocked whenever someone has to act
+    before its evidence can count (blocked, unfinished, or awaiting the
+    operator, captcha included); only finished evidence that failed counts
+    as an error. Each row keeps its
     mechanical classification (`mechanical_classification`) apart from the
     one the review sets, and an
     earlier acceptance is preserved only while the new check still passes;
@@ -74,25 +77,30 @@ All material changes to Maestro Android are recorded here.
   - a value that folds to nothing (only punctuation, or only letters the ASCII
     fold drops) is never found in the text. The canonical's `contains("")` was
     true for any text, so an absent citation, reference, footnote marker or
-    author key passed as present. Two values that both fold to nothing, such
-    as two Greek names, are compared without folding, and an author key that
-    folds to nothing is matched against its reference the same way;
+    author key passed as present. One rule covers every comparison: a value
+    with no letter or digit is never present; a value whose letters the fold
+    drops, such as a Greek name, is compared by its canonical key instead;
   - the raw HTML in the Markdown final text is masked before quotes are
     searched, so markup is neither taken for a quotation nor paired with the
     quotes of the prose around it. `commonmark-java` (0.30.0, BSD-2-Clause)
     recognises it by section 6.6 of the CommonMark specification, which the
-    operator chose on 24/09/2026 over a hand-written recogniser; the HTML
-    block type is turned off so that prose inside a `<div>` is still checked,
-    and a comment, processing instruction, declaration or CDATA block, which
-    may span a blank line, is masked up to its close in a second pass.
+    operator chose on 24/09/2026 over a hand-written recogniser. Inline raw
+    HTML is read with the HTML block type off, so prose inside a `<div>` is
+    still checked; the HTML blocks that are pure markup (section 4.6, types
+    1 to 5: `<script>`, `<pre>`, `<style>`, `<textarea>`, comment,
+    processing instruction, declaration and CDATA), which may span a blank
+    line, are masked whole, as the specification delimits them.
     The canonical skipped a straight quote after any `<` with
     no `>` after it, or right after an `=`: prose such as `2 < 3 e "..."` hid
     an uncited direct quotation, and the quote closing one attribute could
     pair with the one opening the next;
-  - the IPv6 site-local range (`fec0::/10`) is blocked, and the IPv4 address
-    inside NAT64 (`64:ff9b::/96`, and the local-use `64:ff9b:1::/48` read in
-    every RFC 6052 layout its bytes allow) and 6to4 (`2002::/16`) is judged as
-    IPv4. The canonical let all of them reach the user's local network;
+  - the IPv6 site-local range (`fec0::/10`) is blocked, the IPv4 address
+    inside the well-known NAT64 prefix (`64:ff9b::/96`) and 6to4
+    (`2002::/16`) is judged as IPv4, and the local-use NAT64 prefix
+    (`64:ff9b:1::/48`, RFC 8215) is blocked whole, by the operator's decision
+    of 24/09/2026: it allows any RFC 6052 prefix length, the address alone
+    does not say which, and it exists for local translation. The canonical
+    let all of them reach the user's local network;
   - a URL that sanitization would change (over 1,000 code points, or holding a
     secret pattern) is blocked. The canonical stored the sanitized URL and
     fetched it, so a review could approve evidence for a different target;
@@ -111,11 +119,12 @@ All material changes to Maestro Android are recorded here.
   8 ABNT cases, the 7 link-integrity cases (two of them against a stand-in
   URL parser until the real one arrives), the blocked ranges of
   `link_audit_blocks_local_and_private_targets`, and 5 final-audit and
-  serial-turn cases. 89 tests in the new files, plus 9 in
+  serial-turn cases. 90 tests in the new files, plus 9 in
   `ProtocoloNoAparelhoTest`, which runs on the `:core:seguranca` emulator in CI
   to prove the regular expressions and the UTF-8 decoder on Android rather
-  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 38 mutations)
-  were all caught, with a green control run before and after.
+  than on the JVM. Four deliberate-mutation runs (9, 9, 15 and 36 mutations,
+  the last one written per rule) were all caught, with a green control run
+  before and after.
 
 - Add `:core:seguranca`, the Android library that keeps each provider's API key
   on this device only (MAEANDR-19, specification section 6). The key is

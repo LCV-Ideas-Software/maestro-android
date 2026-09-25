@@ -315,7 +315,22 @@ public object IntegridadeDeLinks {
         return caminhoEhPdf != respostaEhPdf && (caminhoEhPdf || respostaEhPdf)
     }
 
-    /** `mechanical_failure_class`. */
+    /**
+     * `mechanical_failure_class`, com uma regra a mais que o canônico: um
+     * registro de evidência só prova algo se a coleta terminou e nada ficou
+     * pendente. A ordem é a do canônico, com a regra nova entre a interação e
+     * o código HTTP:
+     *
+     * 1. captcha, login e paywall têm classe própria (o motor de evidências
+     *    grava essas interações junto com o estado "ação do operador", então a
+     *    classe só existe nesse estado, e é lida antes dele);
+     * 2. coleta que não terminou (na fila, em coleta, vencida, ou à espera do
+     *    operador por outra interação) e interação pendente (consentimento,
+     *    confirmação de download) vão para quarentena, antes de o código HTTP
+     *    guardado de uma coleta anterior ser lido — no canônico caíam em
+     *    "passou";
+     * 3. o código HTTP e os estados bloqueada e falhou, como no canônico.
+     */
     private fun classeDeFalhaMecanica(registro: RegistroDeEvidencia): ClassificacaoDoLink? {
         when (registro.estadoDeInteracao) {
             EstadoDeInteracao.EXIGE_CAPTCHA -> return ClassificacaoDoLink.EXIGE_CAPTCHA
@@ -323,12 +338,6 @@ public object IntegridadeDeLinks {
             EstadoDeInteracao.PAYWALL -> return ClassificacaoDoLink.PAYWALL
             else -> Unit
         }
-        // Divergência do canônico, corrigindo uma falha dele: lá qualquer
-        // outro estado caía em "passou". Evidência na fila, em coleta, vencida
-        // ou à espera do operador, e interação de consentimento ou de
-        // confirmação de download, não provam nada, e o código HTTP guardado
-        // nelas é de uma coleta que não vale. Vão para quarentena antes de o
-        // código ser lido. Os estados finais seguem a ordem do canônico.
         if (registro.estado !in ESTADOS_FINAIS || registro.estadoDeInteracao !in INTERACOES_CONCLUIDAS) {
             return ClassificacaoDoLink.EM_QUARENTENA
         }
@@ -361,6 +370,21 @@ public object IntegridadeDeLinks {
      */
     private val ESTADOS_FINAIS = setOf(EstadoDaEvidencia.PRONTA, EstadoDaEvidencia.BLOQUEADA, EstadoDaEvidencia.FALHOU)
 
+    /**
+     * O tom da linha cuja evidência falhou na verificação mecânica. `blocked`
+     * é o que precisa de alguém agir antes de valer: evidência bloqueada,
+     * coleta que não terminou e ação do operador (captcha, login, paywall,
+     * consentimento). `error` é a coleta que terminou e falhou: pronta com
+     * código ruim, ou falhou. O canônico só dava `blocked` à bloqueada; o
+     * resumo da auditoria conta as linhas `blocked` em `bloqueadas`.
+     */
+    private fun tomDaFalha(evidencia: RegistroDeEvidencia): String =
+        if (evidencia.estado == EstadoDaEvidencia.PRONTA || evidencia.estado == EstadoDaEvidencia.FALHOU) {
+            "error"
+        } else {
+            "blocked"
+        }
+
     /** `apply_web_evidence`. */
     internal fun aplicarEvidencia(
         linha: LinhaDeLink,
@@ -386,13 +410,7 @@ public object IntegridadeDeLinks {
                 status = evidencia.status?.let { "HTTP $it" } ?: "falha mecanica",
                 invalidade = evidencia.notas.lastOrNull()?.let { Saneamento.texto(it, 180) }
                     ?: "o link nao passou pela verificacao mecanica",
-                // A evidência não pronta, que o canônico não trata, também é
-                // quarentena, e conta entre as bloqueadas.
-                tom = if (evidencia.estado == EstadoDaEvidencia.BLOQUEADA || classe == ClassificacaoDoLink.EM_QUARENTENA) {
-                    "blocked"
-                } else {
-                    "error"
-                },
+                tom = tomDaFalha(evidencia),
             )
         }
         if (tipoDivergente(comEvidencia.urlNormalizada, comEvidencia.tipoDeConteudo, analisador)) {

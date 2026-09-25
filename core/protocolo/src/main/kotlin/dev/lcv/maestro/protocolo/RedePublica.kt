@@ -62,18 +62,6 @@ public object RedePublica {
         else -> true
     }
 
-    /**
-     * Os leiautes do RFC 6052 para prefixos de 48, 56, 64 e 96 bits: onde
-     * estão os quatro octetos do IPv4, e quais octetos têm de ser zero (o
-     * octeto `u`, 8, e o sufixo).
-     */
-    private val LEIAUTES_RFC_6052 = listOf(
-        listOf(6, 7, 9, 10) to listOf(8, 11, 12, 13, 14, 15),
-        listOf(7, 9, 10, 11) to listOf(8, 12, 13, 14, 15),
-        listOf(9, 10, 11, 12) to listOf(8, 13, 14, 15),
-        listOf(12, 13, 14, 15) to listOf(8),
-    )
-
     /** `is_blocked_link_audit_ipv4`. */
     private fun ipv4Bloqueado(o: List<Int>): Boolean =
         o[0] == 0 ||
@@ -101,30 +89,24 @@ public object RedePublica {
         // IPv4 compatível (::a.b.c.d), que o canônico também desembrulha.
         if (segmentos.take(5).all { it == 0 } && segmentos[5] == 0) return ipv4Bloqueado(v4())
         // Divergência do canônico, corrigindo uma falha dele: o IPv4 embutido
-        // no NAT64 (64:ff9b::a.b.c.d, RFC 6052) e no 6to4 (2002:AABB:CCDD::,
-        // RFC 3056) chega ao endereço IPv4, e é julgado como tal. Numa rede
-        // com DNS64 todo site só IPv4 resolve para 64:ff9b::, então o prefixo
-        // não pode ser recusado inteiro.
+        // no prefixo NAT64 bem-conhecido (64:ff9b::a.b.c.d, RFC 6052 §2.2) e no
+        // 6to4 (2002:AABB:CCDD::, RFC 3056) tem leiaute fixo, chega ao endereço
+        // IPv4 e é julgado como tal. Numa rede com DNS64 todo site só IPv4
+        // resolve para 64:ff9b::, então esse prefixo não é recusado inteiro.
         if (segmentos[0] == 0x0064 && segmentos[1] == 0xFF9B && segmentos.slice(2..5).all { it == 0 }) {
             return ipv4Bloqueado(v4())
-        }
-        // RFC 8215: o prefixo de uso local, 64:ff9b:1::/48, admite qualquer
-        // comprimento de prefixo do RFC 6052, e cada comprimento põe o IPv4 num
-        // lugar. O endereço é lido em cada leiaute que as regras do RFC 6052
-        // permitem (octeto `u` e sufixo zerados) e bloqueado se alguma leitura
-        // der IPv4 bloqueado. A leitura toda zerada só vale quando nenhuma
-        // outra dá endereço: o /96 de um endereço em /48 lê sempre 0.0.0.0.
-        if (segmentos[0] == 0x0064 && segmentos[1] == 0xFF9B && segmentos[2] == 0x0001) {
-            val octeto = { indice: Int -> bytes[indice].toInt() and 0xFF }
-            val leituras = LEIAUTES_RFC_6052
-                .filter { (_, zeros) -> zeros.all { octeto(it) == 0 } }
-                .map { (posicoes, _) -> posicoes.map(octeto) }
-            val comEndereco = leituras.filter { v4 -> v4.any { it != 0 } }.ifEmpty { leituras }
-            if (comEndereco.isNotEmpty()) return comEndereco.any(::ipv4Bloqueado)
         }
         if (segmentos[0] == 0x2002) {
             return ipv4Bloqueado(listOf(bytes[2], bytes[3], bytes[4], bytes[5]).map { it.toInt() and 0xFF })
         }
+        // O prefixo NAT64 de uso local, 64:ff9b:1::/48 (RFC 8215), é recusado
+        // inteiro, por decisão do operador de 24/09/2026. Ele admite qualquer
+        // comprimento do RFC 6052, e o endereço sozinho não diz qual: o mesmo
+        // endereço lê-se como vários IPv4, e qualquer regra para escolher tem
+        // furo. O RFC 6052 (§3.1) proíbe o prefixo bem-conhecido para IPv4 não
+        // global; o de uso local existe para a tradução local, que é o que este
+        // módulo protege.
+        if (segmentos[0] == 0x0064 && segmentos[1] == 0xFF9B && segmentos[2] == 0x0001) return true
         val primeiro = segmentos[0]
         return (primeiro and 0xFE00) == 0xFC00 ||
             (primeiro and 0xFFC0) == 0xFE80 ||
