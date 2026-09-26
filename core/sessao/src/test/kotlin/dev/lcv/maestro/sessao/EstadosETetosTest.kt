@@ -34,6 +34,14 @@ class EstadosETetosTest {
     }
 
     @Test
+    fun `dinheiro nas colunas e inteiro de dez a menos oito, arredondado para cima`() {
+        assertEquals(500_000_000L, Dinheiro.paraE8(BigDecimal("5")))
+        assertEquals(1L, Dinheiro.paraE8(BigDecimal("0.000000001")))
+        assertEquals(BigDecimal("0.00012345"), Dinheiro.deE8(12345L))
+        assertEquals(BigDecimal("1.32000000"), Dinheiro.deE8(Dinheiro.paraE8(BigDecimal("1.32"))))
+    }
+
+    @Test
     fun `instante sai como toISOString e le o que gravou`() {
         assertEquals("2026-09-25T12:00:00.000Z", FormatoDeInstante.iso(Instant.parse("2026-09-25T12:00:00Z")))
         assertEquals("2026-09-25T12:00:00.500Z", FormatoDeInstante.iso(Fixtures.AGORA))

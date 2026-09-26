@@ -4,7 +4,7 @@ import dev.lcv.maestro.protocolo.LinhaDeLink
 import dev.lcv.maestro.provedores.Provedor
 import java.math.BigDecimal
 
-/** `publicSession` (`sessions.ts:782-803`): a linha como a tela a vê, com os JSON tolerantes já lidos. */
+/** `publicSession` (`sessions.ts:782-803`): a linha como a tela a vê, com dinheiro em `BigDecimal` e as listas lidas. */
 public data class ProjecaoDaSessao(
     val id: String,
     val titulo: String,
@@ -13,7 +13,9 @@ public data class ProjecaoDaSessao(
     /** `cycle_lead || initial_agent`. */
     val liderDoCiclo: String,
     val agentesAtivos: List<Provedor>,
-    val estadoCircular: EstadoPersistido?,
+    val custodiaArtefatoId: String?,
+    val rodada: Int,
+    val indiceDoTurno: Int,
     val autorAtual: String?,
     val textoAtual: String,
     val textoFinal: String?,
@@ -27,22 +29,24 @@ public data class ProjecaoDaSessao(
     val erro: String?,
 ) {
     public companion object {
-        public fun de(linha: SessaoEntidade): ProjecaoDaSessao = ProjecaoDaSessao(
+        public fun de(linha: SessaoEntidade, eventos: List<EventoEntidade>): ProjecaoDaSessao = ProjecaoDaSessao(
             id = linha.id,
             titulo = linha.titulo,
             status = linha.status,
             agenteInicial = linha.agenteInicial,
             liderDoCiclo = linha.liderDoCiclo.ifEmpty { linha.agenteInicial },
             agentesAtivos = RepositorioDeSessoes.lerAgentes(linha.agentesAtivosJson),
-            estadoCircular = EstadoCircular.lerTolerante(linha.estadoCircularJson),
+            custodiaArtefatoId = linha.custodiaArtefatoId,
+            rodada = linha.rodada,
+            indiceDoTurno = linha.indiceDoTurno,
             autorAtual = linha.autorAtual,
             textoAtual = linha.textoAtual,
             textoFinal = linha.textoFinal,
-            custoObservadoUsd = linha.custoObservadoUsd,
-            tetoDeCustoUsd = linha.tetoDeCustoUsd,
+            custoObservadoUsd = Dinheiro.deE8(linha.custoObservadoE8),
+            tetoDeCustoUsd = Dinheiro.deE8(linha.tetoDeCustoE8),
             tetoDeMinutos = linha.tetoDeMinutos,
             maxCiclos = linha.maxCiclos,
-            eventos = Jornal.lerTolerante(linha.eventosJson),
+            eventos = eventos.map(EventoEntidade::paraEvento),
             criadaEm = linha.criadaEm,
             atualizadaEm = linha.atualizadaEm,
             erro = linha.erro,
@@ -77,7 +81,7 @@ public data class ResumoDoArtefato(
             papel = linha.papel,
             status = linha.status,
             titulo = linha.titulo,
-            custoUsd = linha.custoUsd,
+            custoUsd = Dinheiro.deE8(linha.custoE8),
             modelo = linha.modelo,
             artefatoAnteriorId = linha.artefatoAnteriorId,
             bytesDoConteudo = linha.bytesDoConteudo,
@@ -87,9 +91,10 @@ public data class ResumoDoArtefato(
     }
 }
 
-/** `publicArtifactDetail` (`sessions.ts:825-833`): o resumo mais o conteúdo, o relatório e o texto anterior. */
+/** `publicArtifactDetail` (`sessions.ts:825-833`): o resumo mais o texto aceito, o markdown, o relatório e o texto anterior. */
 public data class DetalheDoArtefato(
     val resumo: ResumoDoArtefato,
+    val textoAceito: String,
     val conteudoMd: String,
     val relatorioDeRevisao: String,
     val auditoriaDeLinks: List<LinhaDeLink>,
@@ -99,6 +104,7 @@ public data class DetalheDoArtefato(
     public companion object {
         public fun de(linha: ArtefatoEntidade, anterior: ArtefatoEntidade?): DetalheDoArtefato = DetalheDoArtefato(
             resumo = ResumoDoArtefato.de(linha),
+            textoAceito = linha.textoAceito,
             conteudoMd = linha.conteudoMd,
             relatorioDeRevisao = linha.relatorioDeRevisaoJson,
             auditoriaDeLinks = RepositorioDeArtefatos.lerAuditoria(linha.auditoriaDeLinksJson),

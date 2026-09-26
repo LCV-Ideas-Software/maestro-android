@@ -143,14 +143,17 @@ web's D1 tables as Room entities, plus the tables the desktop keeps as files
 execution. It ports the web's settings and rates, the artifact markdown and
 versioning, the cost and time ceilings, and the circular-review custody state
 with its resume, from `admin-app` `c70dc54f` (`sessions.ts`), with the web's
-messages. Evidence bodies and attachments are files under `noBackupFilesDir`,
-written as immutable generations, because Android cannot read a database row
-above 2 MiB; every write is a Room transaction with the same status guard the
-web has, and the per-turn checkpoint inserts the artifact and advances the
-custody in one transaction. The journal and the custody state are read
-strictly and fail closed. Two product decisions of 25/09/2026 depart from the
-web: the cost ceiling applies to the whole session's accumulated cost, not to
-each execution, and the optional time limit accepts at most 300 minutes. The
+messages — but not the web's storage layout, which was shaped by D1: every
+state transition is one conditional `UPDATE` with the status guard in the
+statement, the journal is a table, the accepted text is a column of the
+artifact (the markdown is derived and never parsed back), the circular
+custody is typed columns checked at resume, and an execution fence makes a
+late write from a superseded worker fail on its own. Evidence bodies and
+attachments are files under `noBackupFilesDir`, written as immutable
+generations, because Android cannot read a database row above 2 MiB. Two
+product decisions of 25/09/2026 depart from the web: the cost ceiling applies
+to the whole session's accumulated cost, not to each execution, and the
+optional time limit accepts at most 300 minutes. The
 app excludes the database from cloud backup and device transfer through
 `data_extraction_rules.xml`. The orchestration itself — the worker, the
 turns, the providers — comes in the second pull request.

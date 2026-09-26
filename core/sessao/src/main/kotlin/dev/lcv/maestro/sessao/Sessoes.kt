@@ -6,78 +6,25 @@ import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
 
-/**
- * `SessionPatch` (`sessions.ts:2910-2935`): as nove colunas que o runner e os
- * handlers podem escrever. `Campo.Presente(null)` grava `null` de verdade em
- * `textoFinal` e `erro` (o motivo declarado do web, `:2946-2947`).
- */
-public data class Remendo(
-    val status: Campo<String> = Campo.Ausente,
-    val liderDoCiclo: Campo<String> = Campo.Ausente,
-    val agentesAtivosJson: Campo<String> = Campo.Ausente,
-    val estadoCircularJson: Campo<String> = Campo.Ausente,
-    val autorAtual: Campo<String?> = Campo.Ausente,
-    val textoAtual: Campo<String> = Campo.Ausente,
-    val textoFinal: Campo<String?> = Campo.Ausente,
-    val custoObservadoUsd: Campo<BigDecimal> = Campo.Ausente,
-    val erro: Campo<String?> = Campo.Ausente,
-) {
-    internal val vazio: Boolean
-        get() = listOf(status, liderDoCiclo, agentesAtivosJson, estadoCircularJson, autorAtual, textoAtual, textoFinal, custoObservadoUsd, erro)
-            .all { it is Campo.Ausente }
-
-    internal fun aplicar(linha: SessaoEntidade): SessaoEntidade = linha.copy(
-        status = status.ou(linha.status),
-        liderDoCiclo = liderDoCiclo.ou(linha.liderDoCiclo),
-        agentesAtivosJson = agentesAtivosJson.ou(linha.agentesAtivosJson),
-        estadoCircularJson = estadoCircularJson.ou(linha.estadoCircularJson),
-        autorAtual = autorAtual.ou(linha.autorAtual),
-        textoAtual = textoAtual.ou(linha.textoAtual),
-        textoFinal = textoFinal.ou(linha.textoFinal),
-        custoObservadoUsd = custoObservadoUsd.ou(linha.custoObservadoUsd),
-        erro = erro.ou(linha.erro),
-    )
-
-    /** `{ ...base, ...this }`: o que está presente aqui vence o que está em [base]. */
-    internal fun sobre(base: Remendo): Remendo = Remendo(
-        status = status.senao(base.status),
-        liderDoCiclo = liderDoCiclo.senao(base.liderDoCiclo),
-        agentesAtivosJson = agentesAtivosJson.senao(base.agentesAtivosJson),
-        estadoCircularJson = estadoCircularJson.senao(base.estadoCircularJson),
-        autorAtual = autorAtual.senao(base.autorAtual),
-        textoAtual = textoAtual.senao(base.textoAtual),
-        textoFinal = textoFinal.senao(base.textoFinal),
-        custoObservadoUsd = custoObservadoUsd.senao(base.custoObservadoUsd),
-        erro = erro.senao(base.erro),
-    )
-
-    private fun <T> Campo<T>.ou(atual: T): T = when (this) {
-        is Campo.Presente -> valor
-        Campo.Ausente -> atual
-    }
-
-    private fun <T> Campo<T>.senao(outro: Campo<T>): Campo<T> = if (this is Campo.Presente) this else outro
-}
-
-/** Lançada dentro da transação quando o portão de status falha: desfaz tudo o que a transação escreveu. */
+/** Lançada dentro de uma transação quando um portão falha: desfaz tudo o que a transação escreveu. */
 internal class CasPerdido : RuntimeException() {
     override fun fillInStackTrace(): Throwable = this
 }
 
 /**
- * `loadSession`, `persistSession`, `persistObservedCostFloor`, o insert do
- * `POST /sessions`, o cancelamento e a troca de conteúdo
- * (`sessions.ts:2906-3009, 4397-4436, 4651-4731`).
- *
- * Cada escrita é uma transação do Room: o web faz `UPDATE … WHERE id = ? AND
- * status IN (…)` num comando só; aqui a leitura, o portão e a escrita ficam
- * dentro de `runInTransaction`, que é a mesma atomicidade. Os DAOs são
- * bloqueantes e quem chama está em `Dispatchers.IO`.
+ * As transições da sessão (`persistSession`, `persistObservedCostFloor`, o
+ * insert do `POST /sessions`, o cancelamento e a troca de conteúdo —
+ * `sessions.ts:2906-3009, 4397-4436, 4651-4731`), cada uma como um `UPDATE`
+ * condicional do [SessaoDao] com o evento gravado na mesma transação. Não há
+ * remendo genérico nem escrita de entidade inteira: o portão de status está
+ * na consulta. Os DAOs são bloqueantes e quem chama está em `Dispatchers.IO`.
  */
 public class RepositorioDeSessoes(
     private val banco: BancoDaSessao,
     private val relogio: () -> Instant,
 ) {
+    private fun agora(): String = FormatoDeInstante.iso(relogio())
+
     public fun carregar(id: String): SessaoEntidade? = banco.sessoes().carregar(id)
 
     public fun observar(id: String): Flow<SessaoEntidade?> = banco.sessoes().observar(id)
@@ -87,11 +34,14 @@ public class RepositorioDeSessoes(
     /** `runnerStopRequested` visto do banco: as sessões que ainda estão na fila ou rodando. */
     public fun emExecucao(): List<SessaoEntidade> = banco.sessoes().emExecucao()
 
-    /** O insert do `POST /sessions` (`sessions.ts:4397-4436`). */
+    public fun eventos(id: String): List<EventoDaSessao> = banco.eventos().daSessao(id).map(EventoEntidade::paraEvento)
+
+    public fun observarEventos(id: String): Flow<List<EventoEntidade>> = banco.eventos().observar(id)
+
+    /** O insert do `POST /sessions` (`sessions.ts:4397-4436`): a linha e o primeiro evento, juntos. */
     public fun criar(entrada: EntradaResolvida): SessaoEntidade {
         val id = "android-${UUID.randomUUID()}"
-        val criadaEm = FormatoDeInstante.iso(relogio())
-        val primeiroEvento = EventoDaSessao(em = criadaEm, status = EventoDaSessao.NA_FILA, mensagem = MENSAGEM_NA_FILA)
+        val criadaEm = agora()
         val linha = SessaoEntidade(
             id = id,
             titulo = entrada.titulo,
@@ -100,92 +50,87 @@ public class RepositorioDeSessoes(
             agenteInicial = entrada.agenteInicial.agente,
             liderDoCiclo = entrada.agenteInicial.agente,
             agentesAtivosJson = agentesJson(entrada.agentesAtivos),
-            estadoCircularJson = "{}",
-            autorAtual = null,
-            textoAtual = Texto.sanear(entrada.conteudoInicial, 120_000),
-            textoFinal = null,
             status = Estados.NA_FILA,
-            custoObservadoUsd = BigDecimal.ZERO,
-            tetoDeCustoUsd = entrada.tetoDeCustoUsd,
+            textoAtual = Texto.sanear(entrada.conteudoInicial, 120_000),
+            tetoDeCustoE8 = Dinheiro.paraE8(entrada.tetoDeCustoUsd),
             tetoDeMinutos = entrada.tetoDeMinutos,
             maxCiclos = entrada.maxCiclos,
             taxasJson = Taxas.paraJson(entrada.taxas),
             modelosJson = modelosJson(),
-            eventosJson = Jornal.serializar(listOf(primeiroEvento)),
             criadaEm = criadaEm,
             atualizadaEm = criadaEm,
-            erro = null,
         )
-        banco.sessoes().inserir(linha)
+        banco.runInTransaction {
+            banco.sessoes().inserir(linha)
+            banco.eventos().inserir(EventoDaSessao(em = criadaEm, status = EventoDaSessao.NA_FILA, mensagem = MENSAGEM_NA_FILA).paraEntidade(id))
+        }
         return linha
     }
 
     /**
-     * `persistSession`: só as colunas presentes em [remendo], mais o evento
-     * anexado ao jornal, mais `atualizadaEm`; com [seSituacaoEm], só se a
-     * linha ainda estiver num desses status. Devolve se escreveu.
+     * Um evento sob o portão (`pushEvent`, `sessions.ts:3369-3375`): gravado
+     * só se a sessão ainda estiver em [seSituacaoEm] e, com [execucao], só
+     * pela execução que a reivindicou. Devolve se gravou.
      */
-    public fun persistir(
-        id: String,
-        remendo: Remendo,
-        seSituacaoEm: Set<String>? = null,
-        evento: EventoDaSessao? = null,
-    ): Boolean = try {
-        banco.runInTransaction<Boolean> { persistirDentroDaTransacao(id, remendo, seSituacaoEm, evento) }
+    public fun anotar(id: String, evento: EventoDaSessao, seSituacaoEm: Set<String> = Estados.ATIVOS, execucao: Long? = null): Boolean = try {
+        banco.runInTransaction<Boolean> {
+            if (banco.sessoes().tocar(id, seSituacaoEm.toList(), agora(), execucao) == 0) throw CasPerdido()
+            banco.eventos().inserir(evento.paraEntidade(id))
+            true
+        }
     } catch (perdido: CasPerdido) {
         false
     }
 
-    /**
-     * O miolo de [persistir], para quem já está numa transação (o checkpoint
-     * do turno). Lança [CasPerdido] quando o portão falha, para a transação
-     * inteira desfazer; devolve `false` só quando não há nada a escrever.
-     */
-    internal fun persistirDentroDaTransacao(
+    /** Uma transição de status com o seu evento (pausas da 3b, cancelamento, reconciliação), sob o portão e a cerca opcional. */
+    public fun transicionar(
         id: String,
-        remendo: Remendo,
-        seSituacaoEm: Set<String>?,
+        status: String,
+        erro: String?,
         evento: EventoDaSessao?,
-    ): Boolean {
-        if (remendo.vazio && evento == null) return false
-        val linha = banco.sessoes().carregar(id) ?: throw CasPerdido()
-        if (seSituacaoEm != null && linha.status !in seSituacaoEm) throw CasPerdido()
-        val eventosJson = if (evento == null) linha.eventosJson else Jornal.anexar(linha.eventosJson, evento)
-        val nova = remendo.aplicar(linha).copy(eventosJson = eventosJson, atualizadaEm = FormatoDeInstante.iso(relogio()))
-        return banco.sessoes().atualizar(nova) > 0
+        seSituacaoEm: Set<String> = Estados.ATIVOS,
+        execucao: Long? = null,
+    ): Boolean = try {
+        banco.runInTransaction<Boolean> {
+            if (banco.sessoes().mudarStatus(id, seSituacaoEm.toList(), status, erro, agora(), execucao) == 0) throw CasPerdido()
+            if (evento != null) banco.eventos().inserir(evento.paraEntidade(id))
+            true
+        }
+    } catch (perdido: CasPerdido) {
+        false
     }
 
-    /** `persistObservedCostFloor`: monotônico, `max(0, custo)`, comparado como número. */
-    public fun persistirPisoDeCusto(id: String, custo: BigDecimal) {
-        val piso = custo.max(BigDecimal.ZERO)
-        banco.runInTransaction {
-            val linha = banco.sessoes().carregar(id) ?: return@runInTransaction
-            if (linha.custoObservadoUsd < piso) {
-                banco.sessoes().atualizar(linha.copy(custoObservadoUsd = piso, atualizadaEm = FormatoDeInstante.iso(relogio())))
-            }
+    /** O fim da deliberação (3b): texto final e status terminal, sob o portão e a cerca. */
+    public fun concluir(id: String, execucao: Long, textoFinal: String, status: String, evento: EventoDaSessao?): Boolean = try {
+        banco.runInTransaction<Boolean> {
+            if (banco.sessoes().concluir(id, Estados.ATIVOS.toList(), execucao, textoFinal, status, agora()) == 0) throw CasPerdido()
+            if (evento != null) banco.eventos().inserir(evento.paraEntidade(id))
+            true
         }
+    } catch (perdido: CasPerdido) {
+        false
+    }
+
+    /** `persistObservedCostFloor`: `max(0, custo)`, monotônico e atômico numa instrução, nunca dentro do checkpoint. */
+    public fun subirPisoDeCusto(id: String, custo: BigDecimal) {
+        banco.sessoes().subirPiso(id, Dinheiro.paraE8(custo.max(BigDecimal.ZERO)), agora())
     }
 
     /** `handleMaestroAiSessionCancelPost` (`sessions.ts:4702-4731`). */
     public fun cancelar(id: String): Resultado<SessaoEntidade> {
         val linha = carregar(id) ?: return Resultado.Recusado(MENSAGEM_NAO_ENCONTRADA)
         if (linha.status !in Estados.ATIVOS) return Resultado.Recusado("Sessao ja finalizada; nada a cancelar.")
-        val aplicado = persistir(
-            id,
-            Remendo(status = Campo.Presente(Estados.CANCELADA), erro = Campo.Presente(MENSAGEM_CANCELADA)),
-            seSituacaoEm = Estados.ATIVOS,
-            evento = EventoDaSessao(em = FormatoDeInstante.iso(relogio()), status = EventoDaSessao.BLOQUEADO, mensagem = MENSAGEM_CANCELADA),
-        )
-        if (!aplicado) return Resultado.Recusado("Sessao mudou de estado durante o cancelamento.")
+        val evento = EventoDaSessao(em = agora(), status = EventoDaSessao.BLOQUEADO, mensagem = MENSAGEM_CANCELADA)
+        if (!transicionar(id, Estados.CANCELADA, MENSAGEM_CANCELADA, evento)) {
+            return Resultado.Recusado("Sessao mudou de estado durante o cancelamento.")
+        }
         return Resultado.Ok(carregar(id) ?: linha)
     }
 
     /**
      * `handleMaestroAiSessionContentPut` (`sessions.ts:4651-4693`): campos
-     * ausentes mantêm o valor atual. A escrita é condicional ao status lido:
-     * uma retomada ou um cancelamento entre a leitura e a escrita recusa a
-     * edição em vez de sobrescrever o progresso concorrente (o web escreve
-     * sem portão; achado do Codex na #67).
+     * ausentes ficam como estão, dentro do SQL (`COALESCE`), e a escrita só
+     * acontece no status em que a linha foi lida.
      */
     public fun substituirConteudo(id: String, titulo: String?, conteudo: String?): Resultado<SessaoEntidade> {
         val linha = carregar(id) ?: return Resultado.Recusado(MENSAGEM_NAO_ENCONTRADA)
@@ -201,9 +146,9 @@ public class RepositorioDeSessoes(
         val escritas = banco.sessoes().substituirConteudo(
             id = id,
             statusLido = linha.status,
-            titulo = Texto.sanear(titulo ?: linha.titulo, 200),
-            textoAtual = Texto.sanear(conteudo ?: linha.textoAtual, 160_000),
-            atualizadaEm = FormatoDeInstante.iso(relogio()),
+            titulo = titulo?.let { Texto.sanear(it, 200) },
+            textoAtual = conteudo?.let { Texto.sanear(it, 160_000) },
+            em = agora(),
         )
         if (escritas == 0) return Resultado.Recusado(MENSAGEM_MUDOU_NA_EDICAO)
         return Resultado.Ok(carregar(id) ?: linha)
@@ -212,15 +157,10 @@ public class RepositorioDeSessoes(
     /**
      * A reconciliação na abertura do aplicativo (`sweepStaleSessions`,
      * `sessions.ts:4842-4844`, com o motivo daqui): a linha ainda ativa cujo
-     * worker não está vivo vai para `error`, que é retomável. [evento] leva o
-     * rótulo do motivo de parada quando o WorkManager o informa.
+     * worker não está vivo vai para `error`, que é retomável.
      */
-    public fun marcarInterrompida(id: String, evento: EventoDaSessao? = null): Boolean = persistir(
-        id,
-        Remendo(status = Campo.Presente(Estados.ERRO), erro = Campo.Presente(MENSAGEM_INTERROMPIDA)),
-        seSituacaoEm = Estados.ATIVOS,
-        evento = evento,
-    )
+    public fun marcarInterrompida(id: String, evento: EventoDaSessao? = null): Boolean =
+        transicionar(id, Estados.ERRO, MENSAGEM_INTERROMPIDA, evento)
 
     public companion object {
         public const val MENSAGEM_NA_FILA: String = "Maestro AI Android session queued."
@@ -231,10 +171,9 @@ public class RepositorioDeSessoes(
             "Sessao interrompida: o processo do aplicativo foi encerrado antes de a deliberacao terminar."
 
         /** `JSON.stringify(active_agents)`. */
-        public fun agentesJson(agentes: List<Provedor>): String =
-            Json.ESTRITO.writeValueAsString(agentes.map { it.agente })
+        public fun agentesJson(agentes: List<Provedor>): String = Json.ESTRITO.writeValueAsString(agentes.map { it.agente })
 
-        /** `parseJson<ProviderKey[]>(active_agents_json, [])` filtrado por `isProviderKey`. */
+        /** `parseJson<ProviderKey[]>(active_agents_json, [])` filtrado por `isProviderKey`: tolerante, como no web. */
         public fun lerAgentes(texto: String?): List<Provedor> {
             val raiz = Json.tolerante(texto) ?: return emptyList()
             if (!raiz.isArray) return emptyList()

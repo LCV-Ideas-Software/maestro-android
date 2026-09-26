@@ -9,9 +9,16 @@ import kotlinx.coroutines.flow.Flow
 
 /**
  * Os DAOs são bloqueantes de propósito: quem os chama é o repositório, dentro
- * de `runInTransaction`, a partir de `Dispatchers.IO` (a coleta e a auditoria
- * do `:core:protocolo` são bloqueantes). Só [SessaoDao.observar] é `Flow`: é o
- * que substitui o *polling* do web (especificação, seção 4.2).
+ * de `runInTransaction`, a partir de `Dispatchers.IO`. Só os `Flow` são
+ * assíncronos: são o que substitui o *polling* do web (especificação, seção
+ * 4.2).
+ *
+ * **Não existe `@Update` de sessão.** Cada transição é um `UPDATE` das suas
+ * colunas com o portão de status na própria instrução (`WHERE id = :id AND
+ * status IN (:permitidos)`), e devolve quantas linhas mudou: zero é o CAS
+ * perdido. O portão não pode ser esquecido por quem chama porque faz parte da
+ * consulta (decisão do operador de 26/09/2026). As escritas do worker levam
+ * ainda a cerca de execução (`execucaoAtual = :execucao`).
  */
 @Dao
 public interface SessaoDao {
@@ -31,16 +38,98 @@ public interface SessaoDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     public fun inserir(sessao: SessaoEntidade)
 
-    @Update
-    public fun atualizar(sessao: SessaoEntidade): Int
+    /** Cancelar, marcar interrompida, pausar: status e erro, sob o portão; `:execucao` nulo dispensa a cerca. */
+    @Query(
+        "UPDATE sessoes SET status = :status, erro = :erro, atualizadaEm = :em " +
+            "WHERE id = :id AND status IN (:permitidos) AND (:execucao IS NULL OR execucaoAtual = :execucao)",
+    )
+    public fun mudarStatus(id: String, permitidos: List<String>, status: String, erro: String?, em: String, execucao: Long?): Int
+
+    /** O pedido de retomada (`sessions.ts:4787-4796`): volta à fila com o líder e o painel escolhidos, sob o status lido. */
+    @Query(
+        "UPDATE sessoes SET status = 'queued', liderDoCiclo = :lider, agentesAtivosJson = :agentesJson, erro = NULL, atualizadaEm = :em " +
+            "WHERE id = :id AND status = :statusLido",
+    )
+    public fun retomar(id: String, statusLido: String, lider: String, agentesJson: String, em: String): Int
+
+    /** A reivindicação de `preparar`: a execução assume a sessão, que passa a `running`; zero linhas = outro chegou antes. */
+    @Query(
+        "UPDATE sessoes SET status = 'running', execucaoAtual = :execucao, atualizadaEm = :em " +
+            "WHERE id = :id AND status IN ('queued', 'running')",
+    )
+    public fun reivindicar(id: String, execucao: Long, em: String): Int
 
     /**
-     * A troca de conteúdo do operador: só as duas colunas, e só se a linha
-     * ainda estiver no status em que foi lida — uma retomada concorrente
-     * nunca é sobrescrita por uma entidade velha inteira.
+     * A troca de conteúdo do operador: só as colunas fornecidas (`COALESCE`
+     * preserva as omitidas dentro do SQL), e só se a linha ainda estiver no
+     * status em que foi lida.
      */
-    @Query("UPDATE sessoes SET titulo = :titulo, textoAtual = :textoAtual, atualizadaEm = :atualizadaEm WHERE id = :id AND status = :statusLido")
-    public fun substituirConteudo(id: String, statusLido: String, titulo: String, textoAtual: String, atualizadaEm: String): Int
+    @Query(
+        "UPDATE sessoes SET titulo = COALESCE(:titulo, titulo), textoAtual = COALESCE(:textoAtual, textoAtual), atualizadaEm = :em " +
+            "WHERE id = :id AND status = :statusLido",
+    )
+    public fun substituirConteudo(id: String, statusLido: String, titulo: String?, textoAtual: String?, em: String): Int
+
+    /** `persistObservedCostFloor` (`sessions.ts:2998-3009`): monotônico, atômico, sem portão, nunca dentro do checkpoint. */
+    @Query("UPDATE sessoes SET custoObservadoE8 = MAX(custoObservadoE8, :e8), atualizadaEm = :em WHERE id = :id")
+    public fun subirPiso(id: String, e8: Long, em: String): Int
+
+    /** O carimbo de um evento (`appendEvent` do web também mexe em `updated_at`), sob o portão e a cerca opcional. */
+    @Query(
+        "UPDATE sessoes SET atualizadaEm = :em " +
+            "WHERE id = :id AND status IN (:permitidos) AND (:execucao IS NULL OR execucaoAtual = :execucao)",
+    )
+    public fun tocar(id: String, permitidos: List<String>, em: String, execucao: Long?): Int
+
+    /**
+     * O checkpoint (`persistCircularProgress`, `sessions.ts:3406-3437`): a
+     * custódia inteira, o status e o erro resultantes, sob o portão e a cerca
+     * de execução. Sempre chamado dentro da transação que inseriu o artefato.
+     */
+    @Query(
+        "UPDATE sessoes SET autorAtual = :autorAtual, textoAtual = :textoAtual, custodiaArtefatoId = :custodiaArtefatoId, " +
+            "artefatoAnteriorId = :artefatoAnteriorId, rodada = :rodada, indiceDoTurno = :indiceDoTurno, turnoDoArtefato = :turnoDoArtefato, " +
+            "escalaJson = :escalaJson, agentesValidosJson = :agentesValidosJson, aprovacoesEstaveisJson = :aprovacoesEstaveisJson, " +
+            "status = :status, erro = :erro, atualizadaEm = :em " +
+            "WHERE id = :id AND status IN (:permitidos) AND execucaoAtual = :execucao",
+    )
+    public fun gravarCustodia(
+        id: String,
+        permitidos: List<String>,
+        execucao: Long,
+        autorAtual: String,
+        textoAtual: String,
+        custodiaArtefatoId: String,
+        artefatoAnteriorId: String,
+        rodada: Int,
+        indiceDoTurno: Int,
+        turnoDoArtefato: Int,
+        escalaJson: String,
+        agentesValidosJson: String,
+        aprovacoesEstaveisJson: String,
+        status: String,
+        erro: String?,
+        em: String,
+    ): Int
+
+    /** O fim da deliberação (3b): o texto final e o status terminal, sob o portão e a cerca. */
+    @Query(
+        "UPDATE sessoes SET textoFinal = :textoFinal, status = :status, erro = NULL, atualizadaEm = :em " +
+            "WHERE id = :id AND status IN (:permitidos) AND execucaoAtual = :execucao",
+    )
+    public fun concluir(id: String, permitidos: List<String>, execucao: Long, textoFinal: String, status: String, em: String): Int
+}
+
+@Dao
+public interface EventoDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    public fun inserir(evento: EventoEntidade): Long
+
+    @Query("SELECT * FROM eventos WHERE sessaoId = :sessaoId ORDER BY seq ASC")
+    public fun daSessao(sessaoId: String): List<EventoEntidade>
+
+    @Query("SELECT * FROM eventos WHERE sessaoId = :sessaoId ORDER BY seq ASC")
+    public fun observar(sessaoId: String): Flow<List<EventoEntidade>>
 }
 
 @Dao
@@ -55,6 +144,10 @@ public interface ArtefatoDao {
     /** `loadSessionArtifact` (`sessions.ts:3089-3098`). */
     @Query("SELECT * FROM artefatos WHERE sessaoId = :sessaoId AND id = :id LIMIT 1")
     public fun um(sessaoId: String, id: String): ArtefatoEntidade?
+
+    /** O maior turno já gravado, para a reserva do turno órfão na retomada (`sessions.ts:3515-3521`). */
+    @Query("SELECT COALESCE(MAX(turno), 0) FROM artefatos WHERE sessaoId = :sessaoId")
+    public fun turnoMaximo(sessaoId: String): Int
 }
 
 @Dao
@@ -122,7 +215,15 @@ public interface ExecucaoDao {
     @Update
     public fun atualizar(execucao: ExecucaoEntidade): Int
 
-    /** As execuções que começaram depois de [desde], para a soma do orçamento de 24 horas. */
-    @Query("SELECT * FROM execucoes WHERE inicio >= :desde ORDER BY inicio ASC")
-    public fun desde(desde: String): List<ExecucaoEntidade>
+    @Query("SELECT * FROM execucoes WHERE seq = :seq LIMIT 1")
+    public fun uma(seq: Long): ExecucaoEntidade?
+
+    /**
+     * As execuções que tocam a janela que começa em [desde], para a soma do
+     * orçamento de 24 horas: as que começaram dentro dela, as que ainda não
+     * terminaram e as que começaram antes e terminaram dentro (quem soma
+     * corta a parte de fora da janela).
+     */
+    @Query("SELECT * FROM execucoes WHERE inicio >= :desde OR fim IS NULL OR fim >= :desde ORDER BY inicio ASC")
+    public fun naJanela(desde: String): List<ExecucaoEntidade>
 }

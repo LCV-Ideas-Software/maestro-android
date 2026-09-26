@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "329fa29bdb87f619dc29225b3497ee6c",
+    "identityHash": "c3044ce7e5ac7f901b79126b869267f3",
     "entities": [
       {
         "tableName": "sessoes",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `titulo` TEXT NOT NULL, `pedido` TEXT NOT NULL, `protocolo` TEXT NOT NULL, `agenteInicial` TEXT NOT NULL, `liderDoCiclo` TEXT NOT NULL, `agentesAtivosJson` TEXT NOT NULL, `estadoCircularJson` TEXT NOT NULL DEFAULT '{}', `autorAtual` TEXT, `textoAtual` TEXT NOT NULL DEFAULT '', `textoFinal` TEXT, `status` TEXT NOT NULL, `custoObservadoUsd` TEXT NOT NULL, `tetoDeCustoUsd` TEXT NOT NULL, `tetoDeMinutos` INTEGER, `maxCiclos` INTEGER NOT NULL DEFAULT 2, `taxasJson` TEXT NOT NULL, `modelosJson` TEXT NOT NULL, `eventosJson` TEXT NOT NULL, `criadaEm` TEXT NOT NULL, `atualizadaEm` TEXT NOT NULL, `erro` TEXT, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `titulo` TEXT NOT NULL, `pedido` TEXT NOT NULL, `protocolo` TEXT NOT NULL, `agenteInicial` TEXT NOT NULL, `liderDoCiclo` TEXT NOT NULL, `agentesAtivosJson` TEXT NOT NULL, `status` TEXT NOT NULL, `autorAtual` TEXT, `textoAtual` TEXT NOT NULL DEFAULT '', `textoFinal` TEXT, `erro` TEXT, `custoObservadoE8` INTEGER NOT NULL DEFAULT 0, `tetoDeCustoE8` INTEGER NOT NULL, `tetoDeMinutos` INTEGER, `maxCiclos` INTEGER NOT NULL DEFAULT 2, `taxasJson` TEXT NOT NULL, `modelosJson` TEXT NOT NULL, `custodiaArtefatoId` TEXT, `artefatoAnteriorId` TEXT, `rodada` INTEGER NOT NULL DEFAULT 1, `indiceDoTurno` INTEGER NOT NULL DEFAULT 0, `turnoDoArtefato` INTEGER NOT NULL DEFAULT 0, `escalaJson` TEXT NOT NULL DEFAULT '[]', `agentesValidosJson` TEXT NOT NULL DEFAULT '[]', `aprovacoesEstaveisJson` TEXT NOT NULL DEFAULT '[]', `execucaoAtual` INTEGER, `criadaEm` TEXT NOT NULL, `atualizadaEm` TEXT NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -51,11 +51,10 @@
             "notNull": true
           },
           {
-            "fieldPath": "estadoCircularJson",
-            "columnName": "estadoCircularJson",
+            "fieldPath": "status",
+            "columnName": "status",
             "affinity": "TEXT",
-            "notNull": true,
-            "defaultValue": "'{}'"
+            "notNull": true
           },
           {
             "fieldPath": "autorAtual",
@@ -75,21 +74,21 @@
             "affinity": "TEXT"
           },
           {
-            "fieldPath": "status",
-            "columnName": "status",
-            "affinity": "TEXT",
-            "notNull": true
+            "fieldPath": "erro",
+            "columnName": "erro",
+            "affinity": "TEXT"
           },
           {
-            "fieldPath": "custoObservadoUsd",
-            "columnName": "custoObservadoUsd",
-            "affinity": "TEXT",
-            "notNull": true
+            "fieldPath": "custoObservadoE8",
+            "columnName": "custoObservadoE8",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
           },
           {
-            "fieldPath": "tetoDeCustoUsd",
-            "columnName": "tetoDeCustoUsd",
-            "affinity": "TEXT",
+            "fieldPath": "tetoDeCustoE8",
+            "columnName": "tetoDeCustoE8",
+            "affinity": "INTEGER",
             "notNull": true
           },
           {
@@ -117,10 +116,61 @@
             "notNull": true
           },
           {
-            "fieldPath": "eventosJson",
-            "columnName": "eventosJson",
+            "fieldPath": "custodiaArtefatoId",
+            "columnName": "custodiaArtefatoId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "artefatoAnteriorId",
+            "columnName": "artefatoAnteriorId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "rodada",
+            "columnName": "rodada",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "1"
+          },
+          {
+            "fieldPath": "indiceDoTurno",
+            "columnName": "indiceDoTurno",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "turnoDoArtefato",
+            "columnName": "turnoDoArtefato",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "escalaJson",
+            "columnName": "escalaJson",
             "affinity": "TEXT",
-            "notNull": true
+            "notNull": true,
+            "defaultValue": "'[]'"
+          },
+          {
+            "fieldPath": "agentesValidosJson",
+            "columnName": "agentesValidosJson",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'[]'"
+          },
+          {
+            "fieldPath": "aprovacoesEstaveisJson",
+            "columnName": "aprovacoesEstaveisJson",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'[]'"
+          },
+          {
+            "fieldPath": "execucaoAtual",
+            "columnName": "execucaoAtual",
+            "affinity": "INTEGER"
           },
           {
             "fieldPath": "criadaEm",
@@ -133,11 +183,6 @@
             "columnName": "atualizadaEm",
             "affinity": "TEXT",
             "notNull": true
-          },
-          {
-            "fieldPath": "erro",
-            "columnName": "erro",
-            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
@@ -148,8 +193,110 @@
         }
       },
       {
+        "tableName": "eventos",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`seq` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `sessaoId` TEXT NOT NULL, `em` TEXT NOT NULL, `agente` TEXT, `papel` TEXT, `status` TEXT NOT NULL, `mensagem` TEXT NOT NULL, `custoE8` INTEGER, `fonteDoCusto` TEXT, `modelo` TEXT, `auditoriaDeLinksJson` TEXT, `auditoriaFinalJson` TEXT, FOREIGN KEY(`sessaoId`) REFERENCES `sessoes`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "seq",
+            "columnName": "seq",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessaoId",
+            "columnName": "sessaoId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "em",
+            "columnName": "em",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "agente",
+            "columnName": "agente",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "papel",
+            "columnName": "papel",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mensagem",
+            "columnName": "mensagem",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "custoE8",
+            "columnName": "custoE8",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "fonteDoCusto",
+            "columnName": "fonteDoCusto",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "modelo",
+            "columnName": "modelo",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "auditoriaDeLinksJson",
+            "columnName": "auditoriaDeLinksJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "auditoriaFinalJson",
+            "columnName": "auditoriaFinalJson",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "seq"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_eventos_sessaoId_seq",
+            "unique": false,
+            "columnNames": [
+              "sessaoId",
+              "seq"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_eventos_sessaoId_seq` ON `${TABLE_NAME}` (`sessaoId`, `seq`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "sessoes",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "sessaoId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
         "tableName": "artefatos",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `sessaoId` TEXT NOT NULL, `ciclo` INTEGER NOT NULL, `turno` INTEGER NOT NULL, `agente` TEXT NOT NULL, `papel` TEXT NOT NULL, `status` TEXT NOT NULL, `titulo` TEXT NOT NULL, `conteudoMd` TEXT NOT NULL, `relatorioDeRevisaoJson` TEXT NOT NULL, `auditoriaDeLinksJson` TEXT NOT NULL, `custoUsd` TEXT NOT NULL, `modelo` TEXT, `artefatoAnteriorId` TEXT, `bytesDoConteudo` INTEGER NOT NULL DEFAULT 0, `criadoEm` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`sessaoId`) REFERENCES `sessoes`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `sessaoId` TEXT NOT NULL, `ciclo` INTEGER NOT NULL, `turno` INTEGER NOT NULL, `agente` TEXT NOT NULL, `papel` TEXT NOT NULL, `status` TEXT NOT NULL, `titulo` TEXT NOT NULL, `textoAceito` TEXT NOT NULL, `conteudoMd` TEXT NOT NULL, `relatorioDeRevisaoJson` TEXT NOT NULL, `auditoriaDeLinksJson` TEXT NOT NULL, `custoE8` INTEGER NOT NULL DEFAULT 0, `modelo` TEXT, `artefatoAnteriorId` TEXT, `bytesDoConteudo` INTEGER NOT NULL DEFAULT 0, `criadoEm` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`sessaoId`) REFERENCES `sessoes`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -200,6 +347,12 @@
             "notNull": true
           },
           {
+            "fieldPath": "textoAceito",
+            "columnName": "textoAceito",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
             "fieldPath": "conteudoMd",
             "columnName": "conteudoMd",
             "affinity": "TEXT",
@@ -218,10 +371,11 @@
             "notNull": true
           },
           {
-            "fieldPath": "custoUsd",
-            "columnName": "custoUsd",
-            "affinity": "TEXT",
-            "notNull": true
+            "fieldPath": "custoE8",
+            "columnName": "custoE8",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
           },
           {
             "fieldPath": "modelo",
@@ -282,7 +436,7 @@
       },
       {
         "tableName": "configuracoes",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `protocolo` TEXT NOT NULL, `tetoDeCustoUsd` TEXT NOT NULL, `tetoDeMinutos` INTEGER, `maxCiclos` INTEGER NOT NULL DEFAULT 2, `taxasJson` TEXT NOT NULL, `atualizadaEm` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `protocolo` TEXT NOT NULL, `tetoDeCustoE8` INTEGER NOT NULL DEFAULT 0, `tetoDeMinutos` INTEGER, `maxCiclos` INTEGER NOT NULL DEFAULT 2, `taxasJson` TEXT NOT NULL, `atualizadaEm` TEXT NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -297,10 +451,11 @@
             "notNull": true
           },
           {
-            "fieldPath": "tetoDeCustoUsd",
-            "columnName": "tetoDeCustoUsd",
-            "affinity": "TEXT",
-            "notNull": true
+            "fieldPath": "tetoDeCustoE8",
+            "columnName": "tetoDeCustoE8",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
           },
           {
             "fieldPath": "tetoDeMinutos",
@@ -639,7 +794,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '329fa29bdb87f619dc29225b3497ee6c')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c3044ce7e5ac7f901b79126b869267f3')"
     ]
   }
 }

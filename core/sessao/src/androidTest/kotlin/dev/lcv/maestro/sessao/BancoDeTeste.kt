@@ -29,7 +29,7 @@ internal class BancoDeTeste {
         private set
     var retomada: Retomada = Retomada(banco, sessoes, artefatos, relogio)
         private set
-    var ponto: PontoDeRetomada = PontoDeRetomada(banco, artefatos, retomada)
+    var ponto: PontoDeRetomada = PontoDeRetomada(banco, artefatos, relogio)
         private set
 
     /** Fecha o banco e reconstrói cada objeto sobre o mesmo arquivo: o processo morreu e voltou. */
@@ -39,7 +39,7 @@ internal class BancoDeTeste {
         sessoes = RepositorioDeSessoes(banco, relogio)
         artefatos = RepositorioDeArtefatos(banco, relogio)
         retomada = Retomada(banco, sessoes, artefatos, relogio)
-        ponto = PontoDeRetomada(banco, artefatos, retomada)
+        ponto = PontoDeRetomada(banco, artefatos, relogio)
     }
 
     fun fechar() {
@@ -47,6 +47,11 @@ internal class BancoDeTeste {
         arquivo.delete()
         File(arquivo.path + "-wal").delete()
         File(arquivo.path + "-shm").delete()
+    }
+
+    /** SQL cru para adulterar uma coluna que nenhum DAO escreve fora do checkpoint: o que um ataque ao arquivo faria. */
+    fun adulterar(sql: String) {
+        banco.openHelper.writableDatabase.execSQL(sql)
     }
 
     fun entrada(
@@ -84,7 +89,7 @@ internal class BancoDeTeste {
         papel = papel,
         status = status,
         titulo = "Sessao de teste",
-        conteudoMd = texto,
+        texto = texto,
         relatorioDeRevisao = "{\"status\":\"$status\"}",
         auditoriaDeLinks = auditoria,
         custoUsd = BigDecimal("0.01"),
@@ -93,6 +98,9 @@ internal class BancoDeTeste {
 
     fun evento(status: String, mensagem: String, agente: Provedor? = null): EventoDaSessao =
         EventoDaSessao(em = FormatoDeInstante.iso(relogio()), status = status, mensagem = mensagem, agente = agente)
+
+    /** As mensagens do jornal, na ordem. */
+    fun mensagens(id: String): List<String> = sessoes.eventos(id).map { it.mensagem }
 
     companion object {
         val TODAS_AS_CHAVES: Map<Provedor, Boolean?> = Provedor.entries.associateWith { true }

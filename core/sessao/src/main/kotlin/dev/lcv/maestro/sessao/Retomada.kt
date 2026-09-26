@@ -10,25 +10,24 @@ public sealed interface Preparacao {
     /** A linha não existe mais. */
     public data object SessaoAusente : Preparacao
 
-    /** O jornal não passou na leitura estrita; a sessão foi para `paused_resume_state_invalid`. */
-    public data class JornalInvalido(val mensagem: String) : Preparacao
-
-    /** A custódia circular não validou; evento bloqueado anexado e sessão em `paused_resume_state_invalid`. */
+    /** A custódia não validou; evento bloqueado gravado e sessão em `paused_resume_state_invalid`. */
     public data class CustodiaInvalida(val mensagem: String) : Preparacao
 
-    /** Alguém mudou o status no meio (cancelamento, varredura): o runner para. */
+    /** A sessão já não estava em `queued`/`running` quando a execução tentou reivindicá-la: o runner para. */
     public data object Perdida : Preparacao
 
-    /** Uma execução nova: o líder redige; a âncora do tempo é `criadaEm`. */
+    /** Uma execução nova, reivindicada: o líder redige; a âncora do tempo é `criadaEm`. */
     public data class Nova(
         val sessao: SessaoEntidade,
         val escala: List<Provedor>,
         val lider: Provedor,
         val eventos: List<EventoDaSessao>,
+        /** A cerca de execução: vai em toda escrita do worker. */
+        val execucao: Long,
         val ancora: Instant,
     ) : Preparacao
 
-    /** Uma retomada: rascunho pulado, custódia restaurada, status já `running`; a âncora é o agora. */
+    /** Uma retomada reivindicada: rascunho pulado, custódia validada e restaurada; a âncora é o agora. */
     public data class Retomar(
         val sessao: SessaoEntidade,
         val escala: List<Provedor>,
@@ -37,6 +36,7 @@ public sealed interface Preparacao {
         val autorAtual: Provedor,
         val textoAtual: String,
         val progresso: ProgressoDaRetomada,
+        val execucao: Long,
         val ancora: Instant,
     ) : Preparacao
 }
@@ -44,9 +44,11 @@ public sealed interface Preparacao {
 /**
  * `handleMaestroAiSessionResumePost` e a fatia de preparação do `runSession`
  * (`sessions.ts:4733-4815, 3320-3355, 3500-3563`). [pedir] deixa a sessão
- * `queued` e devolve a linha; quem enfileira o worker é a 3b (o
- * `waitUntil` do web). [preparar] é o que o worker chama depois do seu
- * próprio `runnerStopRequested`.
+ * `queued` e devolve a linha; quem enfileira o worker é a 3b. [preparar] é o
+ * que o worker chama primeiro: **reivindica** a sessão numa transação (uma
+ * linha de `execucoes` e `execucaoAtual`, sob o portão de status) e só então
+ * valida e restaura a custódia; um cancelamento ou uma reconciliação que já
+ * tirou a sessão de `queued`/`running` faz a reivindicação falhar.
  */
 public class Retomada(
     private val banco: BancoDaSessao,
@@ -54,6 +56,8 @@ public class Retomada(
     private val artefatos: RepositorioDeArtefatos,
     private val relogio: () -> Instant,
 ) {
+    private fun agora(): String = FormatoDeInstante.iso(relogio())
+
     /**
      * `POST /sessions/{id}/resume`. [liderPedido] e [painelPedido] são o corpo
      * cru (ausentes = os da linha); [chaves] é o que o cofre respondeu por
@@ -85,21 +89,20 @@ public class Retomada(
         if (indisponiveis.isNotEmpty()) {
             return Resultado.Recusado("Agentes indisponiveis para retomada: ${indisponiveis.joinToString(", ") { it.rotulo }}.")
         }
-        val aplicado = sessoes.persistir(
-            id,
-            Remendo(
-                status = Campo.Presente(Estados.NA_FILA),
-                liderDoCiclo = Campo.Presente(lider.agente),
-                agentesAtivosJson = Campo.Presente(RepositorioDeSessoes.agentesJson(painel)),
-                erro = Campo.Presente(null),
-            ),
-            seSituacaoEm = setOf(linha.status),
-            evento = EventoDaSessao(
-                em = FormatoDeInstante.iso(relogio()),
-                status = EventoDaSessao.RODANDO,
-                mensagem = "Sessao retomada pelo operador com ${lider.rotulo} como lider do ciclo.",
-            ),
+        val evento = EventoDaSessao(
+            em = agora(),
+            status = EventoDaSessao.RODANDO,
+            mensagem = "Sessao retomada pelo operador com ${lider.rotulo} como lider do ciclo.",
         )
+        val aplicado = try {
+            banco.runInTransaction<Boolean> {
+                if (banco.sessoes().retomar(id, linha.status, lider.agente, RepositorioDeSessoes.agentesJson(painel), agora()) == 0) throw CasPerdido()
+                banco.eventos().inserir(evento.paraEntidade(id))
+                true
+            }
+        } catch (perdido: CasPerdido) {
+            false
+        }
         if (!aplicado) return Resultado.Recusado(MENSAGEM_MUDOU_DE_ESTADO)
         val retomada = sessoes.carregar(id)
         if (retomada?.status != Estados.NA_FILA) return Resultado.Recusado(MENSAGEM_MUDOU_DE_ESTADO)
@@ -116,133 +119,58 @@ public class Retomada(
         return lider to (ativos.drop(indice + 1) + ativos.take(indice + 1))
     }
 
-    /** A preparação do `runSession`: jornal estrito, e, numa retomada, a custódia validada e restaurada. */
+    /**
+     * A preparação do `runSession`: reivindica a sessão e, numa retomada,
+     * valida e restaura a custódia, tudo numa transação. Uma custódia
+     * inválida desfaz a reivindicação e pausa a sessão em
+     * `paused_resume_state_invalid`, com o evento bloqueado do web.
+     */
     public fun preparar(id: String): Preparacao {
         val linha = sessoes.carregar(id) ?: return Preparacao.SessaoAusente
         val (lider, escala) = escala(linha)
-        val eventos = try {
-            Jornal.lerEstrito(linha.eventosJson)
-        } catch (erro: IntegridadeDeLinks.Falha) {
-            val mensagem = "Session journal integrity check failed: ${erro.message}"
-            sessoes.persistir(
-                id,
-                Remendo(status = Campo.Presente(Estados.RETOMADA_INVALIDA), erro = Campo.Presente(mensagem)),
-                seSituacaoEm = Estados.ATIVOS,
-            )
-            return Preparacao.JornalInvalido(mensagem)
-        }
+        // `isResume` (`sessions.ts:3383`): texto aceito e autor presentes; uma
+        // sessão nova guarda o conteúdo inicial com autor nulo.
         val ehRetomada = TrimJs.aparar(linha.textoAtual).isNotEmpty() && linha.autorAtual != null
-        if (!ehRetomada) {
-            // O mesmo portão da retomada: a linha é relida dentro da transação e
-            // um cancelamento ou uma reconciliação que já a tirou de
-            // `queued`/`running` para o runner antes do rascunho pago (achado
-            // do Codex na #67). O primeiro evento do worker é gravado sob CAS,
-            // como no web, e fecha a janela entre este portão e a chamada.
-            return banco.runInTransaction<Preparacao> {
-                val viva = sessoes.carregar(id)
-                if (viva == null || viva.status !in Estados.ATIVOS) return@runInTransaction Preparacao.Perdida
-                Preparacao.Nova(viva, escala, lider, eventos, FormatoDeInstante.ler(viva.criadaEm) ?: relogio())
-            }
-        }
-        val textoAtual = linha.textoAtual
         val autorAtual = Agentes.sanear(linha.autorAtual, lider)
-        val progresso = try {
-            banco.runInTransaction<ProgressoDaRetomada> {
-                val restaurado = restaurar(linha, escala, autorAtual, textoAtual)
-                persistirProgressoDentroDaTransacao(
-                    id,
-                    ProgressoCircular(
-                        autorAtual = autorAtual,
-                        textoAtual = textoAtual,
-                        artefatoDeCustodiaId = restaurado.artefatoDeCustodiaId,
-                        artefatoAnteriorId = restaurado.artefatoAnteriorId,
-                        rodada = restaurado.rodada,
-                        indiceDoTurno = restaurado.indiceDoTurno,
-                        escala = escala,
-                        agentesValidos = restaurado.agentesValidos,
-                        aprovacoesEstaveis = restaurado.aprovacoesEstaveis,
-                        turnoDoArtefato = restaurado.turnoDoArtefato,
-                    ),
-                    Remendo(status = Campo.Presente(Estados.RODANDO)),
-                    seSituacaoEm = Estados.ATIVOS,
-                    evento = null,
+        return try {
+            banco.runInTransaction<Preparacao> {
+                // O portão está na própria reivindicação (`WHERE status IN (queued, running)`):
+                // zero linhas é uma sessão cancelada ou reconciliada, e a transação desfaz a
+                // linha de `execucoes` que acabou de nascer.
+                val viva = sessoes.carregar(id) ?: throw CasPerdido()
+                val execucao = banco.execucoes().inserir(ExecucaoEntidade(sessaoId = id, inicio = agora()))
+                if (banco.sessoes().reivindicar(id, execucao, agora()) == 0) throw CasPerdido()
+                val eventos = sessoes.eventos(id)
+                if (!ehRetomada) {
+                    return@runInTransaction Preparacao.Nova(sessoes.carregar(id)!!, escala, lider, eventos, execucao, FormatoDeInstante.ler(viva.criadaEm) ?: relogio())
+                }
+                val custodia = EstadoCircular.validar(viva) { artefatos.um(id, it) }
+                val lista = artefatos.daSessao(id)
+                val restaurado = EstadoCircular.restaurar(custodia, escala, autorAtual, lista.mapNotNull(EstadoCircular::relatorioDeliberativo))
+                    // Um artefato além do contador reserva o número do turno sem virar custódia (`sessions.ts:3515-3521`).
+                    .let { it.copy(turnoDoArtefato = maxOf(it.turnoDoArtefato, artefatos.turnoMaximo(id))) }
+                val gravadas = banco.sessoes().gravarCustodia(
+                    id = id, permitidos = Estados.ATIVOS.toList(), execucao = execucao,
+                    autorAtual = autorAtual.agente, textoAtual = custodia.textoAtual,
+                    custodiaArtefatoId = restaurado.artefatoDeCustodiaId, artefatoAnteriorId = restaurado.artefatoAnteriorId,
+                    rodada = restaurado.rodada, indiceDoTurno = restaurado.indiceDoTurno, turnoDoArtefato = restaurado.turnoDoArtefato,
+                    escalaJson = EstadoCircular.agentesJson(escala), agentesValidosJson = EstadoCircular.agentesJson(restaurado.agentesValidos),
+                    aprovacoesEstaveisJson = EstadoCircular.agentesJson(restaurado.aprovacoesEstaveis),
+                    status = Estados.RODANDO, erro = null, em = agora(),
                 )
-                restaurado
+                if (gravadas == 0) throw CasPerdido()
+                val eventoDeRetomada = EventoDaSessao(em = agora(), agente = autorAtual, papel = "draft", status = EventoDaSessao.RODANDO, mensagem = MENSAGEM_RETOMADA)
+                banco.eventos().inserir(eventoDeRetomada.paraEntidade(id))
+                Preparacao.Retomar(sessoes.carregar(id)!!, escala, lider, eventos + eventoDeRetomada, autorAtual, custodia.textoAtual, restaurado, execucao, relogio())
             }
         } catch (erro: IntegridadeDeLinks.Falha) {
             val mensagem = "Circular custody integrity check failed: ${erro.message}"
-            val agora = FormatoDeInstante.iso(relogio())
-            sessoes.persistir(
-                id,
-                Remendo(),
-                seSituacaoEm = Estados.ATIVOS,
-                evento = EventoDaSessao(em = agora, agente = autorAtual, papel = "draft", status = EventoDaSessao.BLOQUEADO, mensagem = mensagem),
-            )
-            sessoes.persistir(
-                id,
-                Remendo(status = Campo.Presente(Estados.RETOMADA_INVALIDA), erro = Campo.Presente(mensagem)),
-                seSituacaoEm = Estados.ATIVOS,
-            )
-            return Preparacao.CustodiaInvalida(mensagem)
+            sessoes.anotar(id, EventoDaSessao(em = agora(), agente = autorAtual, papel = "draft", status = EventoDaSessao.BLOQUEADO, mensagem = mensagem))
+            sessoes.transicionar(id, Estados.RETOMADA_INVALIDA, mensagem, null)
+            Preparacao.CustodiaInvalida(mensagem)
         } catch (perdido: CasPerdido) {
-            return Preparacao.Perdida
+            Preparacao.Perdida
         }
-        val eventoDeRetomada = EventoDaSessao(
-            em = FormatoDeInstante.iso(relogio()),
-            agente = autorAtual,
-            papel = "draft",
-            status = EventoDaSessao.RODANDO,
-            mensagem = MENSAGEM_RETOMADA,
-        )
-        if (!sessoes.persistir(id, Remendo(), seSituacaoEm = Estados.ATIVOS, evento = eventoDeRetomada)) return Preparacao.Perdida
-        val atual = sessoes.carregar(id) ?: return Preparacao.SessaoAusente
-        return Preparacao.Retomar(atual, escala, lider, eventos + eventoDeRetomada, autorAtual, textoAtual, progresso, relogio())
-    }
-
-    /** `persistCircularProgress` (`sessions.ts:3406-3437`): custódia serializada mais o [remendo], sob o portão. */
-    public fun persistirProgressoCircular(
-        id: String,
-        progresso: ProgressoCircular,
-        remendo: Remendo = Remendo(),
-        seSituacaoEm: Set<String>? = null,
-        evento: EventoDaSessao? = null,
-    ): Boolean = try {
-        banco.runInTransaction<Boolean> { persistirProgressoDentroDaTransacao(id, progresso, remendo, seSituacaoEm, evento) }
-    } catch (perdido: CasPerdido) {
-        false
-    }
-
-    internal fun persistirProgressoDentroDaTransacao(
-        id: String,
-        progresso: ProgressoCircular,
-        remendo: Remendo,
-        seSituacaoEm: Set<String>?,
-        evento: EventoDaSessao?,
-    ): Boolean {
-        val custodia = progresso.artefatoDeCustodiaId
-        val anterior = progresso.artefatoAnteriorId
-        if (custodia.isNullOrEmpty() || anterior.isNullOrEmpty() || TrimJs.aparar(progresso.textoAtual).isEmpty()) {
-            throw IllegalStateException("Cannot persist circular progress without accepted draft custody.")
-        }
-        val base = Remendo(
-            autorAtual = Campo.Presente(progresso.autorAtual.agente),
-            textoAtual = Campo.Presente(progresso.textoAtual),
-            estadoCircularJson = Campo.Presente(EstadoCircular.serializar(id, progresso, relogio())),
-        )
-        return sessoes.persistirDentroDaTransacao(id, remendo.sobre(base), seSituacaoEm, evento)
-    }
-
-    /** A restauração (`sessions.ts:3504-3524`): estado persistido validado, ou o legado reconstruído. */
-    private fun restaurar(linha: SessaoEntidade, escala: List<Provedor>, autorAtual: Provedor, textoAtual: String): ProgressoDaRetomada {
-        val persistido = EstadoCircular.ler(linha.estadoCircularJson.ifEmpty { "{}" })
-        if (persistido == null) {
-            return EstadoCircular.reconstruirLegado(linha, autorAtual, textoAtual, artefatos.daSessao(linha.id), artefatos::criar)
-        }
-        val estado = EstadoCircular.validar(linha, persistido) { artefatos.um(linha.id, it) }
-        val lista = artefatos.daSessao(linha.id)
-        val restaurado = EstadoCircular.restaurar(estado, escala, autorAtual, lista.mapNotNull(EstadoCircular::relatorioDeliberativo))
-        // Um artefato órfão além do contador (CAS perdido) reserva o número do turno sem virar custódia.
-        return restaurado.copy(turnoDoArtefato = maxOf(restaurado.turnoDoArtefato, lista.maxOfOrNull { it.turno } ?: 0))
     }
 
     public companion object {
@@ -256,36 +184,51 @@ public sealed interface Gravacao {
     /** Tudo gravado; [artefato] é a linha inserida, quando havia artefato. */
     public data class Gravada(val artefato: ArtefatoEntidade?) : Gravacao
 
-    /** O portão de status falhou: nada foi gravado, nem o artefato, nem o evento. */
+    /** O portão de status ou a cerca de execução falhou: nada foi gravado, nem o artefato, nem o evento. */
     public data object Perdida : Gravacao
 }
 
 /**
- * O checkpoint por turno (especificação, seção 4.2; emenda A3): o artefato do
- * turno, a custódia, o jornal e o status numa transação só. O web grava em
- * dois comandos (`sessions.ts:4192-4203`); aqui um CAS perdido desfaz também
- * o artefato, em vez de deixá-lo órfão.
+ * O checkpoint por turno (especificação, seção 4.2): o artefato do turno, a
+ * custódia inteira, o status resultante e o evento numa transação só, sob o
+ * portão de status e a cerca de execução. Um portão perdido desfaz também o
+ * artefato; uma escrita tardia de uma execução superada falha na cerca.
  */
 public class PontoDeRetomada(
     private val banco: BancoDaSessao,
     private val artefatos: RepositorioDeArtefatos,
-    private val retomada: Retomada,
+    private val relogio: () -> Instant,
 ) {
     /**
-     * [progresso] recebe o artefato recém-inserido (ou `null`) e devolve a
-     * custódia a gravar, porque o id só existe depois do insert.
+     * [custodia] recebe o artefato recém-inserido (ou `null`) e devolve a
+     * custódia a gravar, porque o id só existe depois do insert; [status] e
+     * [erro] são o estado em que a sessão fica (`running` para seguir, ou uma
+     * pausa).
      */
     public fun gravarTurno(
         sessaoId: String,
+        execucao: Long,
         artefato: EntradaDeArtefato?,
-        progresso: (ArtefatoEntidade?) -> ProgressoCircular,
-        remendo: Remendo = Remendo(),
+        custodia: (ArtefatoEntidade?) -> Custodia,
+        status: String = Estados.RODANDO,
+        erro: String? = null,
         evento: EventoDaSessao? = null,
         seSituacaoEm: Set<String> = Estados.ATIVOS,
     ): Gravacao = try {
         banco.runInTransaction<Gravacao> {
-            val inserido = artefato?.let(artefatos::criar)
-            retomada.persistirProgressoDentroDaTransacao(sessaoId, progresso(inserido), remendo, seSituacaoEm, evento)
+            val inserido = artefato?.let(artefatos::inserir)
+            val c = custodia(inserido)
+            val gravadas = banco.sessoes().gravarCustodia(
+                id = sessaoId, permitidos = seSituacaoEm.toList(), execucao = execucao,
+                autorAtual = c.autorAtual.agente, textoAtual = EstadoCircular.textoCanonico(c.textoAtual),
+                custodiaArtefatoId = c.custodiaArtefatoId, artefatoAnteriorId = c.artefatoAnteriorId,
+                rodada = maxOf(1, c.rodada), indiceDoTurno = maxOf(0, c.indiceDoTurno), turnoDoArtefato = maxOf(1, c.turnoDoArtefato),
+                escalaJson = EstadoCircular.agentesJson(c.escala), agentesValidosJson = EstadoCircular.agentesJson(c.agentesValidos),
+                aprovacoesEstaveisJson = EstadoCircular.agentesJson(c.aprovacoesEstaveis),
+                status = status, erro = erro, em = FormatoDeInstante.iso(relogio()),
+            )
+            if (gravadas == 0) throw CasPerdido()
+            if (evento != null) banco.eventos().inserir(evento.paraEntidade(sessaoId))
             Gravacao.Gravada(inserido)
         }
     } catch (perdido: CasPerdido) {

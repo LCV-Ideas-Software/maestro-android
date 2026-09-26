@@ -567,28 +567,87 @@ Um aplicativo que quebra depois de trocar de aparelho perdeu o usuário no
 primeiro minuto; um que pede a chave de volta toda vez que o relógio virou é
 pior, porque parece estar funcionando.
 
-O diário da sessão (`events_json`) porta como está — lista serializada com
-leitura estrita. O web já trata jornal corrompido como falha explícita
-(`paused_resume_state_invalid`), e essa disciplina fica.
+O diário da sessão (`events_json` no web) vira a tabela `eventos`: o web o
+guardava serializado e o lia com leitura estrita, tratando jornal corrompido
+como falha explícita; com uma linha por evento não há o que corromper, e a
+disciplina de falhar fechado passa para a custódia, abaixo.
 
-**Decisões de esquema da terceira entrega (25/09/2026, primeira das duas
-pull requests, com uma rodada de revisão cruzada sobre o plano):**
+**Decisões de esquema da terceira entrega (25–26/09/2026, primeira das duas
+pull requests; plano com uma rodada de revisão cruzada, e o desenho de
+armazenamento revisto inteiro depois de duas rodadas do Codex, com nova
+rodada de revisão cruzada e seis decisões do operador em 26/09/2026):**
 
-- **Oito tabelas.** As três do D1 — sessão, artefato, configurações — mais
-  as que o desktop guarda em arquivos (registros de link e o diário deles,
-  registros de evidência, anexos) e uma de execuções do serviço em primeiro
-  plano, para a tela somar o que já foi gasto do orçamento agregado de seis
-  horas (seção 4.1). O esquema é exportado pelo plugin do Room para
-  `core/sessao/schemas/`.
+- **O D1 não entra no Room.** O web guarda o jornal como JSON numa coluna, a
+  custódia circular como outro JSON validado por treze verificações, e
+  recupera o texto aceito reparseando o markdown do artefato — porque o D1
+  não tem transação, chave estrangeira nem tabela barata por evento. A
+  primeira versão desta entrega portou essa forma para dentro do Room e
+  herdou as fissuras dela (oito achados do Codex, cinco deles sintomas dessas
+  três escolhas). O que vale é o comportamento do web; o armazenamento é o
+  do Room:
+  - **uma transição, um `UPDATE` condicional.** Não existe `@Update` de
+    sessão. Cada transição (`criar`, `cancelar`, `retomar`, `reivindicar`,
+    `substituirConteudo`, `subirPiso`, `tocar`, `gravarCustodia`,
+    `concluir`) é um `UPDATE` das suas colunas com o portão de status na
+    própria instrução (`WHERE id = ? AND status IN (…)`), que devolve quantas
+    linhas mudou — zero é o CAS perdido. O portão não pode ser esquecido por
+    quem chama. A troca de conteúdo preserva as colunas omitidas dentro do
+    SQL (`COALESCE`), condicionada ao status lido;
+  - **o jornal é a tabela `eventos`**, uma linha por evento, gravada na
+    mesma transação da transição que o motivou (e cada evento carimba
+    `atualizadaEm`, como o `appendEvent` do web). Não há blob para
+    corromper, nem leitura estrita e tolerante do mesmo texto;
+  - **o texto aceito é a coluna `textoAceito` do artefato**, canônico —
+    aparado como o `trim` do JavaScript, `\r\n` como `\n`, e NUL recusado,
+    não apagado — e o mesmo texto vai para `sessoes.textoAtual`; a retomada
+    compara as duas colunas por igualdade. O markdown do web
+    (`buildArtifactMarkdown`, byte a byte) fica em `conteudoMd`, derivado
+    para exibição e exportação, e nunca é lido de volta. Não há hash: a
+    igualdade de duas colunas é mais forte do que o hash de uma delas;
+  - **a custódia circular são colunas tipadas de `sessoes`** (artefato de
+    custódia e anterior, rodada, índice do turno, turno do artefato, escala,
+    agentes válidos e aprovações estáveis), sem chave estrangeira para
+    `artefatos`, que já aponta para `sessoes`; a retomada confere o que ainda
+    tem significado, cada verificação com a mensagem do web: artefato de
+    custódia existente nesta sessão e aceito (`ready`/`not_ready`), do autor
+    da linha; artefato anterior existente; turnos coerentes; contadores
+    válidos; escala sem repetição e só com chaves conhecidas; aprovações
+    dentro da escala; texto igual. Falha é `paused_resume_state_invalid` com
+    o evento bloqueado, como no web. As verificações de forma de JSON
+    (versão de esquema, `run_id`, JSON inválido) deixaram de ter objeto. A
+    reconstrução legada do web não existe: não há dado legado no Android;
+  - **cerca de execução.** `preparar` reivindica a sessão numa transação —
+    uma linha em `execucoes` e `sessoes.execucaoAtual`, sob o portão de
+    status —, e toda escrita do worker exige `execucaoAtual = :minha`. Um
+    checkpoint tardio de uma execução superada falha por si só, mesmo com o
+    status ainda `running`. A janela entre a última escrita guardada e a
+    chamada paga ao provedor é a do web (releitura imediatamente antes da
+    chamada, custo registrado pelo piso incondicional);
+  - **o checkpoint por turno é uma transação**: insere o artefato, grava a
+    custódia inteira com o status resultante sob o portão e a cerca, e
+    insere o evento; zero linhas desfaz tudo, artefato incluído. A reserva
+    do turno órfão na retomada fica (`max` dos turnos gravados), e a inserção
+    de artefato é interna ao checkpoint;
+  - **dinheiro em inteiros de 10⁻⁸ USD** nas colunas (a escala interna do
+    protocolo), `BigDecimal` na API; o piso de custo é
+    `SET custo = MAX(custo, :novo)`, atômico e sem portão, nunca dentro da
+    transação do checkpoint, para que um checkpoint desfeito não apague gasto
+    incorrido.
+- **Oito tabelas** mais `eventos`: as do D1 (sessão, artefato,
+  configurações) e as que o desktop guarda em arquivos (registros de link e o
+  diário deles, registros de evidência, anexos), mais as execuções do worker,
+  que a tela soma na janela de 24 horas do `dataSync` (as que a tocam, não
+  só as que começaram dentro dela). O esquema é exportado pelo plugin do Room
+  para `core/sessao/schemas/`.
 - **Colunas que não vêm.** `configured_secrets_json`: a chave é do cofre e só
   existe em tempo de execução, com o terceiro estado "não foi possível
   verificar agora". `models_json` fica gravado por sessão, para o histórico
   dizer com que modelo ela correu, mas não há seleção: o modelo de cada
-  provedor é o mais novo, fixo no `:core:provedores`. As colunas e os blocos
-  de migração do D1 legado não têm o que migrar. `max_cycles` é validado e
-  gravado como no web, mas o runner do web nunca o lê: o limite real é
-  `roundTurnCount * 4` turnos seriais (`paused_cycle_limit`), e aqui é o
-  mesmo.
+  provedor é o mais novo, fixo no `:core:provedores`. `max_cycles` é
+  validado e gravado como no web, mas o runner do web nunca o lê: o limite
+  real é `roundTurnCount * 4` turnos seriais (`paused_cycle_limit`), e aqui é
+  o mesmo. Minutos são inteiros. Um limite de minutos negativo é recusado,
+  em vez de limpar o teto como o web faz.
 - **Corpos de evidência e anexos são arquivos, não colunas.** Um corpo chega a
   8 MiB e um anexo a 16 MiB (o `MAX_OPERATOR_ARTIFACT_BYTES` canônico), e o
   `CursorWindow` do Android não lê uma linha acima de 2 MiB. Cada arquivo é
@@ -596,44 +655,18 @@ pull requests, com uma rodada de revisão cruzada sobre o plano):**
   `fsync`, `rename` atômico); a linha aponta para a geração, a anterior só
   some depois do *commit* da transação, e a limpeza de órfãos corre sob a
   trava do armazém. Uma recoleta sem corpo mantém a geração atual.
-- **Minutos são inteiros** (`tetoDeMinutos`), e não `REAL` como no web:
-  minuto é a unidade da tela e do teto de produto.
-- **Cada escrita é uma transação do Room.** O `persistSession` do web é um
-  `UPDATE … WHERE status IN (…)`; aqui a leitura, o portão de status e a
-  escrita ficam dentro de `runInTransaction`, com `null` explícito para
-  `final_text` e `error`, e o evento é acrescentado ao jornal no nível do nó
-  JSON — um campo que este código não conhece sobrevive ao *checkpoint*
-  seguinte. O *checkpoint* por turno insere o artefato e avança custódia,
-  hash, aprovações, cursor e jornal numa transação só; o web faz em dois
-  comandos e um CAS perdido deixa o artefato órfão — aqui o artefato volta
-  junto. A retomada continua tolerando um artefato órfão além do contador.
-  A troca de conteúdo pelo operador é uma escrita parcial condicionada ao
-  status lido, e uma execução nova passa pelo mesmo portão transacional da
-  retomada; um artefato cujo markdown o saneamento mudaria (NUL, ou mais de
-  500 000 pontos de código) é recusado no *checkpoint*, porque o texto
-  aceito gravado ao lado é o que a retomada compara e hasheia — o web apaga
-  o NUL só no artefato e a própria retomada dele falharia (achados do Codex
-  na primeira pull request, 25/09/2026).
-- **O hash da custódia apara como o JavaScript** (`String.prototype.trim`:
-  U+FEFF entra, U+0085 não), nas duas pontas, e é SHA-256 sobre UTF-8 como o
-  `TextEncoder`. O resto do saneamento de texto também apara assim, porque é
-  o `sanitizeText` do web; o corte de tamanho é em pontos de código, não em
-  unidades UTF-16 como o `slice`.
 - **`pausada_aguardando_autenticacao` entra no ciclo de vida** como o décimo
   quarto estado retomável, ao lado dos treze do web — `error` incluído, que é
   o que a varredura do web e a reconciliação daqui gravam, e continua
-  retomável. A
-  reconciliação na abertura do aplicativo marca como `error` a sessão ainda
-  ativa cujo *worker* não está vivo e pede a retomada com o líder e o painel
-  da própria linha, sem o usuário redigitar nada.
-- **O markdown do artefato é byte a byte o do web**, com uma exceção: o bloco
-  `## Link Audit` leva as linhas `link_integrity_audit.v1` da auditoria do
-  porte, não o `LinkAuditResult` legado, e `Invalid links` conta os tons
-  `error` e `blocked` — a regra `falhas` do motor.
-- **JSON tolerante e estrito, exatamente como o web separa:** taxas, modelos
-  e agentes ativos caem no padrão quando não parseiam; jornal e estado
-  circular falham fechado para `paused_resume_state_invalid`, com as
-  mensagens do web.
+  retomável. A reconciliação na abertura do aplicativo marca como `error` a
+  sessão ainda ativa cujo *worker* não está vivo e pede a retomada com o
+  líder e o painel da própria linha, sem o usuário redigitar nada.
+- **O bloco `## Link Audit` do markdown** leva as linhas
+  `link_integrity_audit.v1` da auditoria do porte, não o `LinkAuditResult`
+  legado, e `Invalid links` conta os tons `error` e `blocked` — a regra
+  `falhas` do motor. Taxas, modelos e agentes ativos continuam lidos com
+  tolerância, como o `parseJson` do web; os registros de link e de evidência
+  recusam número fracionário em campo inteiro.
 
 ### 4.3 Morte de processo é o novo timeout de Worker
 
@@ -1219,24 +1252,27 @@ de teste, porque compra confiança sem entregá-la.
   reconstrói Room, WorkManager e o grafo de dependências**, e só então verifica
   que a deliberação continua do ponto certo — não do começo, e não de um ponto
   adiante. Esse caso inteiro é da segunda pull request, com o *worker*. A
-  primeira (25/09/2026) prova a metade que já existe, no mesmo emulador do
-  `:core:seguranca`, em toda pull request: o *checkpoint* grava artefato,
-  custódia e jornal juntos e um portão perdido não deixa nem o artefato; o
-  banco é fechado, cada objeto descartado e tudo reaberto sobre o mesmo
-  arquivo, e a preparação da retomada devolve a rodada, o turno, as
-  aprovações e a custódia exatas, com o status `running` e o evento de
-  retomada no fim do jornal; o estado circular adulterado no arquivo e o
-  jornal malformado caem em `paused_resume_state_invalid` com as mensagens
-  do web; o CAS de status, o piso de custo monotônico, o cancelamento, a
-  troca de conteúdo fora da cadeia de custódia, o pedido de retomada com
-  painel e líder inválidos, o legado que contradiz a linha, o artefato
-  órfão além do contador, o `Flow` que emite a cada escrita, os registros de
-  link atravessados pelo motor real, um corpo de 8 MiB e um anexo de 16 MiB
+  primeira (26/09/2026) prova a metade que já existe, no mesmo emulador do
+  `:core:seguranca`, em toda pull request: `preparar` reivindica a sessão
+  (execução e cerca) e uma sessão cancelada ou reconciliada não é
+  reivindicada; o *checkpoint* grava artefato, custódia e evento juntos, um
+  portão perdido não deixa nem o artefato, e um checkpoint de execução
+  superada falha na cerca; o banco é fechado, cada objeto descartado e tudo
+  reaberto sobre o mesmo arquivo, e a preparação da retomada devolve a
+  rodada, o turno, as aprovações e a custódia exatas, com o status `running`
+  e o evento de retomada no fim do jornal; a custódia adulterada no arquivo
+  (contador, texto) e o texto sem custódia caem em
+  `paused_resume_state_invalid` com as mensagens do web; cada transição tem o
+  caso em que o portão recusa; o piso de custo é monotônico e não tem
+  portão; a troca de conteúdo preserva as colunas omitidas e só escreve no
+  status lido; o pedido de retomada com painel e líder inválidos; o artefato
+  órfão além do contador; os `Flow` da sessão e dos eventos; os registros de
+  link atravessados pelo motor real; um corpo de 8 MiB e um anexo de 16 MiB
   em arquivo, e o byte a mais recusado. Na JVM ficam as funções puras: o
-  markdown do artefato e a leitura do texto de volta, uma entrada que falha
-  por mensagem da custódia circular, a leitura estrita do jornal, o corte de
-  2 s do tempo, o saneamento de taxas e agentes, o `resolveStartRequest` e o
-  teto no limite exato sobre o acumulado da sessão.
+  markdown derivado do artefato, uma entrada que falha por verificação da
+  custódia, o texto canônico, o corte de 2 s do tempo, o saneamento de taxas
+  e agentes, o `resolveStartRequest`, o dinheiro em inteiros e o teto no
+  limite exato sobre o acumulado da sessão.
 - **`:core:sessao`, os tetos que protegem a fatura do usuário.** A seção 7 chama
   `max_cost_usd` de única barreira entre uma sessão mal configurada e a fatura
   do usuário; barreira sem teste é promessa. Quatro casos, cada um capaz de

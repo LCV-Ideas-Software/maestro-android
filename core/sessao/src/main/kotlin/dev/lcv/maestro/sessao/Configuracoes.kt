@@ -94,7 +94,7 @@ public class RepositorioDeConfiguracoes(
             )
         return Configuracoes(
             protocolo = linha.protocolo,
-            tetoDeCustoUsd = linha.tetoDeCustoUsd,
+            tetoDeCustoUsd = Dinheiro.deE8(linha.tetoDeCustoE8),
             tetoDeMinutos = linha.tetoDeMinutos?.takeIf { it > 0 },
             maxCiclos = linha.maxCiclos.takeIf { it != 0 } ?: 2,
             taxas = Taxas.lerJson(linha.taxasJson),
@@ -106,10 +106,16 @@ public class RepositorioDeConfiguracoes(
     public fun salvar(pedido: PedidoDeConfiguracoes): Resultado<Configuracoes> {
         val atual = banco.configuracoes().carregar()
         val protocolo = Texto.sanear(pedido.protocolo ?: atual?.protocolo ?: PROTOCOLO_PADRAO, 160_000)
-        val tetoDeCustoUsd = pedido.tetoDeCustoUsd ?: atual?.tetoDeCustoUsd ?: BigDecimal.ZERO
+        val tetoDeCustoUsd = pedido.tetoDeCustoUsd ?: atual?.let { Dinheiro.deE8(it.tetoDeCustoE8) } ?: BigDecimal.ZERO
         val limiteBruto = when (val campo = pedido.tetoDeMinutos) {
             is Campo.Presente -> campo.valor
             Campo.Ausente -> atual?.tetoDeMinutos
+        }
+        // `null` e `0` limpam o limite (`sessions.ts:4516-4518`); um valor negativo
+        // não é "limpar", é entrada inválida, e cai na mesma recusa da faixa —
+        // o web o trataria como `null` (desvio declarado; achado do Codex na #67).
+        if (limiteBruto != null && limiteBruto < 0) {
+            return Resultado.Recusado("Limite de tempo opcional deve ficar entre 1 e $TETO_DE_MINUTOS minutos.")
         }
         val tetoDeMinutos = limiteBruto?.takeIf { it > 0 }
         val maxCiclos = pedido.maxCiclos ?: atual?.maxCiclos ?: 2
@@ -124,7 +130,7 @@ public class RepositorioDeConfiguracoes(
         val taxas = pedido.taxas?.let(Taxas::sanear) ?: Taxas.lerJson(atual?.taxasJson)
         val linha = ConfiguracoesEntidade(
             protocolo = protocolo,
-            tetoDeCustoUsd = tetoDeCustoUsd,
+            tetoDeCustoE8 = Dinheiro.paraE8(tetoDeCustoUsd),
             tetoDeMinutos = tetoDeMinutos,
             maxCiclos = maxCiclos,
             taxasJson = Taxas.paraJson(taxas),

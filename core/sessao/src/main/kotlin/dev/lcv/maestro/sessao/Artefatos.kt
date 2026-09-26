@@ -1,8 +1,6 @@
 package dev.lcv.maestro.sessao
 
-import dev.lcv.maestro.protocolo.EspacoUnicode
 import dev.lcv.maestro.protocolo.FormatoDeLinks
-import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.protocolo.LinhaDeLink
 import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.sessao.Agentes.rotulo
@@ -21,7 +19,8 @@ public data class EntradaDeArtefato(
     val papel: String,
     val status: String,
     val titulo: String,
-    val conteudoMd: String,
+    /** O texto do turno; o que fica aceito é a forma canônica dele ([EstadoCircular.textoCanonico]). */
+    val texto: String,
     val relatorioDeRevisao: String?,
     val auditoriaDeLinks: List<LinhaDeLink>,
     val custoUsd: BigDecimal?,
@@ -30,37 +29,11 @@ public data class EntradaDeArtefato(
 )
 
 /**
- * `buildArtifactMarkdown` e `artifactMatchesCurrentText`
- * (`sessions.ts:839-870, 3035-3050`): o artefato gravado é markdown com
- * cabeçalho, relatório, auditoria de links e o texto; a retomada lê o texto
- * de volta do mesmo formato. As duas funções são testadas em par.
+ * `buildArtifactMarkdown` (`sessions.ts:839-870`): o markdown que o web
+ * grava, byte a byte. Aqui ele é **derivado** — serve para exibir e exportar
+ * e nunca é lido de volta; o texto aceito vive na coluna própria do artefato.
  */
 public object MarkdownDoArtefato {
-    private const val DELIMITADOR_GERADO = "\n```\n\n## Current Text\n\n"
-    private const val INICIO_DA_AUDITORIA = "\n## Link Audit\n\n```json\n"
-    private const val DELIMITADOR_LEGADO = "\n## Current Text\n\n"
-
-    /** `sanitizeText(buildArtifactMarkdown(...), 500_000)`: o teto do web para o markdown inteiro. */
-    public const val MAX_PONTOS_DE_CODIGO: Int = 500_000
-
-    /**
-     * O markdown que o web gravaria depois do `sanitizeText`, ou
-     * [IntegridadeDeLinks.Falha] quando o saneamento **mudaria o conteúdo**:
-     * um NUL no texto ou o teto de 500 000 pontos de código. O web apaga o
-     * NUL e corta só no artefato, e o texto aceito gravado ao lado — que é
-     * o que a retomada compara e hasheia — fica diferente: a sessão morreria
-     * em `paused_resume_state_invalid` na primeira retomada. Aqui o
-     * checkpoint falha fechado, e quem aceita o texto do provedor o saneia
-     * antes (decisão de 25/09/2026, achado do Codex na #67). Só o `trim`
-     * das pontas, que a leitura de volta também faz, é aplicado.
-     */
-    public fun gravavel(markdown: String): String {
-        if (markdown.contains('\u0000')) throw IntegridadeDeLinks.Falha("Artifact markdown contains a NUL character.")
-        if (EspacoUnicode.contarPontosDeCodigo(markdown) > MAX_PONTOS_DE_CODIGO) {
-            throw IntegridadeDeLinks.Falha("Artifact markdown exceeds $MAX_PONTOS_DE_CODIGO code points.")
-        }
-        return TrimJs.aparar(markdown)
-    }
 
     /** `falhas` do motor (`IntegridadeDeLinks.kt`): `tom` de erro ou bloqueio; o web contava `!ok`. */
     public fun contarInvalidos(auditoria: List<LinhaDeLink>): Int = auditoria.count { it.tom == "error" || it.tom == "blocked" }
@@ -93,51 +66,25 @@ public object MarkdownDoArtefato {
             "",
             "## Current Text",
             "",
-            entrada.conteudoMd,
+            entrada.texto,
             "",
         ).joinToString("\n")
     }
-
-    /**
-     * O texto que o artefato carrega, aparado como o web apara (`trim` do
-     * JavaScript), ou `null` quando o markdown não tem a seção. Procura o
-     * delimitador gerado depois do bloco da auditoria; sem ele, o legado.
-     */
-    public fun textoAtual(markdown: String): String? {
-        val texto = markdown.replace("\r\n", "\n")
-        val inicioDaAuditoria = texto.indexOf(INICIO_DA_AUDITORIA)
-        val marcadorGerado = if (inicioDaAuditoria >= 0) {
-            texto.indexOf(DELIMITADOR_GERADO, inicioDaAuditoria + INICIO_DA_AUDITORIA.length)
-        } else {
-            -1
-        }
-        val corpo = if (marcadorGerado >= 0) {
-            texto.substring(marcadorGerado + DELIMITADOR_GERADO.length)
-        } else {
-            val legado = texto.indexOf(DELIMITADOR_LEGADO)
-            if (legado < 0) return null
-            texto.substring(legado + DELIMITADOR_LEGADO.length)
-        }
-        return TrimJs.aparar(corpo)
-    }
-
-    /** `artifactMatchesCurrentText`: o texto do artefato é o [esperado] aparado (vazio nunca casa). */
-    public fun casaCom(artefato: ArtefatoEntidade, esperado: String): Boolean {
-        val aparado = TrimJs.aparar(esperado)
-        if (aparado.isEmpty()) return false
-        val atual = textoAtual(artefato.conteudoMd) ?: return false
-        return atual == aparado.replace("\r\n", "\n")
-    }
 }
 
-/** `createArtifact` (`sessions.ts:872-921`) e as leituras (`:3079-3098`). */
+/**
+ * `createArtifact` (`sessions.ts:872-921`) e as leituras (`:3079-3098`). A
+ * inserção é interna: o único caminho que grava um artefato de sessão é o
+ * checkpoint ([PontoDeRetomada]), na mesma transação da custódia.
+ */
 public class RepositorioDeArtefatos(
     private val banco: BancoDaSessao,
     private val relogio: () -> Instant,
 ) {
-    /** Insere a linha; quem já está numa transação (a retomada, o checkpoint) chama daqui de dentro. */
-    public fun criar(entrada: EntradaDeArtefato): ArtefatoEntidade {
-        val conteudoMd = MarkdownDoArtefato.gravavel(MarkdownDoArtefato.montar(entrada))
+    /** A linha gravada; [EntradaDeArtefato.texto] é canonizado uma vez e é o que a custódia compara. */
+    internal fun inserir(entrada: EntradaDeArtefato): ArtefatoEntidade {
+        val textoAceito = EstadoCircular.textoCanonico(entrada.texto)
+        val conteudoMd = Texto.sanear(MarkdownDoArtefato.montar(entrada.copy(texto = textoAceito)), 500_000)
         val linha = ArtefatoEntidade(
             id = "artifact-${UUID.randomUUID()}",
             sessaoId = entrada.sessaoId,
@@ -147,10 +94,11 @@ public class RepositorioDeArtefatos(
             papel = entrada.papel,
             status = entrada.status,
             titulo = Texto.sanear(entrada.titulo, 240),
+            textoAceito = textoAceito,
             conteudoMd = conteudoMd,
             relatorioDeRevisaoJson = Texto.sanear(entrada.relatorioDeRevisao?.takeIf { it.isNotEmpty() } ?: "{}", 120_000),
             auditoriaDeLinksJson = FormatoDeLinks.serializarLinhas(entrada.auditoriaDeLinks),
-            custoUsd = entrada.custoUsd ?: BigDecimal.ZERO,
+            custoE8 = Dinheiro.paraE8(entrada.custoUsd ?: BigDecimal.ZERO),
             modelo = entrada.modelo?.takeIf { it.isNotEmpty() },
             artefatoAnteriorId = entrada.artefatoAnteriorId?.takeIf { it.isNotEmpty() },
             bytesDoConteudo = conteudoMd.toByteArray(Charsets.UTF_8).size.toLong(),
@@ -163,6 +111,8 @@ public class RepositorioDeArtefatos(
     public fun daSessao(sessaoId: String): List<ArtefatoEntidade> = banco.artefatos().daSessao(sessaoId)
 
     public fun um(sessaoId: String, id: String): ArtefatoEntidade? = banco.artefatos().um(sessaoId, id)
+
+    public fun turnoMaximo(sessaoId: String): Int = banco.artefatos().turnoMaximo(sessaoId)
 
     public companion object {
         /** As linhas gravadas em `auditoriaDeLinksJson`; o que não parseia é lista vazia (`parseJson(…, [])`). */

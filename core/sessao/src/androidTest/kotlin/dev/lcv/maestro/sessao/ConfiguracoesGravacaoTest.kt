@@ -9,6 +9,7 @@ import kotlin.time.Duration.Companion.seconds
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -42,6 +43,7 @@ class ConfiguracoesGravacaoTest {
         assertEquals("Teto financeiro em USD deve ser positivo.", recusa(PedidoDeConfiguracoes()))
         assertEquals("Ciclos maximos devem ser um inteiro entre 1 e 5.", recusa(PedidoDeConfiguracoes(tetoDeCustoUsd = BigDecimal.ONE, maxCiclos = 6)))
         assertEquals("Limite de tempo opcional deve ficar entre 1 e 300 minutos.", recusa(PedidoDeConfiguracoes(tetoDeCustoUsd = BigDecimal.ONE, tetoDeMinutos = Campo.Presente(301))))
+        assertEquals("Limite de tempo opcional deve ficar entre 1 e 300 minutos.", recusa(PedidoDeConfiguracoes(tetoDeCustoUsd = BigDecimal.ONE, tetoDeMinutos = Campo.Presente(-1))))
         assertNull(t.banco.configuracoes().carregar())
     }
 
@@ -52,7 +54,11 @@ class ConfiguracoesGravacaoTest {
         assertEquals(3, repositorio.carregar().maxCiclos)
         assertNull(ok(PedidoDeConfiguracoes(tetoDeMinutos = Campo.Presente(null))).tetoDeMinutos)
         assertNull(ok(PedidoDeConfiguracoes(tetoDeMinutos = Campo.Presente(0))).tetoDeMinutos)
-        assertEquals(BigDecimal("2"), repositorio.carregar().tetoDeCustoUsd)
+        // Um negativo não limpa: o limite que estava lá fica.
+        assertEquals(30, ok(PedidoDeConfiguracoes(tetoDeMinutos = Campo.Presente(30))).tetoDeMinutos)
+        assertTrue(repositorio.salvar(PedidoDeConfiguracoes(tetoDeMinutos = Campo.Presente(-7))) is Resultado.Recusado)
+        assertEquals(30, repositorio.carregar().tetoDeMinutos)
+        assertEquals(0, BigDecimal("2").compareTo(repositorio.carregar().tetoDeCustoUsd))
     }
 
     @Test

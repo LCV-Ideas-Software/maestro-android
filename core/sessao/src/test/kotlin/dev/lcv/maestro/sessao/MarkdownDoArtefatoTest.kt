@@ -1,23 +1,19 @@
 package dev.lcv.maestro.sessao
 
-import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.provedores.Provedor
 import java.math.BigDecimal
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** `buildArtifactMarkdown` e `artifactMatchesCurrentText`, testados em par. */
+/** `buildArtifactMarkdown`: o markdown derivado, byte a byte o do web. */
 class MarkdownDoArtefatoTest {
 
     @Test
     fun `markdown gerado e byte a byte o do web`() {
         val entrada = Fixtures.entrada(
             sessaoId = "android-1", ciclo = 2, turno = 5, agente = Provedor.CODEX, papel = "revision", status = "not_ready",
-            titulo = "Título", conteudoMd = "Corpo.\n\nSegundo parágrafo.", relatorio = "{\"a\":1}",
+            titulo = "Título", texto = "Corpo.\n\nSegundo parágrafo.", relatorio = "{\"a\":1}",
             custoUsd = BigDecimal("0.1234565"), anteriorId = "artifact-x", modelo = "gpt-6-astra",
         )
         val esperado = listOf(
@@ -48,52 +44,9 @@ class MarkdownDoArtefatoTest {
     }
 
     @Test
-    fun `texto atual volta inteiro mesmo quando o artigo e o relatorio contem o titulo Current Text`() {
-        val texto = "Introdução.\n\n## Current Text\n\nA seção do artigo com esse nome.\n\nFim."
-        // O relatório vem antes do bloco de auditoria; quem procurar o primeiro
-        // `## Current Text` do arquivo pega o do relatório, não o gerado.
-        val relatorio = "{\n  \"note\": \"veja\n## Current Text\n\nnão é este\"\n}"
-        val artefato = Fixtures.artefato("a", Fixtures.entrada(conteudoMd = texto, relatorio = relatorio))
-        assertEquals(texto, MarkdownDoArtefato.textoAtual(artefato.conteudoMd))
-        assertTrue(MarkdownDoArtefato.casaCom(artefato, texto))
-    }
-
-    @Test
-    fun `falha fechado quando o texto da sessao e so a subsecao final do artefato`() {
-        val artefato = Fixtures.artefato("a", Fixtures.entrada(conteudoMd = "Parte A.\n\n## Current Text\n\nParte B."))
-        assertFalse(MarkdownDoArtefato.casaCom(artefato, "Parte B."))
-    }
-
-    @Test
-    fun `markdown que o saneamento mudaria nao e gravavel`() {
-        val normal = MarkdownDoArtefato.montar(Fixtures.entrada(conteudoMd = "Texto."))
-        assertEquals(normal.dropLast(1), MarkdownDoArtefato.gravavel(normal))
-        val nulo = assertFailsWith<IntegridadeDeLinks.Falha> { MarkdownDoArtefato.gravavel(MarkdownDoArtefato.montar(Fixtures.entrada(conteudoMd = "Tex\u0000to."))) }
-        assertEquals("Artifact markdown contains a NUL character.", nulo.message)
-        val grande = assertFailsWith<IntegridadeDeLinks.Falha> { MarkdownDoArtefato.gravavel("😀".repeat(MarkdownDoArtefato.MAX_PONTOS_DE_CODIGO + 1)) }
-        assertEquals("Artifact markdown exceeds 500000 code points.", grande.message)
-        assertEquals(MarkdownDoArtefato.MAX_PONTOS_DE_CODIGO, MarkdownDoArtefato.gravavel("😀".repeat(MarkdownDoArtefato.MAX_PONTOS_DE_CODIGO)).codePointCount(0, MarkdownDoArtefato.MAX_PONTOS_DE_CODIGO * 2))
-    }
-
-    @Test
-    fun `texto vazio nunca casa, nem com artefato vazio`() {
-        val vazio = Fixtures.artefato("a", Fixtures.entrada(conteudoMd = ""))
-        assertEquals("", MarkdownDoArtefato.textoAtual(vazio.conteudoMd))
-        assertFalse(MarkdownDoArtefato.casaCom(vazio, ""))
-        assertFalse(MarkdownDoArtefato.casaCom(vazio, " \n "))
-    }
-
-    @Test
-    fun `sem bloco de auditoria usa o delimitador legado`() {
-        val legado = "# Maestro AI Artifact - x\n\n## Current Text\n\nTexto legado.\n"
-        assertEquals("Texto legado.", MarkdownDoArtefato.textoAtual(legado))
-        assertNull(MarkdownDoArtefato.textoAtual("# nada aqui\n"))
-    }
-
-    @Test
-    fun `crlf e aparado como no javascript`() {
-        val artefato = Fixtures.artefato("a", Fixtures.entrada(conteudoMd = "Linha 1\nLinha 2"))
-        assertTrue(MarkdownDoArtefato.casaCom(artefato, "﻿Linha 1\r\nLinha 2 "))
-        assertFalse(MarkdownDoArtefato.casaCom(artefato, "   "))
+    fun `a linha do artefato guarda o texto aceito canonico ao lado do markdown derivado`() {
+        val artefato = Fixtures.artefato("a", Fixtures.entrada(texto = "﻿Linha 1\r\nLinha 2\n"))
+        assertEquals("Linha 1\nLinha 2", artefato.textoAceito)
+        assertTrue(artefato.conteudoMd.endsWith("## Current Text\n\nLinha 1\nLinha 2"))
     }
 }
