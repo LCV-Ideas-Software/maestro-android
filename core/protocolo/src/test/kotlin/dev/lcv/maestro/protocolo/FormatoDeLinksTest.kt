@@ -77,6 +77,9 @@ class FormatoDeLinksTest {
         assertNull(FormatoDeLinks.lerLinha(texto.replace("\"classification\": \"redirected_verified\"", "\"classification\": \"other\"")))
         assertNull(FormatoDeLinks.lerLinha(texto.replace("\"action\": \"replace\"", "\"action\": \"rename\"")))
         assertNull(FormatoDeLinks.lerLinha(texto.replace("  \"tone\": \"warning\",\n", "")))
+        // `200.9` cabe num Int, mas não é inteiro: o status HTTP não pode ser truncado para 200.
+        assertNull(FormatoDeLinks.lerLinha(texto.replace("\"http_status\": 200", "\"http_status\": 200.9")))
+        assertNull(FormatoDeLinks.lerLinha(texto.replace("\"status\": 301", "\"status\": 301.0")))
     }
 
     @Test
@@ -88,5 +91,7 @@ class FormatoDeLinksTest {
         assertNull(FormatoDeLinks.lerEvidencia(texto.replace("\"state\": \"ready\"", "\"state\": \"done\"")))
         assertNull(FormatoDeLinks.lerEvidencia(texto.replace("\"cache_ttl\": \"P30D\"", "\"cache_ttl\": 30")))
         assertNull(FormatoDeLinks.lerEvidencia("{"))
+        assertNull(FormatoDeLinks.lerEvidencia(texto.replace("\"byte_count\": 10", "\"byte_count\": 10.5")))
+        assertNull(FormatoDeLinks.lerEvidencia(texto.replace("\"duration_ms\": 5", "\"duration_ms\": 5.0")))
     }
 }

@@ -180,7 +180,13 @@ public class RepositorioDeSessoes(
         return Resultado.Ok(carregar(id) ?: linha)
     }
 
-    /** `handleMaestroAiSessionContentPut` (`sessions.ts:4651-4693`): campos ausentes mantêm o valor atual. */
+    /**
+     * `handleMaestroAiSessionContentPut` (`sessions.ts:4651-4693`): campos
+     * ausentes mantêm o valor atual. A escrita é condicional ao status lido:
+     * uma retomada ou um cancelamento entre a leitura e a escrita recusa a
+     * edição em vez de sobrescrever o progresso concorrente (o web escreve
+     * sem portão; achado do Codex na #67).
+     */
     public fun substituirConteudo(id: String, titulo: String?, conteudo: String?): Resultado<SessaoEntidade> {
         val linha = carregar(id) ?: return Resultado.Recusado(MENSAGEM_NAO_ENCONTRADA)
         if (linha.status in Estados.ATIVOS) {
@@ -192,13 +198,14 @@ public class RepositorioDeSessoes(
                     "Retome a sessao para preservar autoria, hash e historico circular.",
             )
         }
-        banco.sessoes().atualizar(
-            linha.copy(
-                titulo = Texto.sanear(titulo ?: linha.titulo, 200),
-                textoAtual = Texto.sanear(conteudo ?: linha.textoAtual, 160_000),
-                atualizadaEm = FormatoDeInstante.iso(relogio()),
-            ),
+        val escritas = banco.sessoes().substituirConteudo(
+            id = id,
+            statusLido = linha.status,
+            titulo = Texto.sanear(titulo ?: linha.titulo, 200),
+            textoAtual = Texto.sanear(conteudo ?: linha.textoAtual, 160_000),
+            atualizadaEm = FormatoDeInstante.iso(relogio()),
         )
+        if (escritas == 0) return Resultado.Recusado(MENSAGEM_MUDOU_NA_EDICAO)
         return Resultado.Ok(carregar(id) ?: linha)
     }
 
@@ -219,6 +226,7 @@ public class RepositorioDeSessoes(
         public const val MENSAGEM_NA_FILA: String = "Maestro AI Android session queued."
         public const val MENSAGEM_NAO_ENCONTRADA: String = "Sessao Maestro AI nao encontrada."
         public const val MENSAGEM_CANCELADA: String = "Sessao cancelada pelo operador."
+        public const val MENSAGEM_MUDOU_NA_EDICAO: String = "Sessao mudou de estado durante a edicao; recarregue antes de editar."
         public const val MENSAGEM_INTERROMPIDA: String =
             "Sessao interrompida: o processo do aplicativo foi encerrado antes de a deliberacao terminar."
 

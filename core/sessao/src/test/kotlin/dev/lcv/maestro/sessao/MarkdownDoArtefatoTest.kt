@@ -1,9 +1,11 @@
 package dev.lcv.maestro.sessao
 
+import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.provedores.Provedor
 import java.math.BigDecimal
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -60,6 +62,17 @@ class MarkdownDoArtefatoTest {
     fun `falha fechado quando o texto da sessao e so a subsecao final do artefato`() {
         val artefato = Fixtures.artefato("a", Fixtures.entrada(conteudoMd = "Parte A.\n\n## Current Text\n\nParte B."))
         assertFalse(MarkdownDoArtefato.casaCom(artefato, "Parte B."))
+    }
+
+    @Test
+    fun `markdown que o saneamento mudaria nao e gravavel`() {
+        val normal = MarkdownDoArtefato.montar(Fixtures.entrada(conteudoMd = "Texto."))
+        assertEquals(normal.dropLast(1), MarkdownDoArtefato.gravavel(normal))
+        val nulo = assertFailsWith<IntegridadeDeLinks.Falha> { MarkdownDoArtefato.gravavel(MarkdownDoArtefato.montar(Fixtures.entrada(conteudoMd = "Tex\u0000to."))) }
+        assertEquals("Artifact markdown contains a NUL character.", nulo.message)
+        val grande = assertFailsWith<IntegridadeDeLinks.Falha> { MarkdownDoArtefato.gravavel("😀".repeat(MarkdownDoArtefato.MAX_PONTOS_DE_CODIGO + 1)) }
+        assertEquals("Artifact markdown exceeds 500000 code points.", grande.message)
+        assertEquals(MarkdownDoArtefato.MAX_PONTOS_DE_CODIGO, MarkdownDoArtefato.gravavel("😀".repeat(MarkdownDoArtefato.MAX_PONTOS_DE_CODIGO)).codePointCount(0, MarkdownDoArtefato.MAX_PONTOS_DE_CODIGO * 2))
     }
 
     @Test

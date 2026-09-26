@@ -179,14 +179,15 @@ public object FormatoDeLinks {
     private fun inteiroOpcional(no: JsonNode, nome: String): Int? {
         val valor = no.get(nome) ?: return null
         if (valor.isNull) return null
-        if (!valor.canConvertToInt()) throw FormatoInvalido()
+        // `canConvertToInt` só confere a faixa: `200.9` passaria e viraria `200`.
+        if (!valor.isIntegralNumber || !valor.canConvertToInt()) throw FormatoInvalido()
         return valor.intValue()
     }
 
     private fun longoOpcional(no: JsonNode, nome: String): Long? {
         val valor = no.get(nome) ?: return null
         if (valor.isNull) return null
-        if (!valor.canConvertToLong()) throw FormatoInvalido()
+        if (!valor.isIntegralNumber || !valor.canConvertToLong()) throw FormatoInvalido()
         return valor.longValue()
     }
 

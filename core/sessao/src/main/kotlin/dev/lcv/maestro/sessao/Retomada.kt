@@ -133,7 +133,16 @@ public class Retomada(
         }
         val ehRetomada = TrimJs.aparar(linha.textoAtual).isNotEmpty() && linha.autorAtual != null
         if (!ehRetomada) {
-            return Preparacao.Nova(linha, escala, lider, eventos, FormatoDeInstante.ler(linha.criadaEm) ?: relogio())
+            // O mesmo portão da retomada: a linha é relida dentro da transação e
+            // um cancelamento ou uma reconciliação que já a tirou de
+            // `queued`/`running` para o runner antes do rascunho pago (achado
+            // do Codex na #67). O primeiro evento do worker é gravado sob CAS,
+            // como no web, e fecha a janela entre este portão e a chamada.
+            return banco.runInTransaction<Preparacao> {
+                val viva = sessoes.carregar(id)
+                if (viva == null || viva.status !in Estados.ATIVOS) return@runInTransaction Preparacao.Perdida
+                Preparacao.Nova(viva, escala, lider, eventos, FormatoDeInstante.ler(viva.criadaEm) ?: relogio())
+            }
         }
         val textoAtual = linha.textoAtual
         val autorAtual = Agentes.sanear(linha.autorAtual, lider)

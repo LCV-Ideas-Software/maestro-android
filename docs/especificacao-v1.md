@@ -607,6 +607,13 @@ pull requests, com uma rodada de revisão cruzada sobre o plano):**
   hash, aprovações, cursor e jornal numa transação só; o web faz em dois
   comandos e um CAS perdido deixa o artefato órfão — aqui o artefato volta
   junto. A retomada continua tolerando um artefato órfão além do contador.
+  A troca de conteúdo pelo operador é uma escrita parcial condicionada ao
+  status lido, e uma execução nova passa pelo mesmo portão transacional da
+  retomada; um artefato cujo markdown o saneamento mudaria (NUL, ou mais de
+  500 000 pontos de código) é recusado no *checkpoint*, porque o texto
+  aceito gravado ao lado é o que a retomada compara e hasheia — o web apaga
+  o NUL só no artefato e a própria retomada dele falharia (achados do Codex
+  na primeira pull request, 25/09/2026).
 - **O hash da custódia apara como o JavaScript** (`String.prototype.trim`:
   U+FEFF entra, U+0085 não), nas duas pontas, e é SHA-256 sobre UTF-8 como o
   `TextEncoder`. O resto do saneamento de texto também apara assim, porque é

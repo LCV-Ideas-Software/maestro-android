@@ -146,6 +146,21 @@ class RepositorioDeSessoesTest {
     }
 
     @Test
+    fun substituirConteudoSoEscreveNoStatusEmQueLeu() {
+        val id = criar().id
+        t.sessoes.persistir(id, Remendo(status = Campo.Presente("finished"), textoFinal = Campo.Presente("fim"), textoAtual = Campo.Presente("fim")))
+        // O status mudou entre a leitura e a escrita: a escrita condicional não toca a linha.
+        assertEquals(0, t.banco.sessoes().substituirConteudo(id, "paused_cost_limit", "Outro", "trocado", FormatoDeInstante.iso(t.relogio())))
+        assertEquals("fim", t.sessoes.carregar(id)!!.textoAtual)
+        assertEquals(1, t.banco.sessoes().substituirConteudo(id, "finished", "Outro", "trocado", FormatoDeInstante.iso(t.relogio())))
+        val depois = t.sessoes.carregar(id)!!
+        assertEquals("trocado", depois.textoAtual)
+        assertEquals("Outro", depois.titulo)
+        assertEquals("fim", depois.textoFinal)
+        assertEquals("Sessao mudou de estado durante a edicao; recarregue antes de editar.", RepositorioDeSessoes.MENSAGEM_MUDOU_NA_EDICAO)
+    }
+
+    @Test
     fun marcarInterrompidaDeixaASessaoRetomavel() {
         val id = criar().id
         assertTrue(t.sessoes.marcarInterrompida(id, t.evento(EventoDaSessao.ERRO, "processo morreu")))

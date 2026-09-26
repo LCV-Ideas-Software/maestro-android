@@ -33,6 +33,14 @@ public interface SessaoDao {
 
     @Update
     public fun atualizar(sessao: SessaoEntidade): Int
+
+    /**
+     * A troca de conteúdo do operador: só as duas colunas, e só se a linha
+     * ainda estiver no status em que foi lida — uma retomada concorrente
+     * nunca é sobrescrita por uma entidade velha inteira.
+     */
+    @Query("UPDATE sessoes SET titulo = :titulo, textoAtual = :textoAtual, atualizadaEm = :atualizadaEm WHERE id = :id AND status = :statusLido")
+    public fun substituirConteudo(id: String, statusLido: String, titulo: String, textoAtual: String, atualizadaEm: String): Int
 }
 
 @Dao

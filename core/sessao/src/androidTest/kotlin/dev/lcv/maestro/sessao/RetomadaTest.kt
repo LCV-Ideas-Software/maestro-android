@@ -145,6 +145,17 @@ class RetomadaTest {
     }
 
     @Test
+    fun execucaoNovaCanceladaAntesDoPreparoNaoComeca() {
+        val id = t.sessoes.criar(t.entrada()).id
+        assertTrue(t.sessoes.cancelar(id) is Resultado.Ok)
+        assertEquals(Preparacao.Perdida, t.retomada.preparar(id))
+        assertEquals(Estados.CANCELADA, t.sessoes.carregar(id)!!.status)
+        val outra = t.sessoes.criar(t.entrada()).id
+        assertTrue(t.sessoes.marcarInterrompida(outra))
+        assertEquals(Preparacao.Perdida, t.retomada.preparar(outra))
+    }
+
+    @Test
     fun estadoCircularAdulteradoNoArquivoFalhaFechadoComOEventoBloqueado() {
         val (id, _, _) = sessaoNoMeioDaRodada()
         t.reabrir()

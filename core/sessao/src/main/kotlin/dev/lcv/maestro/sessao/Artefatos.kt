@@ -1,6 +1,8 @@
 package dev.lcv.maestro.sessao
 
+import dev.lcv.maestro.protocolo.EspacoUnicode
 import dev.lcv.maestro.protocolo.FormatoDeLinks
+import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.protocolo.LinhaDeLink
 import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.sessao.Agentes.rotulo
@@ -37,6 +39,28 @@ public object MarkdownDoArtefato {
     private const val DELIMITADOR_GERADO = "\n```\n\n## Current Text\n\n"
     private const val INICIO_DA_AUDITORIA = "\n## Link Audit\n\n```json\n"
     private const val DELIMITADOR_LEGADO = "\n## Current Text\n\n"
+
+    /** `sanitizeText(buildArtifactMarkdown(...), 500_000)`: o teto do web para o markdown inteiro. */
+    public const val MAX_PONTOS_DE_CODIGO: Int = 500_000
+
+    /**
+     * O markdown que o web gravaria depois do `sanitizeText`, ou
+     * [IntegridadeDeLinks.Falha] quando o saneamento **mudaria o conteúdo**:
+     * um NUL no texto ou o teto de 500 000 pontos de código. O web apaga o
+     * NUL e corta só no artefato, e o texto aceito gravado ao lado — que é
+     * o que a retomada compara e hasheia — fica diferente: a sessão morreria
+     * em `paused_resume_state_invalid` na primeira retomada. Aqui o
+     * checkpoint falha fechado, e quem aceita o texto do provedor o saneia
+     * antes (decisão de 25/09/2026, achado do Codex na #67). Só o `trim`
+     * das pontas, que a leitura de volta também faz, é aplicado.
+     */
+    public fun gravavel(markdown: String): String {
+        if (markdown.contains('\u0000')) throw IntegridadeDeLinks.Falha("Artifact markdown contains a NUL character.")
+        if (EspacoUnicode.contarPontosDeCodigo(markdown) > MAX_PONTOS_DE_CODIGO) {
+            throw IntegridadeDeLinks.Falha("Artifact markdown exceeds $MAX_PONTOS_DE_CODIGO code points.")
+        }
+        return TrimJs.aparar(markdown)
+    }
 
     /** `falhas` do motor (`IntegridadeDeLinks.kt`): `tom` de erro ou bloqueio; o web contava `!ok`. */
     public fun contarInvalidos(auditoria: List<LinhaDeLink>): Int = auditoria.count { it.tom == "error" || it.tom == "blocked" }
@@ -113,7 +137,7 @@ public class RepositorioDeArtefatos(
 ) {
     /** Insere a linha; quem já está numa transação (a retomada, o checkpoint) chama daqui de dentro. */
     public fun criar(entrada: EntradaDeArtefato): ArtefatoEntidade {
-        val conteudoMd = Texto.sanear(MarkdownDoArtefato.montar(entrada), 500_000)
+        val conteudoMd = MarkdownDoArtefato.gravavel(MarkdownDoArtefato.montar(entrada))
         val linha = ArtefatoEntidade(
             id = "artifact-${UUID.randomUUID()}",
             sessaoId = entrada.sessaoId,

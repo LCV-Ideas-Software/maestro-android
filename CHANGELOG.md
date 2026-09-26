@@ -52,6 +52,16 @@ All material changes to Maestro Android are recorded here.
     of each provider, and `configured_secrets_json` is not ported because
     the key lives in the Keystore vault with its third, "cannot verify
     now" state.
+  - three guards the web does not have, from the Codex review of the pull
+    request: the operator's content replacement is a conditional partial
+    update on the status it read, so a concurrent resume is refused rather
+    than overwritten; a fresh run is gated inside a transaction like the
+    resume, so a session cancelled or reconciled after the worker's stop
+    check never reaches the paid draft call; and an artifact whose markdown
+    the sanitizer would change (a NUL character, or more than 500 000 code
+    points) is refused at the checkpoint instead of being silently altered
+    away from the accepted text it is hashed against. Persisted link rows
+    and evidence records also refuse fractional numbers in integer fields.
 
   `:core:protocolo` exposes what the module needs: `FormatoDeLinks`
   (public serializer and strict readers of link rows and evidence records),
