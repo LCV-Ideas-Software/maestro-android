@@ -74,29 +74,34 @@ precisa estar dito desde o começo, porque muda o tamanho das entregas.
 ### 2.2 `sessions.ts`, unidade por unidade
 
 As faixas de linha são as fronteiras reais das funções no arquivo, não
-estimativas.
+estimativas. **Medidas de novo em 25/09/2026 sobre o `c70dc54f` (4.860
+linhas)**, antes da terceira entrega: a medição de 21/09/2026 era sobre o
+arquivo de 4.705 linhas, e quatro pull requests de 22/09/2026 (#652, #657,
+#658, #659) moveram todas as unidades. As unidades e os destinos não
+mudaram; só as linhas.
 
 | Unidade | Linhas | Destino no Android |
 | --- | --- | --- |
-| Tipos de domínio e saneamento de entrada (6–424) | 419 | porta |
-| Esquema do D1 e migrações — `ensureSchema` (425–590) | 166 | vira Room |
-| Configurações, taxas, modelos e agentes ativos (591–701) | 111 | porta |
-| Projeção pública de sessão e artefato (702–758) | 57 | vira modelo de UI |
-| Artefato em markdown e versionamento (759–842) | 84 | porta |
-| Guarda de segredo — Cloudflare Secret Store (843–963) | 121 | **substituída** — Keystore, seção 6 |
-| Custo estimado e observado (964–989) | 26 | porta, em `BigDecimal` |
-| Tempo de sessão e tetos (990–1007) | 18 | porta |
-| Protocolo: leitura e validação do relatório do agente (1008–1628) | 621 | porta |
-| Auditoria de links e defesa de SSRF (1629–1935) | 307 | porta **do Rust atual**, com o modelo de ameaça invertido — seção 5.4 e o parágrafo abaixo |
-| Auditoria do candidato a release final (1936–1984) | 49 | porta **do Rust atual**, em cinco estágios — parágrafo abaixo |
-| Montagem dos prompts de rascunho e revisão (1985–2210) | 226 | porta |
-| Rede: timeout, retry, tratamento de 429 (2211–2378) | 168 | porta |
-| Resolução de modelo e cliente Vertex (2379–2462) | 84 | **substituída** — API geral, seção 2.4 |
-| Chamada aos provedores e montagem do corpo (2463–2772) | 310 | **reescrita** nas APIs novas — seção 5 |
-| Persistência da sessão (2773–2877) | 105 | vira Room |
-| Estado da revisão circular e retomada (2878–3186) | 309 | porta |
-| `runSession` — a orquestração (3187–4146) | 960 | porta; é o coração do produto |
-| Rotas HTTP e varredura de sessões velhas (4147–4705) | 559 | **desaparece** — seção 2.4 |
+| Tipos de domínio e saneamento de entrada (38–450) | 413 | porta |
+| Esquema do D1 e migrações — `ensureSchema` (451–674) | 224 | vira Room |
+| Leitura tolerante e estrita de JSON; configurações, taxas, modelos e agentes ativos (676–780) | 105 | porta |
+| Projeção pública de sessão e artefato (782–833) | 52 | vira modelo de UI |
+| Artefato em markdown e versionamento (835–921) | 87 | porta |
+| Guarda de segredo — Cloudflare Secret Store (923–1042) | 120 | **substituída** — Keystore, seção 6 |
+| Custo estimado e observado (1044–1081) | 38 | porta, em `BigDecimal` |
+| Tempo de sessão e tetos (1083–1097) | 15 | porta |
+| Protocolo: leitura e validação do relatório do agente (1099–1594) | 496 | porta |
+| Guarda de qualidade e escalonador de revisores (1596–1723) | 128 | porta — a guarda está no `:core:protocolo`; o escalonador entra com a orquestração |
+| Auditoria de links e defesa de SSRF (1725–2041) | 317 | porta **do Rust atual**, com o modelo de ameaça invertido — seção 5.4 e o parágrafo abaixo |
+| Auditoria do candidato a release final (2043–2079) | 37 | porta **do Rust atual**, em cinco estágios — parágrafo abaixo |
+| Montagem dos prompts de rascunho e revisão (2081–2298) | 218 | porta |
+| Rede: timeout, retry, tratamento de 429 (2300–2471) | 172 | porta |
+| Resolução de modelo e cliente Vertex (2473–2556) | 84 | **substituída** — API geral, seção 2.4 |
+| Chamada aos provedores e montagem do corpo (2558–2904; `RESUMABLE_STATUSES` em 2828–2842 porta) | 347 | **reescrita** nas APIs novas — seção 5 |
+| Persistência da sessão (2906–3009) | 104 | vira Room |
+| Estado da revisão circular e retomada (3011–3318) | 308 | porta |
+| `runSession` — a orquestração (3320–4300) | 981 | porta; é o coração do produto |
+| Rotas HTTP e varredura de sessões velhas (4302–4860) | 559 | **o transporte desaparece** — seção 2.4; as regras de negócio das rotas (`resolveStartRequest`, o insert da sessão, a validação das configurações, a troca de conteúdo, cancelar, retomar e a varredura) portam para o `:core:sessao` |
 
 `content-lock.ts` (526 linhas) porta inteiro: é segmentação de blocos
 editoriais, manifesto com SHA-256 por bloco e validação de que uma revisão só
@@ -396,7 +401,11 @@ Três consequências, todas vinculantes:
 
 1. **`max_runtime_minutes` tem teto de produto abaixo de seis horas.** Um valor
    que o usuário configure acima disso não é atendível e não deve ser aceito
-   pela tela.
+   pela tela. **O teto é 300 minutos** (decisão do operador de 25/09/2026):
+   cinco horas, uma de folga sob as seis do orçamento agregado, para que uma
+   segunda sessão no mesmo dia não morra sem aviso. O web aceita até 720. O
+   número é a constante `TETO_DE_MINUTOS` do `:core:sessao` e é revisável
+   quando sessões reais forem medidas (seção 11).
 2. **O ponto de retomada é gravado a cada turno, e não no fim.** Ver a
    subseção seguinte: o `Service.onTimeout()` **não chega ao nosso código**, e
    por isso a proteção não pode depender de reagir a ele.
@@ -561,6 +570,63 @@ pior, porque parece estar funcionando.
 O diário da sessão (`events_json`) porta como está — lista serializada com
 leitura estrita. O web já trata jornal corrompido como falha explícita
 (`paused_resume_state_invalid`), e essa disciplina fica.
+
+**Decisões de esquema da terceira entrega (25/09/2026, primeira das duas
+pull requests, com uma rodada de revisão cruzada sobre o plano):**
+
+- **Oito tabelas.** As três do D1 — sessão, artefato, configurações — mais
+  as que o desktop guarda em arquivos (registros de link e o diário deles,
+  registros de evidência, anexos) e uma de execuções do serviço em primeiro
+  plano, para a tela somar o que já foi gasto do orçamento agregado de seis
+  horas (seção 4.1). O esquema é exportado pelo plugin do Room para
+  `core/sessao/schemas/`.
+- **Colunas que não vêm.** `configured_secrets_json`: a chave é do cofre e só
+  existe em tempo de execução, com o terceiro estado "não foi possível
+  verificar agora". `models_json` fica gravado por sessão, para o histórico
+  dizer com que modelo ela correu, mas não há seleção: o modelo de cada
+  provedor é o mais novo, fixo no `:core:provedores`. As colunas e os blocos
+  de migração do D1 legado não têm o que migrar. `max_cycles` é validado e
+  gravado como no web, mas o runner do web nunca o lê: o limite real é
+  `roundTurnCount * 4` turnos seriais (`paused_cycle_limit`), e aqui é o
+  mesmo.
+- **Corpos de evidência e anexos são arquivos, não colunas.** Um corpo chega a
+  8 MiB e um anexo a 16 MiB (o `MAX_OPERATOR_ARTIFACT_BYTES` canônico), e o
+  `CursorWindow` do Android não lê uma linha acima de 2 MiB. Cada arquivo é
+  uma geração imutável `<id>-<sha256>` sob `noBackupFilesDir` (temporário,
+  `fsync`, `rename` atômico); a linha aponta para a geração, a anterior só
+  some depois do *commit* da transação, e a limpeza de órfãos corre sob a
+  trava do armazém. Uma recoleta sem corpo mantém a geração atual.
+- **Minutos são inteiros** (`tetoDeMinutos`), e não `REAL` como no web:
+  minuto é a unidade da tela e do teto de produto.
+- **Cada escrita é uma transação do Room.** O `persistSession` do web é um
+  `UPDATE … WHERE status IN (…)`; aqui a leitura, o portão de status e a
+  escrita ficam dentro de `runInTransaction`, com `null` explícito para
+  `final_text` e `error`, e o evento é acrescentado ao jornal no nível do nó
+  JSON — um campo que este código não conhece sobrevive ao *checkpoint*
+  seguinte. O *checkpoint* por turno insere o artefato e avança custódia,
+  hash, aprovações, cursor e jornal numa transação só; o web faz em dois
+  comandos e um CAS perdido deixa o artefato órfão — aqui o artefato volta
+  junto. A retomada continua tolerando um artefato órfão além do contador.
+- **O hash da custódia apara como o JavaScript** (`String.prototype.trim`:
+  U+FEFF entra, U+0085 não), nas duas pontas, e é SHA-256 sobre UTF-8 como o
+  `TextEncoder`. O resto do saneamento de texto também apara assim, porque é
+  o `sanitizeText` do web; o corte de tamanho é em pontos de código, não em
+  unidades UTF-16 como o `slice`.
+- **`pausada_aguardando_autenticacao` entra no ciclo de vida** como o décimo
+  quarto estado retomável, ao lado dos treze do web — `error` incluído, que é
+  o que a varredura do web e a reconciliação daqui gravam, e continua
+  retomável. A
+  reconciliação na abertura do aplicativo marca como `error` a sessão ainda
+  ativa cujo *worker* não está vivo e pede a retomada com o líder e o painel
+  da própria linha, sem o usuário redigitar nada.
+- **O markdown do artefato é byte a byte o do web**, com uma exceção: o bloco
+  `## Link Audit` leva as linhas `link_integrity_audit.v1` da auditoria do
+  porte, não o `LinkAuditResult` legado, e `Invalid links` conta os tons
+  `error` e `blocked` — a regra `falhas` do motor.
+- **JSON tolerante e estrito, exatamente como o web separa:** taxas, modelos
+  e agentes ativos caem no padrão quando não parseiam; jornal e estado
+  circular falham fechado para `paused_resume_state_invalid`, com as
+  mensagens do web.
 
 ### 4.3 Morte de processo é o novo timeout de Worker
 
@@ -1033,6 +1099,11 @@ conta do usuário. Fica declarado:
   **permite** a chamada. "Teto" é o valor máximo que se pode gastar, não o
   primeiro valor proibido — e gastar exatamente o que se autorizou é o que o
   usuário pediu ao escrever aquele número.
+- **O acumulado é o da sessão inteira** — o `custoObservadoUsd` da linha —,
+  e não o da execução corrente. O web zera a base a cada retomada
+  (`sessions.ts:3387-3389`), e uma sessão retomada pode gastar o teto de
+  novo. Decisão do operador de 25/09/2026, sobre a revisão cruzada do plano
+  da terceira entrega: uma sessão retomada nunca passa do teto configurado.
 - Quando a chamada não cabe, a sessão **para antes de fazê-la** e o jornal
   registra o valor que a reprovou. Parar sem dizer quanto faltava é obrigar o
   usuário a adivinhar o próprio teto.
@@ -1140,7 +1211,25 @@ de teste, porque compra confiança sem entregá-la.
   O caso grava estado no meio da rodada num banco em arquivo, **descarta e
   reconstrói Room, WorkManager e o grafo de dependências**, e só então verifica
   que a deliberação continua do ponto certo — não do começo, e não de um ponto
-  adiante.
+  adiante. Esse caso inteiro é da segunda pull request, com o *worker*. A
+  primeira (25/09/2026) prova a metade que já existe, no mesmo emulador do
+  `:core:seguranca`, em toda pull request: o *checkpoint* grava artefato,
+  custódia e jornal juntos e um portão perdido não deixa nem o artefato; o
+  banco é fechado, cada objeto descartado e tudo reaberto sobre o mesmo
+  arquivo, e a preparação da retomada devolve a rodada, o turno, as
+  aprovações e a custódia exatas, com o status `running` e o evento de
+  retomada no fim do jornal; o estado circular adulterado no arquivo e o
+  jornal malformado caem em `paused_resume_state_invalid` com as mensagens
+  do web; o CAS de status, o piso de custo monotônico, o cancelamento, a
+  troca de conteúdo fora da cadeia de custódia, o pedido de retomada com
+  painel e líder inválidos, o legado que contradiz a linha, o artefato
+  órfão além do contador, o `Flow` que emite a cada escrita, os registros de
+  link atravessados pelo motor real, um corpo de 8 MiB e um anexo de 16 MiB
+  em arquivo, e o byte a mais recusado. Na JVM ficam as funções puras: o
+  markdown do artefato e a leitura do texto de volta, uma entrada que falha
+  por mensagem da custódia circular, a leitura estrita do jornal, o corte de
+  2 s do tempo, o saneamento de taxas e agentes, o `resolveStartRequest` e o
+  teto no limite exato sobre o acumulado da sessão.
 - **`:core:sessao`, os tetos que protegem a fatura do usuário.** A seção 7 chama
   `max_cost_usd` de única barreira entre uma sessão mal configurada e a fatura
   do usuário; barreira sem teste é promessa. Quatro casos, cada um capaz de
@@ -1264,7 +1353,9 @@ apontada na calculadora, e não se repete.
    geração da chave (seção 6.2) e o `dataSync` não passa de seis horas em 24
    (seção 4.1). O número que o produto adota tem de sair de sessões reais, e
    trocá-lo depois exige recifrar o segredo — então não é escolha para ser
-   revista sem custo.
+   revista sem custo. **O teto de sessão foi fixado em 300 minutos em
+   25/09/2026** (seção 4.1), revisável sem recifrar nada; o valor da janela
+   continua aberto.
 
 Uma pendência de medição **saiu daqui por estar documentada, não por ter sido
 medida**: o teto do `dataSync`. Uma versão anterior afirmava que a documentação

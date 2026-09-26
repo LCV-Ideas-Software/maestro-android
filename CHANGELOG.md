@@ -6,6 +6,63 @@ All material changes to Maestro Android are recorded here.
 
 ### Added
 
+- Add `:core:sessao` (MAEANDR-22, first of two pull requests): the Android
+  library that holds the Maestro AI state on the device, ported from
+  `admin-app` `c70dc54f` (`sessions.ts`) over Room 2.8.5 with the Room Gradle
+  plugin (schema exported to `core/sessao/schemas/`) and KSP. This delivery
+  carries persistence, settings and rates, the artifact markdown and
+  versioning, the cost and time ceilings and the circular-review custody
+  state with its resume; the orchestration comes in the second pull request:
+  - the D1 tables become Room entities — sessions, artifacts, settings —
+    plus the tables the desktop keeps as files (link records and their
+    journal, evidence records, attachments) and one for each foreground
+    execution, so the app can show what is left of the `dataSync` budget;
+  - evidence bodies and attachments are files under `noBackupFilesDir`,
+    written as immutable generations (`<id>-<sha256>`: temporary file,
+    `fsync`, atomic rename), because a body may reach 8 MiB and an
+    attachment 16 MiB while Android's `CursorWindow` cannot read a row above
+    2 MiB; the previous generation is deleted only after the row's
+    transaction commits, a re-collection without a body keeps the current
+    one, and orphan cleanup runs under the store's lock;
+  - every write is a Room transaction with the web's compare-and-swap guard
+    on the status, an explicit `null` for `final_text` and `error`, and the
+    event appended to the journal at the JSON-node level so a field this
+    code does not know survives; the per-turn checkpoint inserts the
+    artifact and advances custody, hash, approvals, cursor and journal in
+    one transaction, and a lost guard rolls the artifact back too;
+  - the journal and the circular custody state are read strictly and fail
+    closed to `paused_resume_state_invalid`, with the web's messages; rates,
+    models and active agents stay tolerant, as the web has them;
+  - the custody hash uses ECMAScript `String.prototype.trim` semantics on
+    both ends and SHA-256 over UTF-8, as the web's `TextEncoder`;
+  - the artifact markdown is byte-exact to `buildArtifactMarkdown`, except
+    that the `## Link Audit` block carries the `link_integrity_audit.v1` rows
+    of the port's own audit and `Invalid links` counts the `error` and
+    `blocked` tones;
+  - `pausada_aguardando_autenticacao` joins the resumable statuses, and
+    `error` stays resumable: the reconciliation on app open marks a session
+    whose worker died as `error`, and the resume request accepts it;
+  - the cost ceiling applies to the session's accumulated cost, not to each
+    execution as the web does, and the optional time limit accepts 1 to 300
+    minutes where the web accepts 720 (operator's decisions of 25/09/2026);
+    the time budget is anchored at `created_at` on a fresh run and at the
+    resume instant on a resume, with the web's 2-second cutoff;
+  - `max_cycles` is validated and recorded as the web does, but no runner
+    reads it, as the web's does not; `models_json` records the fixed model
+    of each provider, and `configured_secrets_json` is not ported because
+    the key lives in the Keystore vault with its third, "cannot verify
+    now" state.
+
+  `:core:protocolo` exposes what the module needs: `FormatoDeLinks`
+  (public serializer and strict readers of link rows and evidence records),
+  `EspacoUnicode` and `PromptsDaSessao.STATUS_NAO_DELIBERATIVOS`. The `:app`
+  gains `res/xml/data_extraction_rules.xml`, which excludes `maestro.db` and
+  its `-wal`, `-shm` and `-journal` files from cloud backup and device
+  transfer, and a JVM test that reads the rule. CI lints the module and runs
+  its instrumented tests on the same managed emulator as `:core:seguranca`;
+  the "every case ran" gate now covers both modules. `THIRDPARTY.md`
+  records the new artifacts; the specification's sections 2.2, 4.1, 4.2,
+  7.1, 8 and 11 record the re-measured line ranges and the decisions.
 - Add the network side of the link audit to `:core:provedores` (MAEANDR-18,
   second of two pull requests): the implementations of the `:core:protocolo`
   interfaces for URL parsing, name resolution, evidence fetching and evidence

@@ -1,0 +1,645 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "329fa29bdb87f619dc29225b3497ee6c",
+    "entities": [
+      {
+        "tableName": "sessoes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `titulo` TEXT NOT NULL, `pedido` TEXT NOT NULL, `protocolo` TEXT NOT NULL, `agenteInicial` TEXT NOT NULL, `liderDoCiclo` TEXT NOT NULL, `agentesAtivosJson` TEXT NOT NULL, `estadoCircularJson` TEXT NOT NULL DEFAULT '{}', `autorAtual` TEXT, `textoAtual` TEXT NOT NULL DEFAULT '', `textoFinal` TEXT, `status` TEXT NOT NULL, `custoObservadoUsd` TEXT NOT NULL, `tetoDeCustoUsd` TEXT NOT NULL, `tetoDeMinutos` INTEGER, `maxCiclos` INTEGER NOT NULL DEFAULT 2, `taxasJson` TEXT NOT NULL, `modelosJson` TEXT NOT NULL, `eventosJson` TEXT NOT NULL, `criadaEm` TEXT NOT NULL, `atualizadaEm` TEXT NOT NULL, `erro` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "titulo",
+            "columnName": "titulo",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pedido",
+            "columnName": "pedido",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "protocolo",
+            "columnName": "protocolo",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "agenteInicial",
+            "columnName": "agenteInicial",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "liderDoCiclo",
+            "columnName": "liderDoCiclo",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "agentesAtivosJson",
+            "columnName": "agentesAtivosJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "estadoCircularJson",
+            "columnName": "estadoCircularJson",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "'{}'"
+          },
+          {
+            "fieldPath": "autorAtual",
+            "columnName": "autorAtual",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "textoAtual",
+            "columnName": "textoAtual",
+            "affinity": "TEXT",
+            "notNull": true,
+            "defaultValue": "''"
+          },
+          {
+            "fieldPath": "textoFinal",
+            "columnName": "textoFinal",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "custoObservadoUsd",
+            "columnName": "custoObservadoUsd",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tetoDeCustoUsd",
+            "columnName": "tetoDeCustoUsd",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tetoDeMinutos",
+            "columnName": "tetoDeMinutos",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "maxCiclos",
+            "columnName": "maxCiclos",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "2"
+          },
+          {
+            "fieldPath": "taxasJson",
+            "columnName": "taxasJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modelosJson",
+            "columnName": "modelosJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eventosJson",
+            "columnName": "eventosJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "criadaEm",
+            "columnName": "criadaEm",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "atualizadaEm",
+            "columnName": "atualizadaEm",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "erro",
+            "columnName": "erro",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "artefatos",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `sessaoId` TEXT NOT NULL, `ciclo` INTEGER NOT NULL, `turno` INTEGER NOT NULL, `agente` TEXT NOT NULL, `papel` TEXT NOT NULL, `status` TEXT NOT NULL, `titulo` TEXT NOT NULL, `conteudoMd` TEXT NOT NULL, `relatorioDeRevisaoJson` TEXT NOT NULL, `auditoriaDeLinksJson` TEXT NOT NULL, `custoUsd` TEXT NOT NULL, `modelo` TEXT, `artefatoAnteriorId` TEXT, `bytesDoConteudo` INTEGER NOT NULL DEFAULT 0, `criadoEm` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`sessaoId`) REFERENCES `sessoes`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessaoId",
+            "columnName": "sessaoId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ciclo",
+            "columnName": "ciclo",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "turno",
+            "columnName": "turno",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "agente",
+            "columnName": "agente",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "papel",
+            "columnName": "papel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "titulo",
+            "columnName": "titulo",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "conteudoMd",
+            "columnName": "conteudoMd",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "relatorioDeRevisaoJson",
+            "columnName": "relatorioDeRevisaoJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "auditoriaDeLinksJson",
+            "columnName": "auditoriaDeLinksJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "custoUsd",
+            "columnName": "custoUsd",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modelo",
+            "columnName": "modelo",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "artefatoAnteriorId",
+            "columnName": "artefatoAnteriorId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "bytesDoConteudo",
+            "columnName": "bytesDoConteudo",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "criadoEm",
+            "columnName": "criadoEm",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_artefatos_sessaoId_ciclo_turno",
+            "unique": false,
+            "columnNames": [
+              "sessaoId",
+              "ciclo",
+              "turno"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_artefatos_sessaoId_ciclo_turno` ON `${TABLE_NAME}` (`sessaoId`, `ciclo`, `turno`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "sessoes",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "sessaoId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "configuracoes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `protocolo` TEXT NOT NULL, `tetoDeCustoUsd` TEXT NOT NULL, `tetoDeMinutos` INTEGER, `maxCiclos` INTEGER NOT NULL DEFAULT 2, `taxasJson` TEXT NOT NULL, `atualizadaEm` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "protocolo",
+            "columnName": "protocolo",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tetoDeCustoUsd",
+            "columnName": "tetoDeCustoUsd",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tetoDeMinutos",
+            "columnName": "tetoDeMinutos",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "maxCiclos",
+            "columnName": "maxCiclos",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "2"
+          },
+          {
+            "fieldPath": "taxasJson",
+            "columnName": "taxasJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "atualizadaEm",
+            "columnName": "atualizadaEm",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "links",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`linkId` TEXT NOT NULL, `sessaoId` TEXT, `linhaJson` TEXT NOT NULL, `atualizadaEm` TEXT NOT NULL, PRIMARY KEY(`linkId`))",
+        "fields": [
+          {
+            "fieldPath": "linkId",
+            "columnName": "linkId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessaoId",
+            "columnName": "sessaoId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "linhaJson",
+            "columnName": "linhaJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "atualizadaEm",
+            "columnName": "atualizadaEm",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "linkId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_links_sessaoId",
+            "unique": false,
+            "columnNames": [
+              "sessaoId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_links_sessaoId` ON `${TABLE_NAME}` (`sessaoId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "eventos_de_links",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`seq` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `sessaoId` TEXT, `tipo` TEXT NOT NULL, `linkId` TEXT NOT NULL, `linhaJson` TEXT NOT NULL, `em` TEXT NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "seq",
+            "columnName": "seq",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessaoId",
+            "columnName": "sessaoId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "tipo",
+            "columnName": "tipo",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "linkId",
+            "columnName": "linkId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "linhaJson",
+            "columnName": "linhaJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "em",
+            "columnName": "em",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "seq"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_eventos_de_links_linkId",
+            "unique": false,
+            "columnNames": [
+              "linkId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_eventos_de_links_linkId` ON `${TABLE_NAME}` (`linkId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "evidencias",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `registroJson` TEXT NOT NULL, `cabecalhosJson` TEXT NOT NULL, `caminhoDoCorpo` TEXT, `atualizadaEm` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "registroJson",
+            "columnName": "registroJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "cabecalhosJson",
+            "columnName": "cabecalhosJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "caminhoDoCorpo",
+            "columnName": "caminhoDoCorpo",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "atualizadaEm",
+            "columnName": "atualizadaEm",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "anexos",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `sessaoId` TEXT NOT NULL, `nomeOriginal` TEXT NOT NULL, `tipoDeMidia` TEXT NOT NULL, `caminho` TEXT NOT NULL, `bytes` INTEGER NOT NULL, `sha256` TEXT NOT NULL, `criadoEm` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`sessaoId`) REFERENCES `sessoes`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessaoId",
+            "columnName": "sessaoId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nomeOriginal",
+            "columnName": "nomeOriginal",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tipoDeMidia",
+            "columnName": "tipoDeMidia",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "caminho",
+            "columnName": "caminho",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bytes",
+            "columnName": "bytes",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sha256",
+            "columnName": "sha256",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "criadoEm",
+            "columnName": "criadoEm",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_anexos_sessaoId",
+            "unique": false,
+            "columnNames": [
+              "sessaoId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_anexos_sessaoId` ON `${TABLE_NAME}` (`sessaoId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "sessoes",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "sessaoId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "execucoes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`seq` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `sessaoId` TEXT NOT NULL, `inicio` TEXT NOT NULL, `fim` TEXT, `motivoDaParada` TEXT, FOREIGN KEY(`sessaoId`) REFERENCES `sessoes`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "seq",
+            "columnName": "seq",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessaoId",
+            "columnName": "sessaoId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "inicio",
+            "columnName": "inicio",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fim",
+            "columnName": "fim",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "motivoDaParada",
+            "columnName": "motivoDaParada",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "seq"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_execucoes_sessaoId",
+            "unique": false,
+            "columnNames": [
+              "sessaoId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_execucoes_sessaoId` ON `${TABLE_NAME}` (`sessaoId`)"
+          },
+          {
+            "name": "index_execucoes_inicio",
+            "unique": false,
+            "columnNames": [
+              "inicio"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_execucoes_inicio` ON `${TABLE_NAME}` (`inicio`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "sessoes",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "sessaoId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '329fa29bdb87f619dc29225b3497ee6c')"
+    ]
+  }
+}
