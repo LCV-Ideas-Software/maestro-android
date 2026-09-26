@@ -136,6 +136,28 @@ Four of the five cases run on an emulator in CI on every pull request, as a
 required check; the fifth needs StrongBox hardware, which no available device
 has, and its test runs only where that hardware exists.
 
+The fourth module, `:core:sessao` (MAEANDR-22, first of two pull requests),
+is the Android library that holds the Maestro AI state on the device: the
+web's D1 tables as Room entities, plus the tables the desktop keeps as files
+(link records, evidence records, attachments) and one per foreground
+execution. It ports the web's settings and rates, the artifact markdown and
+versioning, the cost and time ceilings, and the circular-review custody state
+with its resume, from `admin-app` `c70dc54f` (`sessions.ts`), with the web's
+messages — but not the web's storage layout, which was shaped by D1: every
+state transition is one conditional `UPDATE` with the status guard in the
+statement, the journal is a table, the accepted text is a column of the
+artifact (the markdown is derived and never parsed back), the circular
+custody is typed columns checked at resume, and an execution fence makes a
+late write from a superseded worker fail on its own. Evidence bodies and
+attachments are files under `noBackupFilesDir`, written as immutable
+generations, because Android cannot read a database row above 2 MiB. Two
+product decisions of 25/09/2026 depart from the web: the cost ceiling applies
+to the whole session's accumulated cost, not to each execution, and the
+optional time limit accepts at most 300 minutes. The
+app excludes the database from cloud backup and device transfer through
+`data_extraction_rules.xml`. The orchestration itself — the worker, the
+turns, the providers — comes in the second pull request.
+
 The native port is specified in
 [`docs/especificacao-v1.md`](docs/especificacao-v1.md) (in Portuguese), written
 before any Kotlin, as `calculadora-android` did. It fixes the scope unit by
@@ -164,8 +186,10 @@ analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
   request and every push to `main`: Gradle wrapper validation, `assembleDebug`,
   `lintDebug` and unit tests — including those of `:core:protocolo`, which run
   on the JVM — with the same JDK the publishing workflow uses. A separate job
-  runs the instrumented tests of `:core:seguranca` on an emulator managed by
-  the Android Gradle Plugin (Gradle Managed Devices). Both jobs are required
+  runs the instrumented tests of `:core:seguranca` and `:core:sessao` on an
+  emulator managed by the Android Gradle Plugin (Gradle Managed Devices),
+  and requires that every instrumented case of both modules ran and passed.
+  Both jobs are required
   checks in the repository ruleset.
 - GitHub CodeQL Default setup analyzes the supported content. The duplicate
   advanced-setup workflow is not maintained in this repository.

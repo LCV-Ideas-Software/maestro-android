@@ -22,3 +22,17 @@ android {
     // android.injected.signing.* properties, so no key material and no
     // password is ever written into this repository.
 }
+
+dependencies {
+    // Só para o teste que lê `res/xml/data_extraction_rules.xml` do
+    // repositório e exige o banco do Room fora do backup (especificação,
+    // seção 4.2). Nenhuma dependência de execução ainda: o `:app` entra na
+    // quarta entrega.
+    testImplementation(kotlin("test-junit5"))
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
+}
+
+tasks.withType<Test> {
+    useJUnitPlatform()
+}

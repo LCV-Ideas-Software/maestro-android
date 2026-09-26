@@ -64,7 +64,7 @@ public object PromptsDaSessao {
      * operacional. Ficam como evidência, fora do histórico que instrui o
      * próximo revisor.
      */
-    private val STATUS_NAO_DELIBERATIVOS = setOf(
+    public val STATUS_NAO_DELIBERATIVOS: Set<String> = setOf(
         "CONTRACT_VIOLATION",
         "QUALITY_GUARD_REJECTED",
         "READY_REJECTED",

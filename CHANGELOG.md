@@ -6,6 +6,79 @@ All material changes to Maestro Android are recorded here.
 
 ### Added
 
+- Add `:core:sessao` (MAEANDR-22, first of two pull requests): the Android
+  library that holds the Maestro AI state on the device, ported from
+  `admin-app` `c70dc54f` (`sessions.ts`) over Room 2.8.5 with the Room Gradle
+  plugin (schema exported to `core/sessao/schemas/`) and KSP. This delivery
+  carries persistence, settings and rates, the artifact markdown and
+  versioning, the cost and time ceilings and the circular-review custody
+  state with its resume; the orchestration comes in the second pull request.
+  The web's behaviour is kept — statuses, resume rules, ceilings, messages —
+  but not its D1-shaped storage (operator's decisions of 26/09/2026 after two
+  Codex rounds and a cross-review of the redesign):
+  - every state transition is one conditional `UPDATE` of its own columns
+    with the status guard in the statement (`WHERE id = ? AND status IN
+    (…)`), returning the row count; there is no generic entity update, so
+    the guard cannot be forgotten. The operator's content edit preserves
+    omitted columns inside SQL and writes only in the status it read;
+  - the journal is the `eventos` table, one row per event, written in the
+    same transaction as the transition that caused it; the accepted text is
+    the artifact's `textoAceito` column, canonical (ECMAScript trim, `\r\n`
+    to `\n`, NUL refused), and the same string is the session's current
+    text, compared by equality at resume; the web's markdown is byte-exact
+    but derived, never parsed back;
+  - the circular custody is typed columns of the session (custody and
+    previous artifact ids, round, turn index, artifact turn, roster, valid
+    agents, stable approvals), validated at resume with the web's messages
+    for the checks that keep meaning; JSON-shape checks and the legacy
+    reconstruction have no object on Android;
+  - `preparar` claims the session in a transaction (an `execucoes` row and
+    `execucaoAtual`), and every worker write requires that fence, so a late
+    write from a superseded execution fails on its own; a cancelled or
+    reconciled session is never claimed;
+  - the per-turn checkpoint inserts the artifact, writes the whole custody
+    with the resulting status under the guard and the fence, and inserts the
+    event, in one transaction; zero rows rolls everything back, artifact
+    included; the orphan-turn reservation at resume stays;
+  - money is stored as integers of 10⁻⁸ USD (`BigDecimal` in the API), and
+    the observed-cost floor is one atomic `MAX` update outside the
+    checkpoint transaction;
+  - the tables the desktop keeps as files (link records and their journal,
+    evidence records, attachments) and one row per worker execution, so the
+    app can show what is left of the 24-hour `dataSync` budget (executions
+    that touch the window, not only those that started inside it);
+  - evidence bodies and attachments are files under `noBackupFilesDir`,
+    written as immutable generations (`<id>-<sha256>`: temporary file,
+    `fsync`, atomic rename), because a body may reach 8 MiB and an
+    attachment 16 MiB while Android's `CursorWindow` cannot read a row above
+    2 MiB; the previous generation is deleted only after the row's
+    transaction commits, and orphan cleanup runs under the store's lock;
+  - `pausada_aguardando_autenticacao` joins the resumable statuses, and
+    `error` stays resumable: the reconciliation on app open marks a session
+    whose worker died as `error`, and the resume request accepts it;
+  - the cost ceiling applies to the session's accumulated cost, not to each
+    execution as the web does, and the optional time limit accepts 1 to 300
+    minutes where the web accepts 720 (a negative value is refused instead of
+    clearing the ceiling); the time budget is anchored at `created_at` on a
+    fresh run and at the resume instant on a resume, with the web's 2-second
+    cutoff;
+  - `max_cycles` is validated and recorded as the web does, but no runner
+    reads it, as the web's does not; `models_json` records the fixed model
+    of each provider, and `configured_secrets_json` is not ported because
+    the key lives in the Keystore vault with its third, "cannot verify
+    now" state; persisted link rows and evidence records refuse fractional
+    numbers in integer fields.
+
+  `:core:protocolo` exposes what the module needs: `FormatoDeLinks`
+  (public serializer and strict readers of link rows and evidence records),
+  `EspacoUnicode` and `PromptsDaSessao.STATUS_NAO_DELIBERATIVOS`. The `:app`
+  gains `res/xml/data_extraction_rules.xml`, which excludes `maestro.db` and
+  its `-wal`, `-shm` and `-journal` files from cloud backup and device
+  transfer, and a JVM test that reads the rule. CI lints the module and runs
+  its instrumented tests on the same managed emulator as `:core:seguranca`;
+  the "every case ran" gate now covers both modules. `THIRDPARTY.md`
+  records the new artifacts; the specification's sections 2.2, 4.1, 4.2,
+  7.1, 8 and 11 record the re-measured line ranges and the decisions.
 - Add the network side of the link audit to `:core:provedores` (MAEANDR-18,
   second of two pull requests): the implementations of the `:core:protocolo`
   interfaces for URL parsing, name resolution, evidence fetching and evidence
