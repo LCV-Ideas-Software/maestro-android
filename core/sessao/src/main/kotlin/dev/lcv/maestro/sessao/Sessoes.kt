@@ -12,6 +12,16 @@ internal class CasPerdido : RuntimeException() {
 }
 
 /**
+ * Quem tira a sessão de `queued`/`running` fecha a execução que ela tinha, na
+ * mesma transação: uma linha de `execucoes` só fica aberta enquanto a sessão
+ * está ativa, e o orçamento de 24 horas nunca conta uma execução encerrada
+ * como viva. [motivo] é o status novo, ou o rótulo do caso anormal.
+ */
+internal fun BancoDaSessao.encerrarExecucaoDa(id: String, em: String, motivo: String) {
+    sessoes().carregar(id)?.execucaoAtual?.let { execucoes().encerrar(it, em, motivo) }
+}
+
+/**
  * As transições da sessão (`persistSession`, `persistObservedCostFloor`, o
  * insert do `POST /sessions`, o cancelamento e a troca de conteúdo —
  * `sessions.ts:2906-3009, 4397-4436, 4651-4731`), cada uma como um `UPDATE`
@@ -82,7 +92,12 @@ public class RepositorioDeSessoes(
         false
     }
 
-    /** Uma transição de status com o seu evento (pausas da 3b, cancelamento, reconciliação), sob o portão e a cerca opcional. */
+    /**
+     * Uma transição de status com o seu evento (pausas da 3b, cancelamento,
+     * reconciliação), sob o portão e a cerca opcional. Se o status novo sai de
+     * `queued`/`running`, a execução da sessão é fechada junto, com o status
+     * como motivo.
+     */
     public fun transicionar(
         id: String,
         status: String,
@@ -94,17 +109,24 @@ public class RepositorioDeSessoes(
         banco.runInTransaction<Boolean> {
             if (banco.sessoes().mudarStatus(id, seSituacaoEm.toList(), status, erro, agora(), execucao) == 0) throw CasPerdido()
             if (evento != null) banco.eventos().inserir(evento.paraEntidade(id))
+            if (status !in Estados.ATIVOS) banco.encerrarExecucaoDa(id, agora(), status)
             true
         }
     } catch (perdido: CasPerdido) {
         false
     }
 
-    /** O fim da deliberação (3b): texto final e status terminal, sob o portão e a cerca. */
+    /**
+     * O fim da deliberação (3b): texto final e status terminal, sob o portão
+     * e a cerca; a execução fecha junto. O texto final tem o mesmo teto do
+     * texto aceito ([MarkdownDoArtefato.conferirTexto]), recusado, não cortado.
+     */
     public fun concluir(id: String, execucao: Long, textoFinal: String, status: String, evento: EventoDaSessao?): Boolean = try {
+        MarkdownDoArtefato.conferirTexto(textoFinal)
         banco.runInTransaction<Boolean> {
             if (banco.sessoes().concluir(id, Estados.ATIVOS.toList(), execucao, textoFinal, status, agora()) == 0) throw CasPerdido()
             if (evento != null) banco.eventos().inserir(evento.paraEntidade(id))
+            banco.execucoes().encerrar(execucao, agora(), status)
             true
         }
     } catch (perdido: CasPerdido) {
@@ -157,10 +179,21 @@ public class RepositorioDeSessoes(
     /**
      * A reconciliação na abertura do aplicativo (`sweepStaleSessions`,
      * `sessions.ts:4842-4844`, com o motivo daqui): a linha ainda ativa cujo
-     * worker não está vivo vai para `error`, que é retomável.
+     * worker não está vivo vai para `error`, que é retomável, e a execução
+     * que ela tinha é fechada na mesma transação (`interrupted`): quem declara
+     * o worker morto fecha a linha dele, senão o orçamento de 24 horas o
+     * conta como vivo até a próxima reivindicação.
      */
-    public fun marcarInterrompida(id: String, evento: EventoDaSessao? = null): Boolean =
-        transicionar(id, Estados.ERRO, MENSAGEM_INTERROMPIDA, evento)
+    public fun marcarInterrompida(id: String, evento: EventoDaSessao? = null): Boolean = try {
+        banco.runInTransaction<Boolean> {
+            if (banco.sessoes().mudarStatus(id, Estados.ATIVOS.toList(), Estados.ERRO, MENSAGEM_INTERROMPIDA, agora(), null) == 0) throw CasPerdido()
+            if (evento != null) banco.eventos().inserir(evento.paraEntidade(id))
+            banco.encerrarExecucaoDa(id, agora(), MOTIVO_INTERROMPIDA)
+            true
+        }
+    } catch (perdido: CasPerdido) {
+        false
+    }
 
     public companion object {
         public const val MENSAGEM_NA_FILA: String = "Maestro AI Android session queued."
@@ -169,6 +202,8 @@ public class RepositorioDeSessoes(
         public const val MENSAGEM_MUDOU_NA_EDICAO: String = "Sessao mudou de estado durante a edicao; recarregue antes de editar."
         public const val MENSAGEM_INTERROMPIDA: String =
             "Sessao interrompida: o processo do aplicativo foi encerrado antes de a deliberacao terminar."
+        /** O rótulo da execução cujo processo morreu e que a reconciliação fechou. */
+        public const val MOTIVO_INTERROMPIDA: String = "interrupted"
 
         /** `JSON.stringify(active_agents)`. */
         public fun agentesJson(agentes: List<Provedor>): String = Json.ESTRITO.writeValueAsString(agentes.map { it.agente })

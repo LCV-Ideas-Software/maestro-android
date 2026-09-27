@@ -176,8 +176,21 @@ public class Retomada(
             // entre os dois deixaria a sessão ativa com o jornal já dizendo que travou.
             val mensagem = "Circular custody integrity check failed: ${erro.message}"
             val bloqueado = EventoDaSessao(em = agora(), agente = autorAtual, papel = "draft", status = EventoDaSessao.BLOQUEADO, mensagem = mensagem)
-            sessoes.transicionar(id, Estados.RETOMADA_INVALIDA, mensagem, bloqueado)
-            Preparacao.CustodiaInvalida(mensagem)
+            // A reivindicação foi desfeita com a transação, e com ela o fecho da execução
+            // que estava na linha: ele é refeito aqui, junto da pausa, para a execução
+            // morta não ficar aberta no orçamento (achado do Codex na #67).
+            try {
+                banco.runInTransaction {
+                    if (banco.sessoes().mudarStatus(id, Estados.ATIVOS.toList(), Estados.RETOMADA_INVALIDA, mensagem, agora(), null) == 0) throw CasPerdido()
+                    banco.eventos().inserir(bloqueado.paraEntidade(id))
+                    banco.encerrarExecucaoDa(id, agora(), MOTIVO_SUPERADA)
+                }
+                Preparacao.CustodiaInvalida(mensagem)
+            } catch (perdido: CasPerdido) {
+                // Outro já tirou a sessão de queued/running: nada foi pausado nem anotado, e o
+                // resultado diz isso — `CustodiaInvalida` promete o evento gravado.
+                Preparacao.Perdida
+            }
         } catch (perdido: CasPerdido) {
             Preparacao.Perdida
         }
@@ -204,7 +217,9 @@ public sealed interface Gravacao {
  * O checkpoint por turno (especificação, seção 4.2): o artefato do turno, a
  * custódia inteira, o status resultante e o evento numa transação só, sob o
  * portão de status e a cerca de execução. Um portão perdido desfaz também o
- * artefato; uma escrita tardia de uma execução superada falha na cerca.
+ * artefato; uma escrita tardia de uma execução superada falha na cerca. O
+ * artefato é da sessão do checkpoint, e um status que sai de
+ * `queued`/`running` fecha a execução junto.
  */
 public class PontoDeRetomada(
     private val banco: BancoDaSessao,
@@ -227,12 +242,15 @@ public class PontoDeRetomada(
         evento: EventoDaSessao? = null,
         seSituacaoEm: Set<String> = Estados.ATIVOS,
     ): Gravacao = try {
+        require(artefato == null || artefato.sessaoId == sessaoId) { "checkpoint artifact belongs to another session" }
         banco.runInTransaction<Gravacao> {
             val inserido = artefato?.let(artefatos::inserir)
             val c = custodia(inserido)
+            val textoAtual = EstadoCircular.textoCanonico(c.textoAtual)
+            MarkdownDoArtefato.conferirTexto(textoAtual)
             val gravadas = banco.sessoes().gravarCustodia(
                 id = sessaoId, permitidos = seSituacaoEm.toList(), execucao = execucao,
-                autorAtual = c.autorAtual.agente, textoAtual = EstadoCircular.textoCanonico(c.textoAtual),
+                autorAtual = c.autorAtual.agente, textoAtual = textoAtual,
                 custodiaArtefatoId = c.custodiaArtefatoId, artefatoAnteriorId = c.artefatoAnteriorId,
                 rodada = maxOf(1, c.rodada), indiceDoTurno = maxOf(0, c.indiceDoTurno), turnoDoArtefato = maxOf(1, c.turnoDoArtefato),
                 escalaJson = EstadoCircular.agentesJson(c.escala), agentesValidosJson = EstadoCircular.agentesJson(c.agentesValidos),
@@ -241,6 +259,7 @@ public class PontoDeRetomada(
             )
             if (gravadas == 0) throw CasPerdido()
             if (evento != null) banco.eventos().inserir(evento.paraEntidade(sessaoId))
+            if (status !in Estados.ATIVOS) banco.execucoes().encerrar(execucao, FormatoDeInstante.iso(relogio()), status)
             Gravacao.Gravada(inserido)
         }
     } catch (perdido: CasPerdido) {

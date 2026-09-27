@@ -14,7 +14,9 @@ import java.time.Instant
  * geração atual, como o coletor já faz com o último corpo pronto.
  *
  * Um armazém por processo, com exclusão pelo próprio objeto: [guardar] e
- * [limparOrfaos] nunca se cruzam.
+ * [limparOrfaos] nunca se cruzam. [guardar] nunca roda dentro de uma
+ * transação de quem chama: a geração anterior só é apagada depois do commit
+ * da linha que deixou de apontar para ela, e um commit aninhado não é commit.
  */
 public class ArmazemDeEvidenciasEmArquivo(
     private val banco: BancoDaSessao,
@@ -22,15 +24,17 @@ public class ArmazemDeEvidenciasEmArquivo(
     private val relogio: () -> Instant,
 ) : ColetorHttp.ArmazemDeEvidencias {
 
+    /** O registro gravado, ou `null` se não existe ou não é válido — outra versão de esquema é "não válido", como no registro de links. */
     override fun existente(id: String): ColetorHttp.Coleta? = synchronized(this) {
         val linha = banco.evidencias().carregar(id) ?: return null
-        val registro = FormatoDeLinks.lerEvidencia(linha.registroJson) ?: return null
+        val registro = FormatoDeLinks.lerEvidencia(linha.registroJson)?.takeIf { it.versaoDoEsquema == ColetorHttp.VERSAO_DO_ESQUEMA } ?: return null
         val cabecalhos = lerCabecalhos(linha.cabecalhosJson)
         val corpo = linha.caminhoDoCorpo?.let { caminho -> File(caminho).takeIf { it.isFile }?.readBytes() }
         ColetorHttp.Coleta(registro, cabecalhos, corpo)
     }
 
     override fun guardar(coleta: ColetorHttp.Coleta): Unit = synchronized(this) {
+        check(!banco.inTransaction()) { "evidence bodies are reclaimed after a commit; do not call guardar inside a transaction" }
         val id = coleta.registro.id
         val geracaoNova = coleta.corpo?.let { Geracoes.gravar(pasta, id, it).absolutePath }
         var geracaoAnterior: String? = null

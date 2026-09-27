@@ -57,10 +57,19 @@ public object EstadoCircular {
         return TrimJs.aparar(texto.replace("\r\n", "\n"))
     }
 
-    /** `["claude","codex"]`: a lista gravada; `null` quando não é uma lista de chaves conhecidas. */
+    /**
+     * `["claude","codex"]`: a lista gravada; `null` quando não é exatamente
+     * uma lista de chaves conhecidas. A leitura é a estrita (lixo depois da
+     * lista é erro): custódia corrompida falha fechado, como o
+     * `parsePersistedCircularState` do web.
+     */
     public fun lerAgentes(json: String): List<Provedor>? {
-        val raiz = Json.tolerante(json) ?: return null
-        if (!raiz.isArray) return null
+        val raiz = try {
+            Json.ESTRITO.readTree(json)
+        } catch (erro: com.fasterxml.jackson.core.JacksonException) {
+            return null
+        }
+        if (raiz == null || !raiz.isArray) return null
         return raiz.map { no -> no.takeIf { it.isTextual }?.let { Agentes.porChave(it.textValue()) } ?: return null }
     }
 
@@ -95,8 +104,10 @@ public object EstadoCircular {
         if (custodia == null || custodia.sessaoId != sessao.id || !custodiaAceita(custodia)) {
             throw IntegridadeDeLinks.Falha("Circular custody references a missing or rejected artifact.")
         }
-        if (anterior == null || anterior.sessaoId != sessao.id) {
-            throw IntegridadeDeLinks.Falha("Circular custody chain references a missing previous artifact.")
+        // O web só confere a existência; aqui o anterior tem de estar aceito na cadeia
+        // (`acceptedChainArtifact`), que é de onde o próprio web o tira (achado do Codex na #67).
+        if (anterior == null || anterior.sessaoId != sessao.id || !cadeiaAceita(anterior)) {
+            throw IntegridadeDeLinks.Falha("Circular custody chain references a missing or rejected previous artifact.")
         }
         if (custodia.agente != autor.agente || custodia.turno > sessao.turnoDoArtefato || anterior.turno > sessao.turnoDoArtefato) {
             throw IntegridadeDeLinks.Falha("Circular custody artifact author or turn does not match persisted state.")
@@ -130,9 +141,17 @@ public object EstadoCircular {
         var rodada = maxOf(1, custodia.rodada)
         var indiceDoTurno = custodia.indiceDoTurno
         var cruzouRodada = false
-        while (escalaAtual.isNotEmpty() && indiceDoTurno >= escalaAtual.size) {
-            rodada += 1
-            indiceDoTurno -= escalaAtual.size
+        // O `while` do web, fechado: as voltas inteiras do índice viram rodadas de uma
+        // vez, e um contador que estourasse o inteiro é custódia inválida, não uma
+        // rodada negativa gravada (achado da revisão cruzada de 27/09/2026).
+        if (escalaAtual.isNotEmpty() && indiceDoTurno >= escalaAtual.size) {
+            val voltas = indiceDoTurno / escalaAtual.size
+            rodada = try {
+                Math.addExact(rodada, voltas)
+            } catch (erro: ArithmeticException) {
+                throw IntegridadeDeLinks.Falha("Circular custody progress contains invalid counters or artifact references.")
+            }
+            indiceDoTurno -= voltas * escalaAtual.size
             cruzouRodada = true
         }
         if (!mesmaEscala) indiceDoTurno = 0

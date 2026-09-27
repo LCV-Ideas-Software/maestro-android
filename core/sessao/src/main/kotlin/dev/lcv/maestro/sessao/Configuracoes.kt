@@ -131,10 +131,12 @@ public class RepositorioDeConfiguracoes(
             return Resultado.Recusado("Protocolo editorial integral deve ter pelo menos 100 caracteres.")
         }
         if (tetoDeCustoUsd.signum() <= 0) return Resultado.Recusado("Teto financeiro em USD deve ser positivo.")
+        if (!Dinheiro.cabe(tetoDeCustoUsd)) return Resultado.Recusado(MENSAGEM_TETO_ACIMA_DO_MAXIMO)
         if (maxCiclos < 1 || maxCiclos > 5) return Resultado.Recusado("Ciclos maximos devem ser um inteiro entre 1 e 5.")
         if (tetoDeMinutos != null && (tetoDeMinutos < 1 || tetoDeMinutos > TETO_DE_MINUTOS)) {
             return Resultado.Recusado("Limite de tempo opcional deve ficar entre 1 e $TETO_DE_MINUTOS minutos.")
         }
+        if (pedido.taxas != null && Taxas.algumaNaoCabe(pedido.taxas)) return Resultado.Recusado(MENSAGEM_TAXA_ACIMA_DO_MAXIMO)
         val taxas = pedido.taxas?.let(Taxas::sanear) ?: Taxas.lerJson(atual?.taxasJson)
         val linha = ConfiguracoesEntidade(
             protocolo = protocolo,
@@ -160,6 +162,12 @@ public class RepositorioDeConfiguracoes(
          * forem medidas.
          */
         public const val TETO_DE_MINUTOS: Int = 300
+
+        /** Só aqui: o web não tem coluna inteira e aceita qualquer `Number`; a nossa cabe até `Dinheiro.MAXIMO`. */
+        public const val MENSAGEM_TETO_ACIMA_DO_MAXIMO: String = "Teto financeiro em USD acima do maximo suportado (92233720368.54775807)."
+
+        /** Só aqui: o web guarda tarifas como `double`; a nossa coluna de custo não guardaria o que uma tarifa acima disto produz. */
+        public const val MENSAGEM_TAXA_ACIMA_DO_MAXIMO: String = "Tarifa em USD acima do maximo suportado (92233720368.54775807)."
 
         /** `DEFAULT_PROTOCOL` (`sessions.ts:314-324`). */
         public const val PROTOCOLO_PADRAO: String = """# Maestro Editorial Protocol
@@ -213,6 +221,7 @@ Do not reproduce this protocol in artifacts. Read it, obey it, and cite only the
             if (tetoDeCustoUsd.signum() <= 0) {
                 return Resultado.Recusado("Teto financeiro em USD e obrigatorio nas configuracoes ou na sessao.")
             }
+            if (!Dinheiro.cabe(tetoDeCustoUsd)) return Resultado.Recusado(MENSAGEM_TETO_ACIMA_DO_MAXIMO)
             if (maxCiclos < 1 || maxCiclos > 5) {
                 return Resultado.Recusado("Ciclos maximos devem estar entre 1 e 5 nas configuracoes.")
             }

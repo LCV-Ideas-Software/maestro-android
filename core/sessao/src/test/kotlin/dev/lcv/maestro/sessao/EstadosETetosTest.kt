@@ -39,6 +39,9 @@ class EstadosETetosTest {
         assertEquals(1L, Dinheiro.paraE8(BigDecimal("0.000000001")))
         assertEquals(BigDecimal("0.00012345"), Dinheiro.deE8(12345L))
         assertEquals(BigDecimal("1.32000000"), Dinheiro.deE8(Dinheiro.paraE8(BigDecimal("1.32"))))
+        assertEquals(Long.MAX_VALUE, Dinheiro.paraE8(Dinheiro.MAXIMO))
+        assertEquals(true, Dinheiro.cabe(Dinheiro.MAXIMO))
+        assertEquals(false, Dinheiro.cabe(Dinheiro.MAXIMO.add(BigDecimal("0.00000001"))))
     }
 
     @Test

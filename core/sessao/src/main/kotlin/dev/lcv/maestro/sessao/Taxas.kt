@@ -30,7 +30,9 @@ public object Taxas {
      * `sanitizeRates`, regra a regra: valor ausente, não numérico ou não
      * positivo cai no padrão; **valor positivo abaixo do padrão sobe para o
      * padrão** (`Math.max`, `sessions.ts:398-403`); a taxa por mil requisições
-     * fica se positiva, senão o padrão (zero fora da Perplexity).
+     * fica se positiva, senão o padrão (zero fora da Perplexity). Só aqui: uma
+     * tarifa que não cabe na coluna de dinheiro ([Dinheiro.cabe]) é inválida
+     * como uma negativa — o custo que ela produziria não teria onde ser gravado.
      */
     public fun sanear(bruto: Map<Provedor, Custo.Taxas?>): Map<Provedor, Custo.Taxas> = Provedor.entries.associateWith { agente ->
         val padrao = PADRAO.getValue(agente)
@@ -38,8 +40,16 @@ public object Taxas {
         Custo.Taxas(
             entradaPorMilhao = positivoOuPadrao(taxas?.entradaPorMilhao, padrao.entradaPorMilhao!!),
             saidaPorMilhao = positivoOuPadrao(taxas?.saidaPorMilhao, padrao.saidaPorMilhao!!),
-            requisicoesPorMil = taxas?.requisicoesPorMil?.takeIf { it.signum() > 0 } ?: padrao.requisicoesPorMil ?: BigDecimal.ZERO,
+            requisicoesPorMil = taxas?.requisicoesPorMil?.takeIf { valida(it) } ?: padrao.requisicoesPorMil ?: BigDecimal.ZERO,
         )
+    }
+
+    /** Positiva e dentro do que a coluna de dinheiro guarda. */
+    public fun valida(valor: BigDecimal): Boolean = valor.signum() > 0 && Dinheiro.cabe(valor)
+
+    /** Se alguma tarifa pedida é positiva mas não cabe na coluna: a gravação recusa, em vez de trocá-la em silêncio. */
+    public fun algumaNaoCabe(bruto: Map<Provedor, Custo.Taxas?>): Boolean = bruto.values.any { taxas ->
+        taxas != null && listOfNotNull(taxas.entradaPorMilhao, taxas.saidaPorMilhao, taxas.requisicoesPorMil).any { !Dinheiro.cabe(it) }
     }
 
     /** `sanitizeRates(parseJson(json, defaultRates()))`: o JSON gravado, tolerante. */
@@ -74,7 +84,7 @@ public object Taxas {
     }
 
     private fun positivoOuPadrao(valor: BigDecimal?, padrao: BigDecimal): BigDecimal =
-        if (valor != null && valor.signum() > 0) valor.max(padrao) else padrao
+        if (valor != null && valida(valor)) valor.max(padrao) else padrao
 
     /** `Number(x)` do web: número, ou texto numérico; o resto é "não finito". */
     private fun numero(no: JsonNode?): BigDecimal? = when {

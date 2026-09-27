@@ -14,6 +14,11 @@ import java.math.RoundingMode
 public object Dinheiro {
     private val FATOR: BigDecimal = BigDecimal.TEN.pow(Custo.ESCALA_INTERNA)
 
+    /** O maior valor que a coluna representa: `Long.MAX_VALUE` em 10⁻⁸ USD. Acima disso a entrada é recusada, não convertida. */
+    public val MAXIMO: BigDecimal = BigDecimal.valueOf(Long.MAX_VALUE).movePointLeft(Custo.ESCALA_INTERNA)
+
+    public fun cabe(valor: BigDecimal): Boolean = valor <= MAXIMO && valor >= MAXIMO.negate()
+
     /** Para a coluna: arredonda para cima, como a soma do protocolo, para nunca subestimar um gasto. */
     public fun paraE8(valor: BigDecimal): Long = valor.multiply(FATOR).setScale(0, RoundingMode.CEILING).longValueExact()
 

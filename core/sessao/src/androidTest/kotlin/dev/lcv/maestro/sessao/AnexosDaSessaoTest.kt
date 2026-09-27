@@ -28,6 +28,27 @@ class AnexosDaSessaoTest {
     private fun bytes(tamanho: Int): ByteArray = ByteArray(tamanho) { (it % 251).toByte() }
 
     @Test
+    fun adicionarERemoverDentroDeUmaTransacaoSaoRecusados() {
+        val id = t.sessoes.criar(t.entrada()).id
+        val anexo = (anexos.adicionar(id, "a.json", "application/json", bytes(10)) as Resultado.Ok).valor
+        val recusas = listOf<() -> Unit>(
+            { anexos.adicionar(id, "b.json", "application/json", bytes(11)) },
+            { anexos.remover(anexo.id) },
+        ).count { chamada ->
+            try {
+                t.banco.runInTransaction { chamada() }
+                false
+            } catch (esperado: IllegalStateException) {
+                true
+            }
+        }
+        assertEquals(2, recusas)
+        assertEquals(1, anexos.daSessao(id).size)
+        assertTrue(File(anexo.caminho).exists())
+        assertEquals(1, pasta.listFiles()!!.size)
+    }
+
+    @Test
     fun dezesseisMebibytesEntramEUmByteAMaisERecusado() {
         val id = t.sessoes.criar(t.entrada()).id
         val recusa = anexos.adicionar(id, "grande.json", "application/json", bytes(AnexosDaSessao.MAX_BYTES + 1)) as Resultado.Recusado

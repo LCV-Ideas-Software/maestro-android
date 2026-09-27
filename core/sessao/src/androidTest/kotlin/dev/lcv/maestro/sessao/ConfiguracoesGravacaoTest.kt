@@ -44,6 +44,11 @@ class ConfiguracoesGravacaoTest {
         assertEquals("Ciclos maximos devem ser um inteiro entre 1 e 5.", recusa(PedidoDeConfiguracoes(tetoDeCustoUsd = BigDecimal.ONE, maxCiclos = 6)))
         assertEquals("Limite de tempo opcional deve ficar entre 1 e 300 minutos.", recusa(PedidoDeConfiguracoes(tetoDeCustoUsd = BigDecimal.ONE, tetoDeMinutos = Campo.Presente(301))))
         assertEquals("Limite de tempo opcional deve ficar entre 1 e 300 minutos.", recusa(PedidoDeConfiguracoes(tetoDeCustoUsd = BigDecimal.ONE, tetoDeMinutos = Campo.Presente(-1))))
+        assertEquals(RepositorioDeConfiguracoes.MENSAGEM_TETO_ACIMA_DO_MAXIMO, recusa(PedidoDeConfiguracoes(tetoDeCustoUsd = BigDecimal("92233720368.54775808"))))
+        assertEquals(
+            RepositorioDeConfiguracoes.MENSAGEM_TAXA_ACIMA_DO_MAXIMO,
+            recusa(PedidoDeConfiguracoes(tetoDeCustoUsd = BigDecimal.ONE, taxas = mapOf(Provedor.GROK to Custo.Taxas(BigDecimal("1e30"), BigDecimal("6"))))),
+        )
         assertNull(t.banco.configuracoes().carregar())
     }
 

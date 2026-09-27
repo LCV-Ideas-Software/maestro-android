@@ -32,13 +32,57 @@ public data class EntradaDeArtefato(
 
 /**
  * `buildArtifactMarkdown` (`sessions.ts:839-870`): o markdown que o web
- * grava, byte a byte. Aqui ele é **derivado** — serve para exibir e exportar
- * e nunca é lido de volta; o texto aceito vive na coluna própria do artefato.
+ * grava, byte a byte. Aqui ele é **derivado** da linha do artefato na hora de
+ * exibir ou exportar ([doArtefato]); não é gravado nem lido de volta.
  */
 public object MarkdownDoArtefato {
 
     /** `sanitizeText(buildArtifactMarkdown(...), 500_000)`: o teto do web para o markdown inteiro. */
     public const val MAX_PONTOS_DE_CODIGO: Int = 500_000
+
+    /** `sanitizeText(review_report, 120_000)`: o teto do web para o relatório; aqui recusado, não cortado. */
+    public const val MAX_PONTOS_DO_RELATORIO: Int = 120_000
+
+    /**
+     * O teto da linha do artefato em bytes UTF-8 (texto aceito + relatório +
+     * auditoria): metade do `CursorWindow` de 2 MiB do Android, que é o que uma
+     * linha pode ter para um `SELECT *` conseguir carregá-la. Um provedor devolve
+     * no máximo 64 mil tokens (~256 KB); acima do teto é um erro, não um caso.
+     */
+    public const val MAX_BYTES_DA_LINHA: Int = 1_048_576
+
+    /**
+     * O teto do texto aceito em bytes UTF-8, metade de [MAX_BYTES_DA_LINHA]:
+     * o mesmo texto vai para `artefatos.textoAceito`, `sessoes.textoAtual` e,
+     * no fim, `sessoes.textoFinal`, e a linha da sessão — com o protocolo de
+     * até 640 KB e o pedido de até 160 KB — tem de continuar abaixo dos 2 MiB
+     * do `CursorWindow` (decisão do operador de 27/09/2026).
+     */
+    public const val MAX_BYTES_DO_TEXTO: Int = MAX_BYTES_DA_LINHA / 2
+
+    /** O texto aceito que cabe, ou [IntegridadeDeLinks.Falha] acima de [MAX_BYTES_DO_TEXTO]. */
+    public fun conferirTexto(texto: String) {
+        if (texto.toByteArray(Charsets.UTF_8).size > MAX_BYTES_DO_TEXTO) throw IntegridadeDeLinks.Falha("Accepted text exceeds $MAX_BYTES_DO_TEXTO bytes.")
+    }
+
+    /** A linha que caberia no banco, ou [IntegridadeDeLinks.Falha] acima de [MAX_BYTES_DA_LINHA]. */
+    public fun conferirLinha(textoAceito: String, relatorio: String, auditoriaJson: String) {
+        val bytes = textoAceito.toByteArray(Charsets.UTF_8).size.toLong() + relatorio.toByteArray(Charsets.UTF_8).size + auditoriaJson.toByteArray(Charsets.UTF_8).size
+        if (bytes > MAX_BYTES_DA_LINHA) throw IntegridadeDeLinks.Falha("Artifact row exceeds $MAX_BYTES_DA_LINHA bytes.")
+    }
+
+    /** O markdown do web a partir da linha gravada (o `content_md` que o web guardaria). */
+    public fun doArtefato(linha: ArtefatoEntidade): String = TrimJs.aparar(
+        montar(
+            EntradaDeArtefato(
+                sessaoId = linha.sessaoId, ciclo = linha.ciclo, turno = linha.turno,
+                agente = Agentes.sanear(linha.agente, Provedor.CLAUDE), papel = linha.papel, status = linha.status,
+                titulo = linha.titulo, texto = linha.textoAceito, relatorioDeRevisao = linha.relatorioDeRevisaoJson,
+                auditoriaDeLinks = RepositorioDeArtefatos.lerAuditoria(linha.auditoriaDeLinksJson),
+                custoUsd = Dinheiro.deE8(linha.custoE8), artefatoAnteriorId = linha.artefatoAnteriorId, modelo = linha.modelo,
+            ),
+        ),
+    )
 
     /**
      * O markdown como o web o grava (`sanitizeText`: aparado nas pontas), ou
@@ -102,10 +146,19 @@ public class RepositorioDeArtefatos(
     internal fun inserir(entrada: EntradaDeArtefato): ArtefatoEntidade {
         val textoAceito = EstadoCircular.textoCanonico(entrada.texto)
         val titulo = Texto.sanear(entrada.titulo, 240)
-        val relatorio = Texto.sanear(entrada.relatorioDeRevisao?.takeIf { it.isNotEmpty() } ?: "{}", 120_000)
-        // O markdown é montado das colunas já saneadas e nunca é cortado: ou cabe, ou o artefato é recusado.
-        val conteudoMd = MarkdownDoArtefato.conferir(MarkdownDoArtefato.montar(entrada.copy(titulo = titulo, relatorioDeRevisao = relatorio, texto = textoAceito)))
-        val linha = ArtefatoEntidade(
+        val relatorioBruto = entrada.relatorioDeRevisao?.takeIf { it.isNotEmpty() } ?: "{}"
+        // Nada se corta: um relatório acima do teto do web é recusado, não serrado no
+        // meio do JSON; a linha tem de caber no banco; e o markdown — renderizado da
+        // própria linha, exatamente como o leitor o receberá — tem de caber no teto do
+        // web; `bytesDoConteudo` (o `content_bytes` do web) mede essa mesma renderização.
+        if (EspacoUnicode.contarPontosDeCodigo(relatorioBruto) > MarkdownDoArtefato.MAX_PONTOS_DO_RELATORIO) {
+            throw IntegridadeDeLinks.Falha("Artifact revision report exceeds ${MarkdownDoArtefato.MAX_PONTOS_DO_RELATORIO} code points.")
+        }
+        val relatorio = Texto.sanear(relatorioBruto, MarkdownDoArtefato.MAX_PONTOS_DO_RELATORIO)
+        val auditoriaJson = FormatoDeLinks.serializarLinhas(entrada.auditoriaDeLinks)
+        MarkdownDoArtefato.conferirLinha(textoAceito, relatorio, auditoriaJson)
+        MarkdownDoArtefato.conferirTexto(textoAceito)
+        val semMedida = ArtefatoEntidade(
             id = "artifact-${UUID.randomUUID()}",
             sessaoId = entrada.sessaoId,
             ciclo = entrada.ciclo,
@@ -115,15 +168,15 @@ public class RepositorioDeArtefatos(
             status = entrada.status,
             titulo = titulo,
             textoAceito = textoAceito,
-            conteudoMd = conteudoMd,
             relatorioDeRevisaoJson = relatorio,
-            auditoriaDeLinksJson = FormatoDeLinks.serializarLinhas(entrada.auditoriaDeLinks),
+            auditoriaDeLinksJson = auditoriaJson,
             custoE8 = Dinheiro.paraE8(entrada.custoUsd ?: BigDecimal.ZERO),
             modelo = entrada.modelo?.takeIf { it.isNotEmpty() },
             artefatoAnteriorId = entrada.artefatoAnteriorId?.takeIf { it.isNotEmpty() },
-            bytesDoConteudo = conteudoMd.toByteArray(Charsets.UTF_8).size.toLong(),
             criadoEm = FormatoDeInstante.iso(relogio()),
         )
+        val markdown = MarkdownDoArtefato.conferir(MarkdownDoArtefato.doArtefato(semMedida))
+        val linha = semMedida.copy(bytesDoConteudo = markdown.toByteArray(Charsets.UTF_8).size.toLong())
         banco.artefatos().inserir(linha)
         return linha
     }

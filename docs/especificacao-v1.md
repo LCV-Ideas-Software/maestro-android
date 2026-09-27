@@ -601,8 +601,11 @@ rodada de revisão cruzada e seis decisões do operador em 26/09/2026):**
     aparado como o `trim` do JavaScript, `\r\n` como `\n`, e NUL recusado,
     não apagado — e o mesmo texto vai para `sessoes.textoAtual`; a retomada
     compara as duas colunas por igualdade. O markdown do web
-    (`buildArtifactMarkdown`, byte a byte) fica em `conteudoMd`, derivado
-    para exibição e exportação, e nunca é lido de volta. Não há hash: a
+    (`buildArtifactMarkdown`, byte a byte) é renderizado da linha na hora
+    de exibir ou exportar, e não é gravado: gravá-lo duplicaria texto e
+    relatório, e uma linha acima de 2 MiB não cabe no `CursorWindow` do
+    Android; a linha do artefato (texto, relatório, auditoria) é recusada
+    acima de 1 MiB (decisão do operador de 26/09/2026). Não há hash: a
     igualdade de duas colunas é mais forte do que o hash de uma delas;
   - **a custódia circular são colunas tipadas de `sessoes`** (artefato de
     custódia e anterior, rodada, índice do turno, turno do artefato, escala,
@@ -635,10 +638,27 @@ rodada de revisão cruzada e seis decisões do operador em 26/09/2026):**
     incorrido.
 - **Nada se corta em silêncio.** Um artefato cujo markdown passaria do teto
   de 500 000 pontos de código do web é recusado no *checkpoint*, não
-  truncado; a reivindicação de uma sessão que já tinha execução fecha a
-  linha da execução superada (`superseded`), para que o orçamento de 24
-  horas não conte como viva uma execução abandonada; e a gravação das
-  configurações lê, valida e grava numa transação só.
+  truncado, e o teto é medido na mesma renderização que o leitor recebe
+  (`bytesDoConteudo` é o tamanho dela); um relatório de revisão acima dos
+  120 000 pontos de código do web é recusado, não serrado no meio do JSON;
+  o texto aceito tem teto de 512 KiB (metade da linha do artefato) onde
+  quer que seja gravado — artefato, checkpoint, texto final — e a linha de
+  `eventos` tem teto de 1 MiB, para a linha da sessão, com o protocolo de
+  até 640 KB e o pedido de até 160 KB ao lado, ficar abaixo dos 2 MiB do
+  `CursorWindow` (decisão do operador de 27/09/2026);
+  **toda saída de `queued`/`running`** — pausa no checkpoint, conclusão,
+  cancelamento pelo operador, reconciliação (`interrupted`), reivindicação
+  por outra execução (`superseded`) — fecha a linha da execução na mesma
+  transação, para que o orçamento de 24 horas nunca conte como viva uma
+  execução abandonada; o checkpoint recusa um artefato de outra sessão; as
+  listas da custódia são lidas estritamente e os contadores de turno são
+  normalizados com aritmética checada, para que uma linha corrompida falhe
+  fechado em vez de ser regravada limpa; uma tarifa que não cabe na coluna
+  de dinheiro é recusada ao salvar e inválida ao ler; um registro de
+  evidência de outra versão de esquema não volta; os armazéns em arquivo
+  recusam rodar dentro de uma transação de quem chama, porque só reclamam
+  arquivos depois de um commit; e a gravação das configurações lê, valida e
+  grava numa transação só.
 - **Oito tabelas** mais `eventos`: as do D1 (sessão, artefato,
   configurações) e as que o desktop guarda em arquivos (registros de link e o
   diário deles, registros de evidência, anexos), mais as execuções do worker,

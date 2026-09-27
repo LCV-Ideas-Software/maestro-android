@@ -52,7 +52,8 @@ class EstadoCircularTest {
         assertEquals("Circular custody progress references a reviewer outside its roster.", mensagem { validar(sessao.copy(aprovacoesEstaveisJson = "[\"grok\"]")) })
         assertEquals("Circular custody references a missing or rejected artifact.", mensagem { validar(sessao.copy(custodiaArtefatoId = "artifact-zzz")) })
         assertEquals("Circular custody references a missing or rejected artifact.", mensagem { EstadoCircular.validar(sessao) { if (it == custodia.id) custodia.copy(status = "blocked") else artefatos[it] } })
-        assertEquals("Circular custody chain references a missing previous artifact.", mensagem { validar(sessao.copy(artefatoAnteriorId = "artifact-zzz")) })
+        assertEquals("Circular custody chain references a missing or rejected previous artifact.", mensagem { validar(sessao.copy(artefatoAnteriorId = "artifact-zzz")) })
+        assertEquals("Circular custody chain references a missing or rejected previous artifact.", mensagem { EstadoCircular.validar(sessao) { if (it == anterior.id) anterior.copy(status = "running") else artefatos[it] } })
         assertEquals("Circular custody artifact author or turn does not match persisted state.", mensagem { validar(sessao.copy(turnoDoArtefato = 2)) })
         assertEquals("Circular custody artifact author or turn does not match persisted state.", mensagem { validar(sessao.copy(autorAtual = "gemini")) })
         assertEquals("Circular custody artifact text does not match the session row.", mensagem { validar(sessao.copy(textoAtual = "Outro texto.")) })
@@ -81,6 +82,8 @@ class EstadoCircularTest {
         assertNull(EstadoCircular.lerAgentes("[\"anthropic\"]"))
         assertNull(EstadoCircular.lerAgentes("{}"))
         assertNull(EstadoCircular.lerAgentes("lixo"))
+        // Lixo depois da lista é custódia corrompida, não uma lista válida (a leitura tolerante aceitaria).
+        assertNull(EstadoCircular.lerAgentes("[\"codex\",\"claude\"] []"))
         assertEquals("[\"codex\",\"gemini\"]", EstadoCircular.agentesJson(listOf(Provedor.CODEX, Provedor.GEMINI)))
     }
 
@@ -101,6 +104,19 @@ class EstadoCircularTest {
         assertEquals(2, restaurado.rodada)
         assertEquals(1, restaurado.indiceDoTurno)
         assertEquals(emptySet(), restaurado.agentesValidos)
+    }
+
+    @Test
+    fun `restaurar resolve muitas voltas de uma vez e recusa o contador que estouraria`() {
+        val muitas = EstadoCircular.restaurar(validar(sessao.copy(indiceDoTurno = 1000)), escala, Provedor.CODEX, emptyList())
+        assertEquals(334, muitas.rodada)
+        assertEquals(1, muitas.indiceDoTurno)
+        assertEquals(emptySet(), muitas.agentesValidos)
+        val estourada = validar(sessao.copy(rodada = Int.MAX_VALUE, indiceDoTurno = 4))
+        assertEquals(
+            "Circular custody progress contains invalid counters or artifact references.",
+            mensagem { EstadoCircular.restaurar(estourada, escala, Provedor.CODEX, emptyList()) },
+        )
     }
 
     @Test

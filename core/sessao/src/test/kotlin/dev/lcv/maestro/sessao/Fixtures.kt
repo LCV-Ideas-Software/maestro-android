@@ -95,7 +95,7 @@ internal object Fixtures {
     /** A linha que `RepositorioDeArtefatos.inserir` gravaria, sem banco. */
     fun artefato(id: String, entrada: EntradaDeArtefato, criadoEm: String = ISO_AGORA): ArtefatoEntidade {
         val textoAceito = EstadoCircular.textoCanonico(entrada.texto)
-        val conteudo = Texto.sanear(MarkdownDoArtefato.montar(entrada.copy(texto = textoAceito)), 500_000)
+        val conteudo = TrimJs.aparar(MarkdownDoArtefato.montar(entrada.copy(texto = textoAceito)))
         return ArtefatoEntidade(
             id = id,
             sessaoId = entrada.sessaoId,
@@ -106,7 +106,6 @@ internal object Fixtures {
             status = entrada.status,
             titulo = entrada.titulo,
             textoAceito = textoAceito,
-            conteudoMd = conteudo,
             relatorioDeRevisaoJson = entrada.relatorioDeRevisao ?: "{}",
             auditoriaDeLinksJson = "[]",
             custoE8 = Dinheiro.paraE8(entrada.custoUsd ?: BigDecimal.ZERO),

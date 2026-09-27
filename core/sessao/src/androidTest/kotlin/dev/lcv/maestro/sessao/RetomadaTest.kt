@@ -1,16 +1,19 @@
 package dev.lcv.maestro.sessao
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.provedores.Provedor
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.math.BigDecimal
 
 /**
  * A reivindicação, o checkpoint por turno e a retomada depois de o processo
@@ -92,9 +95,129 @@ class RetomadaTest {
         assertEquals(Estados.CANCELADA, t.sessoes.carregar(id)!!.status)
         assertNull(t.sessoes.carregar(id)!!.execucaoAtual)
         val outra = t.sessoes.criar(t.entrada()).id
+        val morta = reivindicar(outra)
         assertTrue(t.sessoes.marcarInterrompida(outra))
+        // Quem declarou o worker morto fechou a execução dele: ela não fica aberta no orçamento de 24 horas.
+        val fechada = t.banco.execucoes().uma(morta)!!
+        assertNotNull(fechada.fim)
+        assertEquals(RepositorioDeSessoes.MOTIVO_INTERROMPIDA, fechada.motivoDaParada)
         assertEquals(Preparacao.Perdida, t.retomada.preparar(outra))
-        assertEquals(0, t.banco.execucoes().naJanela("2000-01-01T00:00:00.000Z").size)
+        assertEquals(0, t.banco.execucoes().naJanela("2000-01-01T00:00:00.000Z").count { it.fim == null })
+    }
+
+    @Test
+    fun artefatoDeOutraSessaoNaoEntraNoCheckpoint() {
+        val a = t.sessoes.criar(t.entrada()).id
+        val b = t.sessoes.criar(t.entrada()).id
+        val execucao = reivindicar(a)
+        assertThrows(IllegalArgumentException::class.java) {
+            t.ponto.gravarTurno(
+                a, execucao, t.artefato(b, 1, Provedor.CLAUDE, papel = "draft", texto = textoDoRascunho),
+                { c -> custodia(Provedor.CLAUDE, textoDoRascunho, c!!.id, c.id, 1, 0, emptySet(), emptySet(), 1) },
+            )
+        }
+        assertEquals(0, t.artefatos.daSessao(b).size)
+        assertEquals(0, t.artefatos.daSessao(a).size)
+        assertNull(t.sessoes.carregar(a)!!.custodiaArtefatoId)
+    }
+
+    @Test
+    fun relatorioAcimaDoTetoERecusadoNoCheckpoint() {
+        val id = t.sessoes.criar(t.entrada()).id
+        val execucao = reivindicar(id)
+        val entrada = t.artefato(id, 1, Provedor.CLAUDE, papel = "draft", texto = textoDoRascunho)
+            .copy(relatorioDeRevisao = "{\"n\":\"" + "a".repeat(MarkdownDoArtefato.MAX_PONTOS_DO_RELATORIO) + "\"}")
+        val erro = assertThrows(IntegridadeDeLinks.Falha::class.java) {
+            t.ponto.gravarTurno(id, execucao, entrada, { a -> custodia(Provedor.CLAUDE, textoDoRascunho, a!!.id, a.id, 1, 0, emptySet(), emptySet(), 1) })
+        }
+        assertEquals("Artifact revision report exceeds 120000 code points.", erro.message)
+        assertEquals(0, t.artefatos.daSessao(id).size)
+        // No limite exato o relatório entra inteiro, sem corte.
+        val noLimite = entrada.copy(relatorioDeRevisao = "a".repeat(MarkdownDoArtefato.MAX_PONTOS_DO_RELATORIO))
+        val gravado = (t.ponto.gravarTurno(id, execucao, noLimite, { a -> custodia(Provedor.CLAUDE, textoDoRascunho, a!!.id, a.id, 1, 0, emptySet(), emptySet(), 1) }) as Gravacao.Gravada).artefato!!
+        assertEquals(MarkdownDoArtefato.MAX_PONTOS_DO_RELATORIO, gravado.relatorioDeRevisaoJson.length)
+    }
+
+    @Test
+    fun textoAceitoAcimaDoTetoERecusadoNoArtefatoNoCheckpointENaConclusao() {
+        val id = t.sessoes.criar(t.entrada()).id
+        val execucao = reivindicar(id)
+        val grande = "a".repeat(MarkdownDoArtefato.MAX_BYTES_DO_TEXTO + 1)
+        val mensagem = "Accepted text exceeds ${MarkdownDoArtefato.MAX_BYTES_DO_TEXTO} bytes."
+        // No artefato, mesmo com a custódia apontando para um texto curto (uma revisão bloqueada guarda o seu próprio texto).
+        val doArtefato = assertThrows(IntegridadeDeLinks.Falha::class.java) {
+            t.ponto.gravarTurno(
+                id, execucao, t.artefato(id, 1, Provedor.CLAUDE, papel = "draft", texto = grande),
+                { a -> custodia(Provedor.CLAUDE, textoDoRascunho, a!!.id, a.id, 1, 0, emptySet(), emptySet(), 1) },
+            )
+        }
+        assertEquals(mensagem, doArtefato.message)
+        assertEquals(0, t.artefatos.daSessao(id).size)
+        // No checkpoint sem artefato, com o texto da custódia grande.
+        val rascunho = (t.ponto.gravarTurno(
+            id, execucao, t.artefato(id, 1, Provedor.CLAUDE, papel = "draft", texto = textoDoRascunho),
+            { a -> custodia(Provedor.CLAUDE, textoDoRascunho, a!!.id, a.id, 1, 0, emptySet(), emptySet(), 1) },
+        ) as Gravacao.Gravada).artefato!!
+        val doCheckpoint = assertThrows(IntegridadeDeLinks.Falha::class.java) {
+            t.ponto.gravarTurno(id, execucao, null, { _ -> custodia(Provedor.CLAUDE, grande, rascunho.id, rascunho.id, 1, 1, emptySet(), emptySet(), 1) })
+        }
+        assertEquals(mensagem, doCheckpoint.message)
+        assertEquals(textoDoRascunho, t.sessoes.carregar(id)!!.textoAtual)
+        // Na conclusão.
+        val daConclusao = assertThrows(IntegridadeDeLinks.Falha::class.java) { t.sessoes.concluir(id, execucao, grande, "finished", null) }
+        assertEquals(mensagem, daConclusao.message)
+        assertEquals(Estados.RODANDO, t.sessoes.carregar(id)!!.status)
+        assertNull(t.sessoes.carregar(id)!!.textoFinal)
+    }
+
+    @Test
+    fun sairDeQueuedOuRunningFechaAExecucaoNaMesmaTransacao() {
+        // Pausa no checkpoint.
+        val pausada = t.sessoes.criar(t.entrada()).id
+        val execucaoPausada = reivindicar(pausada)
+        assertTrue(t.ponto.gravarTurno(
+            pausada, execucaoPausada, t.artefato(pausada, 1, Provedor.CLAUDE, papel = "draft", texto = textoDoRascunho),
+            { a -> custodia(Provedor.CLAUDE, textoDoRascunho, a!!.id, a.id, 1, 0, emptySet(), emptySet(), 1) },
+            status = "paused_cost_limit", erro = "teto",
+        ) is Gravacao.Gravada)
+        assertEquals("paused_cost_limit", t.banco.execucoes().uma(execucaoPausada)!!.motivoDaParada)
+        // Conclusão.
+        val concluida = t.sessoes.criar(t.entrada()).id
+        val execucaoConcluida = reivindicar(concluida)
+        assertTrue(t.sessoes.concluir(concluida, execucaoConcluida, "Texto final.", "finished", null))
+        assertEquals("finished", t.banco.execucoes().uma(execucaoConcluida)!!.motivoDaParada)
+        // Cancelamento pelo operador, com o worker ainda vivo.
+        val cancelada = t.sessoes.criar(t.entrada()).id
+        val execucaoCancelada = reivindicar(cancelada)
+        assertTrue(t.sessoes.cancelar(cancelada) is Resultado.Ok)
+        assertEquals(Estados.CANCELADA, t.banco.execucoes().uma(execucaoCancelada)!!.motivoDaParada)
+        // Um checkpoint que segue `running` deixa a execução aberta.
+        val viva = t.sessoes.criar(t.entrada()).id
+        val execucaoViva = reivindicar(viva)
+        assertTrue(t.ponto.gravarTurno(
+            viva, execucaoViva, t.artefato(viva, 1, Provedor.CLAUDE, papel = "draft", texto = textoDoRascunho),
+            { a -> custodia(Provedor.CLAUDE, textoDoRascunho, a!!.id, a.id, 1, 0, emptySet(), emptySet(), 1) },
+        ) is Gravacao.Gravada)
+        assertNull(t.banco.execucoes().uma(execucaoViva)!!.fim)
+        assertEquals(listOf(execucaoViva), t.banco.execucoes().naJanela("2000-01-01T00:00:00.000Z").filter { it.fim == null }.map { it.seq })
+    }
+
+    @Test
+    fun bytesDoConteudoMedemOMarkdownQueOLeitorRecebe() {
+        val id = t.sessoes.criar(t.entrada()).id
+        val execucao = reivindicar(id)
+        // Um custo com mais casas do que a coluna guarda: a renderização da linha (10.000000)
+        // difere da que sairia da entrada crua (9.999999), e a medida tem de ser a da linha.
+        val entrada = t.artefato(id, 1, Provedor.CLAUDE, papel = "draft", texto = textoDoRascunho).copy(custoUsd = BigDecimal("9.99999949999"))
+        val gravado = (t.ponto.gravarTurno(
+            id, execucao, entrada,
+            { a -> custodia(Provedor.CLAUDE, textoDoRascunho, a!!.id, a.id, 1, 0, emptySet(), emptySet(), 1) },
+        ) as Gravacao.Gravada).artefato!!
+        val lido = t.artefatos.um(id, gravado.id)!!
+        val markdown = MarkdownDoArtefato.doArtefato(lido)
+        assertTrue(markdown.contains("- Cost USD: 10.000000"))
+        assertEquals(markdown.toByteArray(Charsets.UTF_8).size.toLong(), lido.bytesDoConteudo)
+        assertEquals(DetalheDoArtefato.de(lido, null).conteudoMd, markdown)
     }
 
     @Test
@@ -198,6 +321,20 @@ class RetomadaTest {
     }
 
     @Test
+    fun linhaAcimaDeUmMebibyteERecusadaNoCheckpoint() {
+        val id = t.sessoes.criar(t.entrada()).id
+        val execucao = reivindicar(id)
+        val emojis = "😀".repeat(300_000)
+        try {
+            t.ponto.gravarTurno(id, execucao, t.artefato(id, 1, Provedor.CLAUDE, papel = "draft", texto = emojis), { a -> custodia(Provedor.CLAUDE, emojis, a!!.id, a.id, 1, 0, emptySet(), emptySet(), 1) })
+            fail("devia recusar")
+        } catch (erro: dev.lcv.maestro.protocolo.IntegridadeDeLinks.Falha) {
+            assertEquals("Artifact row exceeds 1048576 bytes.", erro.message)
+        }
+        assertEquals(0, t.artefatos.daSessao(id).size)
+    }
+
+    @Test
     fun textoComNulERecusadoNoCheckpoint() {
         val id = t.sessoes.criar(t.entrada()).id
         val execucao = reivindicar(id)
@@ -252,14 +389,37 @@ class RetomadaTest {
         val depois = t.sessoes.carregar(id)!!
         assertEquals(Estados.RETOMADA_INVALIDA, depois.status)
         assertEquals(preparacao.mensagem, depois.erro)
-        // A reivindicação foi desfeita com a transação: a execução que fica é a da última execução válida.
+        // A reivindicação foi desfeita com a transação: a execução que fica é a da última execução válida,
+        // e ela é fechada junto da pausa, para não ficar aberta no orçamento.
         assertEquals(execucaoAnterior, depois.execucaoAtual)
+        assertNotNull(t.banco.execucoes().uma(execucaoAnterior!!)!!.fim)
+        assertEquals(0, t.banco.execucoes().naJanela("2000-01-01T00:00:00.000Z").count { it.fim == null })
         val ultimo = t.sessoes.eventos(id).last()
         assertEquals(EventoDaSessao.BLOQUEADO, ultimo.status)
         assertEquals(Provedor.GEMINI, ultimo.agente)
         assertEquals("draft", ultimo.papel)
         assertEquals(preparacao.mensagem, ultimo.mensagem)
         assertEquals(3, t.artefatos.daSessao(id).size)
+    }
+
+    @Test
+    fun custodiaInvalidaComAExecucaoAindaAbertaFechaAExecucaoMorta() {
+        // O processo morreu em `running`, sem reconciliação; o WorkManager reexecuta o worker sobre uma custódia adulterada.
+        val id = t.sessoes.criar(t.entrada()).id
+        val morta = reivindicar(id)
+        assertTrue(t.ponto.gravarTurno(
+            id, morta, t.artefato(id, 1, Provedor.CLAUDE, papel = "draft", texto = textoDoRascunho),
+            { a -> custodia(Provedor.CLAUDE, textoDoRascunho, a!!.id, a.id, 1, 0, emptySet(), emptySet(), 1) },
+        ) is Gravacao.Gravada)
+        t.reabrir()
+        t.adulterar("UPDATE sessoes SET rodada = 0 WHERE id = '$id'")
+        assertNull(t.banco.execucoes().uma(morta)!!.fim)
+        assertTrue(t.retomada.preparar(id) is Preparacao.CustodiaInvalida)
+        assertEquals(Estados.RETOMADA_INVALIDA, t.sessoes.carregar(id)!!.status)
+        val fechada = t.banco.execucoes().uma(morta)!!
+        assertNotNull(fechada.fim)
+        assertEquals(Retomada.MOTIVO_SUPERADA, fechada.motivoDaParada)
+        assertEquals(0, t.banco.execucoes().naJanela("2000-01-01T00:00:00.000Z").count { it.fim == null })
     }
 
     @Test

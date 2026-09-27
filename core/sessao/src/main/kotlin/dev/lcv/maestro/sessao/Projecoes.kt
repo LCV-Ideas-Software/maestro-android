@@ -91,7 +91,7 @@ public data class ResumoDoArtefato(
     }
 }
 
-/** `publicArtifactDetail` (`sessions.ts:825-833`): o resumo mais o texto aceito, o markdown, o relatório e o texto anterior. */
+/** `publicArtifactDetail` (`sessions.ts:825-833`): o resumo mais o texto aceito, o markdown renderizado, o relatório e o anterior. */
 public data class DetalheDoArtefato(
     val resumo: ResumoDoArtefato,
     val textoAceito: String,
@@ -105,10 +105,10 @@ public data class DetalheDoArtefato(
         public fun de(linha: ArtefatoEntidade, anterior: ArtefatoEntidade?): DetalheDoArtefato = DetalheDoArtefato(
             resumo = ResumoDoArtefato.de(linha),
             textoAceito = linha.textoAceito,
-            conteudoMd = linha.conteudoMd,
+            conteudoMd = MarkdownDoArtefato.doArtefato(linha),
             relatorioDeRevisao = linha.relatorioDeRevisaoJson,
             auditoriaDeLinks = RepositorioDeArtefatos.lerAuditoria(linha.auditoriaDeLinksJson),
-            conteudoAnteriorMd = anterior?.conteudoMd ?: "",
+            conteudoAnteriorMd = anterior?.let(MarkdownDoArtefato::doArtefato) ?: "",
         )
     }
 }

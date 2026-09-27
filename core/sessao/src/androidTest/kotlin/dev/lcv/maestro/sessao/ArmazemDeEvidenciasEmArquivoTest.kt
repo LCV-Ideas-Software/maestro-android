@@ -86,6 +86,27 @@ class ArmazemDeEvidenciasEmArquivoTest {
         val linha = t.banco.evidencias().carregar("ev-1")!!
         t.banco.evidencias().gravar(linha.copy(registroJson = "{\"id\":"))
         assertNull(armazem.existente("ev-1"))
+        // Outra versão de esquema é "não válido", como no registro de links.
+        t.banco.evidencias().gravar(linha.copy(registroJson = linha.registroJson.replace("web_evidence.v1", "web_evidence.v2")))
+        assertNull(armazem.existente("ev-1"))
+        t.banco.evidencias().gravar(linha)
+        assertEquals("ev-1", armazem.existente("ev-1")!!.registro.id)
+    }
+
+    @Test
+    fun guardarDentroDeUmaTransacaoERecusadoAntesDeTocarEmArquivo() {
+        armazem.guardar(ColetorHttp.Coleta(registro("ev-1"), emptyMap(), corpo(10, 8)))
+        val antes = File(t.banco.evidencias().carregar("ev-1")!!.caminhoDoCorpo!!)
+        val erro = try {
+            t.banco.runInTransaction { armazem.guardar(ColetorHttp.Coleta(registro("ev-1"), emptyMap(), corpo(20, 9))) }
+            null
+        } catch (esperado: IllegalStateException) {
+            esperado
+        }
+        assertTrue(erro != null)
+        assertTrue(antes.exists())
+        assertEquals(antes.absolutePath, t.banco.evidencias().carregar("ev-1")!!.caminhoDoCorpo)
+        assertEquals(1, pasta.listFiles()!!.size)
     }
 
     private fun registro(id: String, estado: EstadoDaEvidencia = EstadoDaEvidencia.PRONTA) = RegistroDeEvidencia(

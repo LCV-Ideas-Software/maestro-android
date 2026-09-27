@@ -90,11 +90,15 @@ public data class EventoEntidade(
 )
 
 /**
- * `maestro_ai_artifacts` (`sessions.ts:517-542`) mais [textoAceito]: o texto
- * exatamente como foi aceito (canônico, [EstadoCircular.textoCanonico]), que
- * é o que a retomada compara com `sessoes.textoAtual`. [conteudoMd] é o
- * markdown do web, byte a byte, derivado para exibição e exportação e nunca
- * lido de volta.
+ * `maestro_ai_artifacts` (`sessions.ts:517-542`) com [textoAceito] no lugar
+ * de `content_md`: o texto exatamente como foi aceito (canônico,
+ * [EstadoCircular.textoCanonico]), que é o que a retomada compara com
+ * `sessoes.textoAtual`. O markdown do web é derivado destas colunas na hora
+ * de exibir ou exportar ([MarkdownDoArtefato.doArtefato]) e não é gravado:
+ * gravá-lo duplicaria o texto e o relatório na linha, e uma linha acima de
+ * 2 MiB não cabe no `CursorWindow` do Android (decisão do operador de
+ * 26/09/2026). [bytesDoConteudo] é o `content_bytes` do web, medido no
+ * markdown renderizado no checkpoint.
  */
 @Entity(
     tableName = "artefatos",
@@ -114,7 +118,6 @@ public data class ArtefatoEntidade(
     val status: String,
     val titulo: String,
     val textoAceito: String,
-    val conteudoMd: String,
     val relatorioDeRevisaoJson: String,
     val auditoriaDeLinksJson: String,
     @ColumnInfo(defaultValue = "0") val custoE8: Long = 0,

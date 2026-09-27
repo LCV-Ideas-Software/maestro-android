@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.node.ObjectNode
 import dev.lcv.maestro.protocolo.Custo
 import dev.lcv.maestro.protocolo.FormatoDeLinks
+import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.protocolo.LinhaDeLink
 import dev.lcv.maestro.provedores.Provedor
 import java.math.BigDecimal
@@ -28,19 +29,31 @@ public data class EventoDaSessao(
     val auditoriaDeLinks: List<LinhaDeLink>? = null,
     val auditoriaFinal: ObjectNode? = null,
 ) {
-    internal fun paraEntidade(sessaoId: String): EventoEntidade = EventoEntidade(
-        sessaoId = sessaoId,
-        em = em,
-        agente = agente?.agente,
-        papel = papel,
-        status = status,
-        mensagem = mensagem,
-        custoE8 = custoUsd?.let(Dinheiro::paraE8),
-        fonteDoCusto = fonteDoCusto?.let { if (it == Custo.Fonte.PROVEDOR) "provider" else "estimate" },
-        modelo = modelo,
-        auditoriaDeLinksJson = auditoriaDeLinks?.let(FormatoDeLinks::serializarLinhas),
-        auditoriaFinalJson = auditoriaFinal?.let { Json.ESTRITO.writeValueAsString(it) },
-    )
+    /**
+     * A linha a gravar, ou [IntegridadeDeLinks.Falha] se mensagem, auditoria de
+     * links e auditoria final passariam de [MarkdownDoArtefato.MAX_BYTES_DA_LINHA]
+     * em UTF-8: uma linha acima do `CursorWindow` não seria lida de volta
+     * (decisão do operador de 27/09/2026).
+     */
+    internal fun paraEntidade(sessaoId: String): EventoEntidade {
+        val auditoriaDeLinksJson = auditoriaDeLinks?.let(FormatoDeLinks::serializarLinhas)
+        val auditoriaFinalJson = auditoriaFinal?.let { Json.ESTRITO.writeValueAsString(it) }
+        val bytes = listOfNotNull(mensagem, auditoriaDeLinksJson, auditoriaFinalJson).sumOf { it.toByteArray(Charsets.UTF_8).size.toLong() }
+        if (bytes > MarkdownDoArtefato.MAX_BYTES_DA_LINHA) throw IntegridadeDeLinks.Falha("Event row exceeds ${MarkdownDoArtefato.MAX_BYTES_DA_LINHA} bytes.")
+        return EventoEntidade(
+            sessaoId = sessaoId,
+            em = em,
+            agente = agente?.agente,
+            papel = papel,
+            status = status,
+            mensagem = mensagem,
+            custoE8 = custoUsd?.let(Dinheiro::paraE8),
+            fonteDoCusto = fonteDoCusto?.let { if (it == Custo.Fonte.PROVEDOR) "provider" else "estimate" },
+            modelo = modelo,
+            auditoriaDeLinksJson = auditoriaDeLinksJson,
+            auditoriaFinalJson = auditoriaFinalJson,
+        )
+    }
 
     public companion object {
         public const val NA_FILA: String = "queued"

@@ -8,7 +8,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
-/** `buildArtifactMarkdown`: o markdown derivado, byte a byte o do web. */
+/** `buildArtifactMarkdown`: o markdown derivado, byte a byte o do web, e os tetos da linha. */
 class MarkdownDoArtefatoTest {
 
     @Test
@@ -55,9 +55,31 @@ class MarkdownDoArtefatoTest {
     }
 
     @Test
-    fun `a linha do artefato guarda o texto aceito canonico ao lado do markdown derivado`() {
-        val artefato = Fixtures.artefato("a", Fixtures.entrada(texto = "﻿Linha 1\r\nLinha 2\n"))
+    fun `a linha guarda o texto aceito canonico e o markdown e renderizado dela`() {
+        val entrada = Fixtures.entrada(texto = "﻿Linha 1\r\nLinha 2\n", relatorio = "{\"a\":1}", custoUsd = BigDecimal("0.5"), modelo = "m", anteriorId = "artifact-x")
+        val artefato = Fixtures.artefato("a", entrada)
         assertEquals("Linha 1\nLinha 2", artefato.textoAceito)
-        assertTrue(artefato.conteudoMd.endsWith("## Current Text\n\nLinha 1\nLinha 2"))
+        val markdown = MarkdownDoArtefato.doArtefato(artefato)
+        assertEquals(MarkdownDoArtefato.montar(entrada.copy(texto = "Linha 1\nLinha 2")).dropLast(1), markdown)
+        assertTrue(markdown.endsWith("## Current Text\n\nLinha 1\nLinha 2"))
+    }
+
+    @Test
+    fun `o texto aceito acima de meio mebibyte e recusado`() {
+        assertEquals(MarkdownDoArtefato.MAX_BYTES_DA_LINHA / 2, MarkdownDoArtefato.MAX_BYTES_DO_TEXTO)
+        MarkdownDoArtefato.conferirTexto("a".repeat(MarkdownDoArtefato.MAX_BYTES_DO_TEXTO))
+        val erro = assertFailsWith<IntegridadeDeLinks.Falha> { MarkdownDoArtefato.conferirTexto("a".repeat(MarkdownDoArtefato.MAX_BYTES_DO_TEXTO + 1)) }
+        assertEquals("Accepted text exceeds 524288 bytes.", erro.message)
+        // Bytes, não pontos de código: 200 000 emojis são 800 KB.
+        assertFailsWith<IntegridadeDeLinks.Falha> { MarkdownDoArtefato.conferirTexto("😀".repeat(200_000)) }
+    }
+
+    @Test
+    fun `a linha acima de um mebibyte e recusada`() {
+        MarkdownDoArtefato.conferirLinha("a".repeat(MarkdownDoArtefato.MAX_BYTES_DA_LINHA - 4), "{}", "[]")
+        val erro = assertFailsWith<IntegridadeDeLinks.Falha> { MarkdownDoArtefato.conferirLinha("a".repeat(MarkdownDoArtefato.MAX_BYTES_DA_LINHA - 3), "{}", "[]") }
+        assertEquals("Artifact row exceeds 1048576 bytes.", erro.message)
+        // Bytes, não pontos de código: 300 000 emojis são 1,2 MB.
+        assertFailsWith<IntegridadeDeLinks.Falha> { MarkdownDoArtefato.conferirLinha("😀".repeat(300_000), "{}", "[]") }
     }
 }

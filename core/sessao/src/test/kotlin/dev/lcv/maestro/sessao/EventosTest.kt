@@ -1,10 +1,12 @@
 package dev.lcv.maestro.sessao
 
 import dev.lcv.maestro.protocolo.Custo
+import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.provedores.Provedor
 import java.math.BigDecimal
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 /** `SessionEvent` como linha da tabela `eventos`: ida e volta, e leitura tolerante do que é JSON. */
@@ -25,6 +27,18 @@ class EventosTest {
         assertEquals("estimate", linha.fonteDoCusto)
         assertEquals(12345L, linha.custoE8)
         assertEquals(evento, linha.paraEvento())
+    }
+
+    @Test
+    fun `linha de evento acima de um mebibyte e recusada, nunca cortada`() {
+        val teto = MarkdownDoArtefato.MAX_BYTES_DA_LINHA
+        val semAuditoria = evento.copy(auditoriaDeLinks = null, auditoriaFinal = null)
+        // No limite exato entra inteira; um byte a mais, em qualquer coluna, é recusado.
+        assertEquals(teto, semAuditoria.copy(mensagem = "a".repeat(teto)).paraEntidade("android-1").mensagem.length)
+        val erro = assertFailsWith<IntegridadeDeLinks.Falha> { semAuditoria.copy(mensagem = "a".repeat(teto + 1)).paraEntidade("android-1") }
+        assertEquals("Event row exceeds $teto bytes.", erro.message)
+        val auditoriaFinal = Json.ESTRITO.createObjectNode().put("texto", "é".repeat(teto / 2))
+        assertFailsWith<IntegridadeDeLinks.Falha> { semAuditoria.copy(mensagem = "x", auditoriaFinal = auditoriaFinal).paraEntidade("android-1") }
     }
 
     @Test

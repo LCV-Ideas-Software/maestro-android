@@ -76,6 +76,8 @@ class ConfiguracoesTest {
         val comTeto = assertIs<Resultado.Ok<EntradaResolvida>>(resolver(PedidoDeInicio(pedido = "x", tetoDeCustoUsd = BigDecimal("0.5")), configuracoes.copy(tetoDeCustoUsd = BigDecimal.ZERO))).valor
         assertEquals(BigDecimal("0.5"), comTeto.tetoDeCustoUsd)
         assertEquals("Ciclos maximos devem estar entre 1 e 5 nas configuracoes.", recusa(resolver(configuracoes = configuracoes.copy(maxCiclos = 6))))
+        assertEquals(RepositorioDeConfiguracoes.MENSAGEM_TETO_ACIMA_DO_MAXIMO, recusa(resolver(PedidoDeInicio(pedido = "x", tetoDeCustoUsd = Dinheiro.MAXIMO.add(BigDecimal("0.00000001"))))))
+        assertIs<Resultado.Ok<EntradaResolvida>>(resolver(PedidoDeInicio(pedido = "x", tetoDeCustoUsd = Dinheiro.MAXIMO)))
     }
 
     @Test

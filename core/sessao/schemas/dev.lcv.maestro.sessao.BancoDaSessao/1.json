@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "c3044ce7e5ac7f901b79126b869267f3",
+    "identityHash": "7023655759b240ea298c1ac21092d54b",
     "entities": [
       {
         "tableName": "sessoes",
@@ -296,7 +296,7 @@
       },
       {
         "tableName": "artefatos",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `sessaoId` TEXT NOT NULL, `ciclo` INTEGER NOT NULL, `turno` INTEGER NOT NULL, `agente` TEXT NOT NULL, `papel` TEXT NOT NULL, `status` TEXT NOT NULL, `titulo` TEXT NOT NULL, `textoAceito` TEXT NOT NULL, `conteudoMd` TEXT NOT NULL, `relatorioDeRevisaoJson` TEXT NOT NULL, `auditoriaDeLinksJson` TEXT NOT NULL, `custoE8` INTEGER NOT NULL DEFAULT 0, `modelo` TEXT, `artefatoAnteriorId` TEXT, `bytesDoConteudo` INTEGER NOT NULL DEFAULT 0, `criadoEm` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`sessaoId`) REFERENCES `sessoes`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `sessaoId` TEXT NOT NULL, `ciclo` INTEGER NOT NULL, `turno` INTEGER NOT NULL, `agente` TEXT NOT NULL, `papel` TEXT NOT NULL, `status` TEXT NOT NULL, `titulo` TEXT NOT NULL, `textoAceito` TEXT NOT NULL, `relatorioDeRevisaoJson` TEXT NOT NULL, `auditoriaDeLinksJson` TEXT NOT NULL, `custoE8` INTEGER NOT NULL DEFAULT 0, `modelo` TEXT, `artefatoAnteriorId` TEXT, `bytesDoConteudo` INTEGER NOT NULL DEFAULT 0, `criadoEm` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`sessaoId`) REFERENCES `sessoes`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -349,12 +349,6 @@
           {
             "fieldPath": "textoAceito",
             "columnName": "textoAceito",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "conteudoMd",
-            "columnName": "conteudoMd",
             "affinity": "TEXT",
             "notNull": true
           },
@@ -794,7 +788,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c3044ce7e5ac7f901b79126b869267f3')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '7023655759b240ea298c1ac21092d54b')"
     ]
   }
 }

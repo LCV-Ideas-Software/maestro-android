@@ -31,6 +31,19 @@ class TaxasTest {
     }
 
     @Test
+    fun `tarifa que nao cabe na coluna de dinheiro e invalida como uma negativa`() {
+        val enorme = bd("1e30")
+        val saneadas = Taxas.sanear(mapOf(Provedor.CLAUDE to Custo.Taxas(enorme, bd("80"), enorme)))
+        assertEquals(bd("10"), saneadas.getValue(Provedor.CLAUDE).entradaPorMilhao)
+        assertEquals(bd("80"), saneadas.getValue(Provedor.CLAUDE).saidaPorMilhao)
+        assertEquals(BigDecimal.ZERO, saneadas.getValue(Provedor.CLAUDE).requisicoesPorMil)
+        assertTrue(Taxas.valida(Dinheiro.MAXIMO))
+        assertFalse(Taxas.valida(Dinheiro.MAXIMO.add(bd("0.00000001"))))
+        assertTrue(Taxas.algumaNaoCabe(mapOf(Provedor.GROK to Custo.Taxas(bd("2"), enorme))))
+        assertFalse(Taxas.algumaNaoCabe(mapOf(Provedor.GROK to Custo.Taxas(bd("2"), bd("-1")), Provedor.CODEX to null)))
+    }
+
+    @Test
     fun `taxa por mil requisicoes fica se positiva, senao o padrao`() {
         val saneadas = Taxas.sanear(mapOf(Provedor.PERPLEXITY to Custo.Taxas(bd("1"), bd("5"), bd("0")), Provedor.CLAUDE to Custo.Taxas(bd("20"), bd("60"), bd("3"))))
         assertEquals(bd("14"), saneadas.getValue(Provedor.PERPLEXITY).requisicoesPorMil)

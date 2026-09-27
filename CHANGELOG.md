@@ -43,11 +43,30 @@ All material changes to Maestro Android are recorded here.
   - money is stored as integers of 10⁻⁸ USD (`BigDecimal` in the API), and
     the observed-cost floor is one atomic `MAX` update outside the
     checkpoint transaction;
-  - an artifact whose markdown would exceed the web's 500 000-code-point cap
-    is refused at the checkpoint instead of being truncated; a takeover
-    closes the superseded execution's row so the 24-hour budget never counts
-    an abandoned execution as still running; and a settings save runs its
-    read, rules and write in one transaction;
+  - the artifact row is not allowed to outgrow Android's `CursorWindow`: the
+    web's markdown is rendered from the row on demand instead of being
+    stored beside the accepted text, a row above 1 MiB (text, report and
+    audit) is refused at the checkpoint, and a markdown above the web's
+    500 000-code-point cap is refused instead of being truncated, measured on
+    the same rendering the reader receives, and so is a revision report above
+    the web's 120 000 code points; the accepted text is capped at 512 KiB
+    (half the artifact row) wherever it is written (artifact, checkpoint,
+    final text) and an event row at 1 MiB, so the session row stays under
+    the `CursorWindow` with the 640 KB protocol and the 160 KB request
+    beside it; every transition that leaves
+    `queued`/`running` (a pause at the checkpoint, the conclusion, the
+    operator's cancellation, the reconciliation that declares a worker dead,
+    a takeover) closes the session's execution row in the same transaction,
+    so the 24-hour budget never counts an abandoned execution as still
+    running; the checkpoint refuses an artifact that belongs to another
+    session; the custody lists are read strictly and the turn counters are
+    normalised with checked arithmetic, so a corrupted row fails closed
+    instead of being rewritten; a provider rate that would not fit the money
+    column is refused at save and treated as invalid on read; evidence
+    records of another schema version are not returned; file-backed stores
+    refuse to run inside a caller's transaction, since they reclaim files
+    only after a commit; and a settings save runs its read, rules and write
+    in one transaction;
   - the tables the desktop keeps as files (link records and their journal,
     evidence records, attachments) and one row per worker execution, so the
     app can show what is left of the 24-hour `dataSync` budget (executions

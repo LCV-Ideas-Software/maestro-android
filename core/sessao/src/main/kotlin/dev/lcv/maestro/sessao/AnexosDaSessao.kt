@@ -21,6 +21,7 @@ public class AnexosDaSessao(
 ) {
     public fun adicionar(sessaoId: String, nomeOriginal: String, tipoDeMidia: String, bytes: ByteArray): Resultado<AnexoEntidade> =
         synchronized(this) {
+            check(!banco.inTransaction()) { "attachment files are published and reclaimed outside any transaction" }
             if (bytes.size > MAX_BYTES) return Resultado.Recusado(MENSAGEM_ACIMA_DO_TETO)
             val id = "anexo-${UUID.randomUUID()}"
             val arquivo = Geracoes.gravar(pasta, id, bytes)
@@ -50,8 +51,9 @@ public class AnexosDaSessao(
 
     public fun daSessao(sessaoId: String): List<AnexoEntidade> = banco.anexos().daSessao(sessaoId)
 
-    /** A linha some primeiro; o arquivo, depois. Devolve se havia o anexo. */
+    /** A linha some primeiro (commit próprio); o arquivo, depois. Devolve se havia o anexo. Nunca dentro de uma transação de quem chama. */
     public fun remover(id: String): Boolean = synchronized(this) {
+        check(!banco.inTransaction()) { "attachment files are published and reclaimed outside any transaction" }
         val linha = banco.anexos().um(id) ?: return false
         banco.anexos().remover(id)
         File(linha.caminho).delete()
