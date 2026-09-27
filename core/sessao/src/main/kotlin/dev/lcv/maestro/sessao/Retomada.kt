@@ -126,20 +126,28 @@ public class Retomada(
      * `paused_resume_state_invalid`, com o evento bloqueado do web.
      */
     public fun preparar(id: String): Preparacao {
-        val linha = sessoes.carregar(id) ?: return Preparacao.SessaoAusente
-        val (lider, escala) = escala(linha)
-        // `isResume` (`sessions.ts:3383`): texto aceito e autor presentes; uma
-        // sessão nova guarda o conteúdo inicial com autor nulo.
-        val ehRetomada = TrimJs.aparar(linha.textoAtual).isNotEmpty() && linha.autorAtual != null
-        val autorAtual = Agentes.sanear(linha.autorAtual, lider)
+        if (sessoes.carregar(id) == null) return Preparacao.SessaoAusente
+        // Tudo o que decide o caminho — escala, líder, autor, `isResume` — vem da
+        // linha lida DENTRO da transação, depois de reivindicada: uma leitura de
+        // fora poderia ser de antes do checkpoint da execução anterior (achado do
+        // Codex na #67). Os dois valores abaixo existem só para o bloco `catch`.
+        var autorAtual: Provedor = Provedor.CLAUDE
         return try {
             banco.runInTransaction<Preparacao> {
                 // O portão está na própria reivindicação (`WHERE status IN (queued, running)`):
                 // zero linhas é uma sessão cancelada ou reconciliada, e a transação desfaz a
-                // linha de `execucoes` que acabou de nascer.
-                val viva = sessoes.carregar(id) ?: throw CasPerdido()
+                // linha de `execucoes` que acabou de nascer. A execução que estava na linha
+                // (a que morreu) é encerrada aqui, para não ficar aberta no orçamento.
+                val anterior = sessoes.carregar(id) ?: throw CasPerdido()
+                anterior.execucaoAtual?.let { banco.execucoes().encerrar(it, agora(), MOTIVO_SUPERADA) }
                 val execucao = banco.execucoes().inserir(ExecucaoEntidade(sessaoId = id, inicio = agora()))
                 if (banco.sessoes().reivindicar(id, execucao, agora()) == 0) throw CasPerdido()
+                val viva = sessoes.carregar(id)!!
+                val (lider, escala) = escala(viva)
+                // `isResume` (`sessions.ts:3383`): texto aceito e autor presentes; uma
+                // sessão nova guarda o conteúdo inicial com autor nulo.
+                val ehRetomada = TrimJs.aparar(viva.textoAtual).isNotEmpty() && viva.autorAtual != null
+                autorAtual = Agentes.sanear(viva.autorAtual, lider)
                 val eventos = sessoes.eventos(id)
                 if (!ehRetomada) {
                     return@runInTransaction Preparacao.Nova(sessoes.carregar(id)!!, escala, lider, eventos, execucao, FormatoDeInstante.ler(viva.criadaEm) ?: relogio())
@@ -164,9 +172,11 @@ public class Retomada(
                 Preparacao.Retomar(sessoes.carregar(id)!!, escala, lider, eventos + eventoDeRetomada, autorAtual, custodia.textoAtual, restaurado, execucao, relogio())
             }
         } catch (erro: IntegridadeDeLinks.Falha) {
+            // A pausa e o evento bloqueado vão numa transação só: um processo morto
+            // entre os dois deixaria a sessão ativa com o jornal já dizendo que travou.
             val mensagem = "Circular custody integrity check failed: ${erro.message}"
-            sessoes.anotar(id, EventoDaSessao(em = agora(), agente = autorAtual, papel = "draft", status = EventoDaSessao.BLOQUEADO, mensagem = mensagem))
-            sessoes.transicionar(id, Estados.RETOMADA_INVALIDA, mensagem, null)
+            val bloqueado = EventoDaSessao(em = agora(), agente = autorAtual, papel = "draft", status = EventoDaSessao.BLOQUEADO, mensagem = mensagem)
+            sessoes.transicionar(id, Estados.RETOMADA_INVALIDA, mensagem, bloqueado)
             Preparacao.CustodiaInvalida(mensagem)
         } catch (perdido: CasPerdido) {
             Preparacao.Perdida
@@ -176,6 +186,8 @@ public class Retomada(
     public companion object {
         public const val MENSAGEM_MUDOU_DE_ESTADO: String = "Sessao mudou de estado durante a retomada; tente novamente."
         public const val MENSAGEM_RETOMADA: String = "Session resumed: draft phase skipped and circular custody state restored."
+        /** O rótulo da execução que outra tomou o lugar (a anterior morreu sem fechar a sua linha). */
+        public const val MOTIVO_SUPERADA: String = "superseded"
     }
 }
 

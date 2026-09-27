@@ -71,9 +71,15 @@ class RetomadaTest {
         assertEquals(Provedor.CLAUDE, preparacao.lider)
         assertEquals(escala, preparacao.escala)
         assertEquals(1, preparacao.eventos.size)
-        // Uma segunda execução reivindica de novo (a primeira morreu): a antiga perde a cerca.
+        // Uma segunda execução reivindica de novo (a primeira morreu): a antiga perde a cerca
+        // e a sua linha é fechada, para não ficar aberta no orçamento de 24 horas.
         val segunda = t.retomada.preparar(id) as Preparacao.Nova
         assertTrue(segunda.execucao > preparacao.execucao)
+        val superada = t.banco.execucoes().uma(preparacao.execucao)!!
+        assertNotNull(superada.fim)
+        assertEquals(Retomada.MOTIVO_SUPERADA, superada.motivoDaParada)
+        assertNull(t.banco.execucoes().uma(segunda.execucao)!!.fim)
+        assertEquals(1, t.banco.execucoes().naJanela("2000-01-01T00:00:00.000Z").count { it.fim == null })
         assertFalse(t.sessoes.anotar(id, t.evento(EventoDaSessao.RODANDO, "tardio"), execucao = preparacao.execucao))
         assertTrue(t.sessoes.anotar(id, t.evento(EventoDaSessao.RODANDO, "atual"), execucao = segunda.execucao))
     }
@@ -89,6 +95,22 @@ class RetomadaTest {
         assertTrue(t.sessoes.marcarInterrompida(outra))
         assertEquals(Preparacao.Perdida, t.retomada.preparar(outra))
         assertEquals(0, t.banco.execucoes().naJanela("2000-01-01T00:00:00.000Z").size)
+    }
+
+    @Test
+    fun prepararLeOEstadoDaLinhaDepoisDeReivindicar() {
+        // A execução anterior gravou o rascunho aceito; a que a substitui tem de ver a custódia e retomar, não redigir de novo.
+        val id = t.sessoes.criar(t.entrada()).id
+        val antiga = reivindicar(id)
+        assertTrue(t.ponto.gravarTurno(
+            id, antiga, t.artefato(id, 1, Provedor.CLAUDE, papel = "draft", texto = textoDoRascunho),
+            { a -> custodia(Provedor.CLAUDE, textoDoRascunho, a!!.id, a.id, 1, 0, emptySet(), emptySet(), 1) },
+        ) is Gravacao.Gravada)
+        val nova = t.retomada.preparar(id) as Preparacao.Retomar
+        assertEquals(Provedor.CLAUDE, nova.autorAtual)
+        assertEquals(textoDoRascunho, nova.textoAtual)
+        assertEquals(0, nova.progresso.indiceDoTurno)
+        assertTrue(nova.execucao > antiga)
     }
 
     @Test
@@ -159,6 +181,20 @@ class RetomadaTest {
         }
         assertEquals(0, t.artefatos.daSessao(id).size)
         assertNull(t.sessoes.carregar(id)!!.custodiaArtefatoId)
+    }
+
+    @Test
+    fun markdownAcimaDoTetoERecusadoNoCheckpoint() {
+        val id = t.sessoes.criar(t.entrada()).id
+        val execucao = reivindicar(id)
+        val enorme = "a".repeat(MarkdownDoArtefato.MAX_PONTOS_DE_CODIGO)
+        try {
+            t.ponto.gravarTurno(id, execucao, t.artefato(id, 1, Provedor.CLAUDE, papel = "draft", texto = enorme), { a -> custodia(Provedor.CLAUDE, enorme, a!!.id, a.id, 1, 0, emptySet(), emptySet(), 1) })
+            fail("devia recusar")
+        } catch (erro: dev.lcv.maestro.protocolo.IntegridadeDeLinks.Falha) {
+            assertEquals("Artifact markdown exceeds 500000 code points.", erro.message)
+        }
+        assertEquals(0, t.artefatos.daSessao(id).size)
     }
 
     @Test

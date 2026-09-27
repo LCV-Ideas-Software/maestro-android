@@ -43,6 +43,11 @@ All material changes to Maestro Android are recorded here.
   - money is stored as integers of 10⁻⁸ USD (`BigDecimal` in the API), and
     the observed-cost floor is one atomic `MAX` update outside the
     checkpoint transaction;
+  - an artifact whose markdown would exceed the web's 500 000-code-point cap
+    is refused at the checkpoint instead of being truncated; a takeover
+    closes the superseded execution's row so the 24-hour budget never counts
+    an abandoned execution as still running; and a settings save runs its
+    read, rules and write in one transaction;
   - the tables the desktop keeps as files (link records and their journal,
     evidence records, attachments) and one row per worker execution, so the
     app can show what is left of the 24-hour `dataSync` budget (executions

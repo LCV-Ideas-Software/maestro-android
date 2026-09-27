@@ -1,6 +1,8 @@
 package dev.lcv.maestro.sessao
 
+import dev.lcv.maestro.protocolo.EspacoUnicode
 import dev.lcv.maestro.protocolo.FormatoDeLinks
+import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.protocolo.LinhaDeLink
 import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.sessao.Agentes.rotulo
@@ -34,6 +36,21 @@ public data class EntradaDeArtefato(
  * e nunca é lido de volta; o texto aceito vive na coluna própria do artefato.
  */
 public object MarkdownDoArtefato {
+
+    /** `sanitizeText(buildArtifactMarkdown(...), 500_000)`: o teto do web para o markdown inteiro. */
+    public const val MAX_PONTOS_DE_CODIGO: Int = 500_000
+
+    /**
+     * O markdown como o web o grava (`sanitizeText`: aparado nas pontas), ou
+     * [IntegridadeDeLinks.Falha] acima do teto — o web cortaria em silêncio e
+     * a exportação mostraria um texto pela metade (achado do Codex na #67).
+     */
+    public fun conferir(markdown: String): String {
+        if (EspacoUnicode.contarPontosDeCodigo(markdown) > MAX_PONTOS_DE_CODIGO) {
+            throw IntegridadeDeLinks.Falha("Artifact markdown exceeds $MAX_PONTOS_DE_CODIGO code points.")
+        }
+        return TrimJs.aparar(markdown)
+    }
 
     /** `falhas` do motor (`IntegridadeDeLinks.kt`): `tom` de erro ou bloqueio; o web contava `!ok`. */
     public fun contarInvalidos(auditoria: List<LinhaDeLink>): Int = auditoria.count { it.tom == "error" || it.tom == "blocked" }
@@ -84,7 +101,10 @@ public class RepositorioDeArtefatos(
     /** A linha gravada; [EntradaDeArtefato.texto] é canonizado uma vez e é o que a custódia compara. */
     internal fun inserir(entrada: EntradaDeArtefato): ArtefatoEntidade {
         val textoAceito = EstadoCircular.textoCanonico(entrada.texto)
-        val conteudoMd = Texto.sanear(MarkdownDoArtefato.montar(entrada.copy(texto = textoAceito)), 500_000)
+        val titulo = Texto.sanear(entrada.titulo, 240)
+        val relatorio = Texto.sanear(entrada.relatorioDeRevisao?.takeIf { it.isNotEmpty() } ?: "{}", 120_000)
+        // O markdown é montado das colunas já saneadas e nunca é cortado: ou cabe, ou o artefato é recusado.
+        val conteudoMd = MarkdownDoArtefato.conferir(MarkdownDoArtefato.montar(entrada.copy(titulo = titulo, relatorioDeRevisao = relatorio, texto = textoAceito)))
         val linha = ArtefatoEntidade(
             id = "artifact-${UUID.randomUUID()}",
             sessaoId = entrada.sessaoId,
@@ -93,10 +113,10 @@ public class RepositorioDeArtefatos(
             agente = entrada.agente.agente,
             papel = entrada.papel,
             status = entrada.status,
-            titulo = Texto.sanear(entrada.titulo, 240),
+            titulo = titulo,
             textoAceito = textoAceito,
             conteudoMd = conteudoMd,
-            relatorioDeRevisaoJson = Texto.sanear(entrada.relatorioDeRevisao?.takeIf { it.isNotEmpty() } ?: "{}", 120_000),
+            relatorioDeRevisaoJson = relatorio,
             auditoriaDeLinksJson = FormatoDeLinks.serializarLinhas(entrada.auditoriaDeLinks),
             custoE8 = Dinheiro.paraE8(entrada.custoUsd ?: BigDecimal.ZERO),
             modelo = entrada.modelo?.takeIf { it.isNotEmpty() },

@@ -218,6 +218,10 @@ public interface ExecucaoDao {
     @Query("SELECT * FROM execucoes WHERE seq = :seq LIMIT 1")
     public fun uma(seq: Long): ExecucaoEntidade?
 
+    /** Fecha uma execução que ainda estava aberta (a superada numa retomada, ou a que terminou); a já fechada fica como está. */
+    @Query("UPDATE execucoes SET fim = COALESCE(fim, :fim), motivoDaParada = COALESCE(motivoDaParada, :motivo) WHERE seq = :seq")
+    public fun encerrar(seq: Long, fim: String, motivo: String): Int
+
     /**
      * As execuções que tocam a janela que começa em [desde], para a soma do
      * orçamento de 24 horas: as que começaram dentro dela, as que ainda não

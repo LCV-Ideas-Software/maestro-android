@@ -102,8 +102,16 @@ public class RepositorioDeConfiguracoes(
         )
     }
 
-    /** `handleMaestroAiSettingsPut`, com as mensagens do web e o teto de minutos do produto. */
-    public fun salvar(pedido: PedidoDeConfiguracoes): Resultado<Configuracoes> {
+    /**
+     * `handleMaestroAiSettingsPut`, com as mensagens do web e o teto de minutos
+     * do produto. Leitura, regras e gravação numa transação: dois salvamentos
+     * que se cruzam não desfazem um ao outro (achado do Codex na #67).
+     */
+    public fun salvar(pedido: PedidoDeConfiguracoes): Resultado<Configuracoes> = banco.runInTransaction<Resultado<Configuracoes>> {
+        salvarDentroDaTransacao(pedido)
+    }
+
+    private fun salvarDentroDaTransacao(pedido: PedidoDeConfiguracoes): Resultado<Configuracoes> {
         val atual = banco.configuracoes().carregar()
         val protocolo = Texto.sanear(pedido.protocolo ?: atual?.protocolo ?: PROTOCOLO_PADRAO, 160_000)
         val tetoDeCustoUsd = pedido.tetoDeCustoUsd ?: atual?.let { Dinheiro.deE8(it.tetoDeCustoE8) } ?: BigDecimal.ZERO

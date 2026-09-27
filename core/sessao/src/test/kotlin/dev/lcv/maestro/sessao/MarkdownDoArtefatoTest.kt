@@ -1,9 +1,11 @@
 package dev.lcv.maestro.sessao
 
+import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.provedores.Provedor
 import java.math.BigDecimal
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /** `buildArtifactMarkdown`: o markdown derivado, byte a byte o do web. */
@@ -41,6 +43,15 @@ class MarkdownDoArtefatoTest {
         assertTrue("- Invalid links: 2\n" in markdown)
         assertTrue("\"link_id\": \"a\"" in markdown)
         assertEquals(2, MarkdownDoArtefato.contarInvalidos(linhas))
+    }
+
+    @Test
+    fun `markdown acima do teto e recusado, nunca cortado`() {
+        val normal = MarkdownDoArtefato.montar(Fixtures.entrada(texto = "Texto."))
+        assertEquals(normal.dropLast(1), MarkdownDoArtefato.conferir(normal))
+        val grande = assertFailsWith<IntegridadeDeLinks.Falha> { MarkdownDoArtefato.conferir("😀".repeat(MarkdownDoArtefato.MAX_PONTOS_DE_CODIGO + 1)) }
+        assertEquals("Artifact markdown exceeds 500000 code points.", grande.message)
+        assertEquals(MarkdownDoArtefato.MAX_PONTOS_DE_CODIGO * 2, MarkdownDoArtefato.conferir("😀".repeat(MarkdownDoArtefato.MAX_PONTOS_DE_CODIGO)).length)
     }
 
     @Test

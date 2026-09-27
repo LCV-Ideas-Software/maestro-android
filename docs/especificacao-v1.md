@@ -76,8 +76,8 @@ precisa estar dito desde o começo, porque muda o tamanho das entregas.
 As faixas de linha são as fronteiras reais das funções no arquivo, não
 estimativas. **Medidas de novo em 25/09/2026 sobre o `c70dc54f` (4.860
 linhas)**, antes da terceira entrega: a medição de 21/09/2026 era sobre o
-arquivo de 4.705 linhas, e quatro pull requests de 22/09/2026 (#652, #657,
-#658, #659) moveram todas as unidades. As unidades e os destinos não
+arquivo de 4.705 linhas, e quatro pull requests de 22/09/2026 (as de
+número 652, 657, 658 e 659) moveram todas as unidades. As unidades e os destinos não
 mudaram; só as linhas.
 
 | Unidade | Linhas | Destino no Android |
@@ -633,6 +633,12 @@ rodada de revisão cruzada e seis decisões do operador em 26/09/2026):**
     `SET custo = MAX(custo, :novo)`, atômico e sem portão, nunca dentro da
     transação do checkpoint, para que um checkpoint desfeito não apague gasto
     incorrido.
+- **Nada se corta em silêncio.** Um artefato cujo markdown passaria do teto
+  de 500 000 pontos de código do web é recusado no *checkpoint*, não
+  truncado; a reivindicação de uma sessão que já tinha execução fecha a
+  linha da execução superada (`superseded`), para que o orçamento de 24
+  horas não conte como viva uma execução abandonada; e a gravação das
+  configurações lê, valida e grava numa transação só.
 - **Oito tabelas** mais `eventos`: as do D1 (sessão, artefato,
   configurações) e as que o desktop guarda em arquivos (registros de link e o
   diário deles, registros de evidência, anexos), mais as execuções do worker,
