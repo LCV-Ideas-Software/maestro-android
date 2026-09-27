@@ -144,9 +144,11 @@ public class Retomada(
                 if (banco.sessoes().reivindicar(id, execucao, agora()) == 0) throw CasPerdido()
                 val viva = sessoes.carregar(id)!!
                 val (lider, escala) = escala(viva)
-                // `isResume` (`sessions.ts:3383`): texto aceito e autor presentes; uma
-                // sessão nova guarda o conteúdo inicial com autor nulo.
-                val ehRetomada = TrimJs.aparar(viva.textoAtual).isNotEmpty() && viva.autorAtual != null
+                // `isResume` (`sessions.ts:3383`) pede texto aceito E autor; aqui basta o
+                // autor: uma sessão nova guarda o conteúdo inicial com autor nulo, e um
+                // autor gravado com texto vazio é custódia inválida, que `validar` recusa —
+                // não uma sessão nova a redigir de novo por dinheiro (achado do Codex na #67).
+                val ehRetomada = viva.autorAtual != null
                 autorAtual = Agentes.sanear(viva.autorAtual, lider)
                 val eventos = sessoes.eventos(id)
                 if (!ehRetomada) {

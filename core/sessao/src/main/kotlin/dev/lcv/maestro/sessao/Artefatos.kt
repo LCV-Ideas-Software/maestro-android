@@ -60,8 +60,13 @@ public object MarkdownDoArtefato {
      */
     public const val MAX_BYTES_DO_TEXTO: Int = MAX_BYTES_DA_LINHA / 2
 
-    /** O texto aceito que cabe, ou [IntegridadeDeLinks.Falha] acima de [MAX_BYTES_DO_TEXTO]. */
+    /**
+     * O texto aceito que cabe, ou [IntegridadeDeLinks.Falha]: vazio (nada
+     * aceito é texto nenhum — a retomada o recusaria, então o checkpoint o
+     * recusa antes de o pagar de novo) ou acima de [MAX_BYTES_DO_TEXTO].
+     */
     public fun conferirTexto(texto: String) {
+        if (texto.isEmpty()) throw IntegridadeDeLinks.Falha("Accepted text is empty.")
         if (texto.toByteArray(Charsets.UTF_8).size > MAX_BYTES_DO_TEXTO) throw IntegridadeDeLinks.Falha("Accepted text exceeds $MAX_BYTES_DO_TEXTO bytes.")
     }
 
@@ -170,7 +175,7 @@ public class RepositorioDeArtefatos(
             textoAceito = textoAceito,
             relatorioDeRevisaoJson = relatorio,
             auditoriaDeLinksJson = auditoriaJson,
-            custoE8 = Dinheiro.paraE8(entrada.custoUsd ?: BigDecimal.ZERO),
+            custoE8 = Dinheiro.paraE8Observado(entrada.custoUsd ?: BigDecimal.ZERO),
             modelo = entrada.modelo?.takeIf { it.isNotEmpty() },
             artefatoAnteriorId = entrada.artefatoAnteriorId?.takeIf { it.isNotEmpty() },
             criadoEm = FormatoDeInstante.iso(relogio()),

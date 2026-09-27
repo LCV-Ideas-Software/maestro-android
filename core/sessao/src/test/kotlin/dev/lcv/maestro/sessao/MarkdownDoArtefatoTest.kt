@@ -70,6 +70,7 @@ class MarkdownDoArtefatoTest {
         MarkdownDoArtefato.conferirTexto("a".repeat(MarkdownDoArtefato.MAX_BYTES_DO_TEXTO))
         val erro = assertFailsWith<IntegridadeDeLinks.Falha> { MarkdownDoArtefato.conferirTexto("a".repeat(MarkdownDoArtefato.MAX_BYTES_DO_TEXTO + 1)) }
         assertEquals("Accepted text exceeds 524288 bytes.", erro.message)
+        assertEquals("Accepted text is empty.", assertFailsWith<IntegridadeDeLinks.Falha> { MarkdownDoArtefato.conferirTexto("") }.message)
         // Bytes, não pontos de código: 200 000 emojis são 800 KB.
         assertFailsWith<IntegridadeDeLinks.Falha> { MarkdownDoArtefato.conferirTexto("😀".repeat(200_000)) }
     }

@@ -54,8 +54,9 @@ public class RegistroDeLinksRoom(
     /** O diário de um link, para a tela: os eventos na ordem em que foram anotados. */
     public fun eventosDe(linkId: String): List<EventoDeLinkEntidade> = banco.links().eventosDe(linkId)
 
+    /** Válida: esquema do motor e `link_id` igual à chave da linha (um JSON de outro link sob esta chave é corrupção, não registro). */
     private fun lerValida(linha: LinhaDeLinkEntidade): LinhaDeLink? =
-        FormatoDeLinks.lerLinha(linha.linhaJson)?.takeIf { it.versaoDoEsquema == ESQUEMA }
+        FormatoDeLinks.lerLinha(linha.linhaJson)?.takeIf { it.versaoDoEsquema == ESQUEMA && it.linkId == linha.linkId }
 
     public companion object {
         /** `link_evidence.v1`: a versão que o motor grava; outra versão é "não válido". */

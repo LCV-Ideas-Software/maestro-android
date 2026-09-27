@@ -45,6 +45,17 @@ public interface SessaoDao {
     )
     public fun mudarStatus(id: String, permitidos: List<String>, status: String, erro: String?, em: String, execucao: Long?): Int
 
+    /**
+     * A reconciliação: `error` sob o portão e sob a execução que quem reconcilia
+     * inspecionou — `null` casa só com uma linha nunca reivindicada; um valor
+     * casa só com essa execução. Não há forma de dispensar a cerca.
+     */
+    @Query(
+        "UPDATE sessoes SET status = 'error', erro = :erro, atualizadaEm = :em " +
+            "WHERE id = :id AND status IN ('queued', 'running') AND ((:execucao IS NULL AND execucaoAtual IS NULL) OR execucaoAtual = :execucao)",
+    )
+    public fun interromper(id: String, erro: String, em: String, execucao: Long?): Int
+
     /** O pedido de retomada (`sessions.ts:4787-4796`): volta à fila com o líder e o painel escolhidos, sob o status lido. */
     @Query(
         "UPDATE sessoes SET status = 'queued', liderDoCiclo = :lider, agentesAtivosJson = :agentesJson, erro = NULL, atualizadaEm = :em " +

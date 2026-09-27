@@ -26,6 +26,7 @@ class EventosTest {
         assertEquals("grok", linha.agente)
         assertEquals("estimate", linha.fonteDoCusto)
         assertEquals(12345L, linha.custoE8)
+        assertEquals(Long.MAX_VALUE, evento.copy(custoUsd = BigDecimal("1e30")).paraEntidade("android-1").custoE8)
         assertEquals(evento, linha.paraEvento())
     }
 
