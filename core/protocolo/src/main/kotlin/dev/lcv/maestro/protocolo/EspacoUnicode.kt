@@ -29,14 +29,14 @@ package dev.lcv.maestro.protocolo
  * Por isso, neste módulo, `Char.isWhitespace()`, `String.trim()`,
  * `String.isBlank()` e `\s` de regex estão proibidos. Use o que está aqui.
  */
-internal object EspacoUnicode {
+public object EspacoUnicode {
 
     /**
      * Unicode White_Space, a mesma lista que o `char::is_whitespace` do Rust
      * reconhece. Escrita por extenso em vez de derivada da plataforma, porque
      * derivar da plataforma é exatamente o erro que este arquivo evita.
      */
-    fun ehEspaco(pontoDeCodigo: Int): Boolean = when (pontoDeCodigo) {
+    public fun ehEspaco(pontoDeCodigo: Int): Boolean = when (pontoDeCodigo) {
         0x0009, 0x000A, 0x000B, 0x000C, 0x000D, // tab, LF, VT, FF, CR
         0x0020, // espaço
         0x0085, // NEL
@@ -53,7 +53,7 @@ internal object EspacoUnicode {
     }
 
     /** Equivalente do `str::trim` do Rust. */
-    fun aparar(texto: String): String {
+    public fun aparar(texto: String): String {
         var inicio = 0
         var fim = texto.length
         while (inicio < fim) {
@@ -70,7 +70,7 @@ internal object EspacoUnicode {
     }
 
     /** Equivalente do `str::trim_start` do Rust. */
-    fun apararInicio(texto: String): String {
+    public fun apararInicio(texto: String): String {
         var inicio = 0
         while (inicio < texto.length) {
             val pontoDeCodigo = texto.codePointAt(inicio)
@@ -81,7 +81,7 @@ internal object EspacoUnicode {
     }
 
     /** Equivalente do `str::trim_end` do Rust. */
-    fun apararFim(texto: String): String {
+    public fun apararFim(texto: String): String {
         var fim = texto.length
         while (fim > 0) {
             val pontoDeCodigo = texto.codePointBefore(fim)
@@ -92,13 +92,13 @@ internal object EspacoUnicode {
     }
 
     /** Verdadeiro quando o texto só tem espaço em branco, ou nada. */
-    fun soEspaco(texto: String): Boolean = aparar(texto).isEmpty()
+    public fun soEspaco(texto: String): Boolean = aparar(texto).isEmpty()
 
     /**
      * Equivalente do `str::split_whitespace` do Rust: parte em corridas de
      * espaço e descarta os pedaços vazios das pontas.
      */
-    fun dividirPorEspacos(texto: String): List<String> {
+    public fun dividirPorEspacos(texto: String): List<String> {
         val pedacos = mutableListOf<String>()
         var indice = 0
         var inicioDoPedaco = -1
@@ -124,7 +124,7 @@ internal object EspacoUnicode {
      * comparar nomes de campo e valores de `change_type` do jeito do canônico.
      * Dobra Unicode casaria nomes que o canônico não casa.
      */
-    fun caixaBaixaAscii(texto: String): String {
+    public fun caixaBaixaAscii(texto: String): String {
         val construtor = StringBuilder(texto.length)
         for (caractere in texto) {
             construtor.append(if (caractere in 'A'..'Z') caractere + 32 else caractere)
@@ -136,11 +136,11 @@ internal object EspacoUnicode {
      * Quantidade de pontos de código, como o `chars().count()` do Rust — e não
      * `String.length`, que conta unidades UTF-16 e contaria 2 num emoji.
      */
-    fun contarPontosDeCodigo(texto: String): Int =
+    public fun contarPontosDeCodigo(texto: String): Int =
         texto.codePointCount(0, texto.length)
 
     /** Primeiros [limite] pontos de código, como `chars().take(n)` do Rust. */
-    fun primeirosPontosDeCodigo(texto: String, limite: Int): String {
+    public fun primeirosPontosDeCodigo(texto: String, limite: Int): String {
         if (limite <= 0) return ""
         var indice = 0
         var contados = 0

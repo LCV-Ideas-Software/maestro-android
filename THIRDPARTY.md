@@ -173,6 +173,45 @@ in the documentation or other materials distributed with the binary.
 Test-only dependencies (`androidx.test:runner`, `androidx.test.ext:junit`)
 never reach a distributed binary and are not listed.
 
+### `:core:sessao`
+
+| Component | Version | License | Purpose |
+| --- | --- | --- | --- |
+| `androidx.room:room-runtime` (`-android`) and `androidx.room:room-common` (`-jvm`) | 2.8.5 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | The Maestro AI state on the device: sessions, artifacts, settings, link records, evidence records, attachments and executions (specification, section 4.2) |
+| `androidx.sqlite:sqlite` (`-android`) and `androidx.sqlite:sqlite-framework` (`-android`) | 2.6.2 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of Room: the driver over the platform's SQLite |
+| `androidx.work:work-runtime` | 2.12.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Declared for the second pull request: the `CoroutineWorker` that runs the deliberation as a `dataSync` foreground service (section 4.1) |
+| `com.google.guava:listenablefuture` | 1.0 | Apache-2.0, as Guava's repository states; this artifact's POM carries no licence block | Transitive of WorkManager and `profileinstaller`: the `ListenableFuture` interface alone |
+| `androidx.concurrent:concurrent-futures` and `-ktx` | 1.1.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of WorkManager |
+| `androidx.core:core` | 1.12.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of WorkManager |
+| `androidx.lifecycle:lifecycle-common`, `-runtime`, `-livedata`, `-livedata-core` and `-service` | 2.6.2 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of WorkManager and `androidx.core` |
+| `androidx.arch.core:core-common` and `core-runtime` | 2.2.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of Room and Lifecycle |
+| `androidx.collection:collection` (`-jvm`) | 1.5.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of Room |
+| `androidx.annotation:annotation-experimental` | 1.5.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of Room |
+| `androidx.interpolator:interpolator` and `androidx.versionedparcelable:versionedparcelable` | 1.0.0 and 1.1.1 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of `androidx.core` |
+| `androidx.profileinstaller:profileinstaller` | 1.3.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of Lifecycle |
+| `androidx.tracing:tracing` and `-ktx` | 1.2.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of WorkManager; `tracing` 1.0.0 above resolves to 1.2.0 |
+| `org.jetbrains.kotlinx:kotlinx-coroutines-android` | 1.11.0 | [Apache-2.0](https://github.com/Kotlin/kotlinx.coroutines/blob/1.11.0/LICENSE.txt) | Transitive of Room: the `Dispatchers.Main` of Android |
+| `org.jspecify:jspecify` | 1.0.0 | [Apache-2.0](https://github.com/jspecify/jspecify/blob/v1.0.0/LICENSE) | Transitive of Room and WorkManager: nullness annotations |
+
+The module also uses `:core:provedores` and `:core:seguranca`, recorded
+above; Jackson comes from `:core:protocolo`. The rows come from the resolved
+`releaseRuntimeClasspath` of the module, measured on 25/09/2026 against the
+classpath of `:core:seguranca`, and the licences from each artifact's POM.
+Measured size of each artifact, before shrinking: 558 KB and 61 KB for Room;
+37 KB and 59 KB for SQLite; 1 234 KB for WorkManager; 3 KB for
+`listenablefuture`; 25 KB and 5 KB for `concurrent-futures`; 1 291 KB for
+`androidx.core`; 51 KB, 21 KB, 18 KB, 11 KB and 6 KB for Lifecycle; 11 KB and
+7 KB for `arch.core`; 857 KB for `collection`; 44 KB for
+`annotation-experimental`; 7 KB and 30 KB for `interpolator` and
+`versionedparcelable`; 46 KB for `profileinstaller`; 5 KB and 5 KB for
+`tracing`; 17 KB for `kotlinx-coroutines-android`; 3 KB for `jspecify` —
+4 412 KB in all.
+
+Build-time and test-only dependencies (`androidx.room:room-compiler` under
+KSP, `androidx.room:room-testing`, `androidx.work:work-testing`,
+`kotlinx-coroutines-test`, `androidx.test:runner`, `androidx.test.ext:junit`,
+JUnit and `kotlin-test`) never reach a distributed binary and are not listed.
+
 ## Accepted upstream constraints
 
 ### OpenSSF Scorecard runtime image
