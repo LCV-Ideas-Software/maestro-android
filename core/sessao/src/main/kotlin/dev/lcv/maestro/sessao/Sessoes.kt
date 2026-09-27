@@ -135,7 +135,7 @@ public class RepositorioDeSessoes(
 
     /** `persistObservedCostFloor`: `max(0, custo)`, monotônico e atômico numa instrução, nunca dentro do checkpoint. */
     public fun subirPisoDeCusto(id: String, custo: BigDecimal) {
-        banco.sessoes().subirPiso(id, Dinheiro.paraE8(custo.max(BigDecimal.ZERO)), agora())
+        banco.sessoes().subirPiso(id, Dinheiro.paraE8Observado(custo.max(BigDecimal.ZERO)), agora())
     }
 
     /** `handleMaestroAiSessionCancelPost` (`sessions.ts:4702-4731`). */
@@ -183,12 +183,18 @@ public class RepositorioDeSessoes(
      * que ela tinha é fechada na mesma transação (`interrupted`): quem declara
      * o worker morto fecha a linha dele, senão o orçamento de 24 horas o
      * conta como vivo até a próxima reivindicação.
+     *
+     * [execucaoInspecionada] é o `execucaoAtual` que quem reconcilia leu ao
+     * decidir que o worker morreu (`null` para uma sessão nunca reivindicada);
+     * a escrita exige esse mesmo valor na linha, para que uma execução
+     * substituta que reivindicou a sessão nesse meio-tempo não seja pausada
+     * nem fechada como morta (achado do Codex na #67, rodada 5).
      */
-    public fun marcarInterrompida(id: String, evento: EventoDaSessao? = null): Boolean = try {
+    public fun marcarInterrompida(id: String, execucaoInspecionada: Long?, evento: EventoDaSessao? = null): Boolean = try {
         banco.runInTransaction<Boolean> {
-            if (banco.sessoes().mudarStatus(id, Estados.ATIVOS.toList(), Estados.ERRO, MENSAGEM_INTERROMPIDA, agora(), null) == 0) throw CasPerdido()
+            if (banco.sessoes().interromper(id, MENSAGEM_INTERROMPIDA, agora(), execucaoInspecionada) == 0) throw CasPerdido()
             if (evento != null) banco.eventos().inserir(evento.paraEntidade(id))
-            banco.encerrarExecucaoDa(id, agora(), MOTIVO_INTERROMPIDA)
+            execucaoInspecionada?.let { banco.execucoes().encerrar(it, agora(), MOTIVO_INTERROMPIDA) }
             true
         }
     } catch (perdido: CasPerdido) {

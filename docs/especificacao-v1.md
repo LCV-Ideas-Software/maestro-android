@@ -658,7 +658,14 @@ rodada de revisão cruzada e seis decisões do operador em 26/09/2026):**
   evidência de outra versão de esquema não volta; os armazéns em arquivo
   recusam rodar dentro de uma transação de quem chama, porque só reclamam
   arquivos depois de um commit; e a gravação das configurações lê, valida e
-  grava numa transação só.
+  grava numa transação só. Da rodada do Codex publicada depois da mesclagem
+  da #67: a reconciliação escreve só contra a execução que inspecionou (um
+  worker substituto que reivindicou a sessão nesse meio-tempo fica em paz);
+  um custo observado acima da coluna de dinheiro satura em vez de lançar
+  depois da chamada paga; um texto aceito vazio é recusado no checkpoint, e
+  um autor gravado sem texto é custódia inválida, não sessão nova a redigir
+  de novo; um registro de link cujo `link_id` difere da chave da linha é
+  corrupção, não registro.
 - **Oito tabelas** mais `eventos`: as do D1 (sessão, artefato,
   configurações) e as que o desktop guarda em arquivos (registros de link e o
   diário deles, registros de evidência, anexos), mais as execuções do worker,

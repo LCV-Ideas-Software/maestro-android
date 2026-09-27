@@ -96,7 +96,7 @@ class RetomadaTest {
         assertNull(t.sessoes.carregar(id)!!.execucaoAtual)
         val outra = t.sessoes.criar(t.entrada()).id
         val morta = reivindicar(outra)
-        assertTrue(t.sessoes.marcarInterrompida(outra))
+        assertTrue(t.sessoes.marcarInterrompida(outra, morta))
         // Quem declarou o worker morto fechou a execução dele: ela não fica aberta no orçamento de 24 horas.
         val fechada = t.banco.execucoes().uma(morta)!!
         assertNotNull(fechada.fim)
@@ -420,6 +420,48 @@ class RetomadaTest {
         assertNotNull(fechada.fim)
         assertEquals(Retomada.MOTIVO_SUPERADA, fechada.motivoDaParada)
         assertEquals(0, t.banco.execucoes().naJanela("2000-01-01T00:00:00.000Z").count { it.fim == null })
+    }
+
+    @Test
+    fun reconciliacaoSoPausaAExecucaoQueInspecionou() {
+        // A reconciliação leu a execução 1 como morta; antes de escrever, o worker substituto reivindicou a sessão.
+        val id = t.sessoes.criar(t.entrada()).id
+        val inspecionada = reivindicar(id)
+        val substituta = reivindicar(id)
+        assertFalse(t.sessoes.marcarInterrompida(id, inspecionada))
+        assertFalse(t.sessoes.marcarInterrompida(id, null))
+        val viva = t.sessoes.carregar(id)!!
+        assertEquals(Estados.RODANDO, viva.status)
+        assertEquals(substituta, viva.execucaoAtual)
+        assertNull(t.banco.execucoes().uma(substituta)!!.fim)
+        // Com a execução certa, a reconciliação passa e fecha só ela.
+        assertTrue(t.sessoes.marcarInterrompida(id, substituta))
+        assertEquals(RepositorioDeSessoes.MOTIVO_INTERROMPIDA, t.banco.execucoes().uma(substituta)!!.motivoDaParada)
+        // Uma sessão nunca reivindicada só é reconciliada com `null`.
+        val naFila = t.sessoes.criar(t.entrada()).id
+        assertFalse(t.sessoes.marcarInterrompida(naFila, 999L))
+        assertTrue(t.sessoes.marcarInterrompida(naFila, null))
+    }
+
+    @Test
+    fun textoAceitoVazioERecusadoEAutorGravadoSemTextoEhCustodiaInvalida() {
+        val id = t.sessoes.criar(t.entrada()).id
+        val execucao = reivindicar(id)
+        val rascunho = (t.ponto.gravarTurno(
+            id, execucao, t.artefato(id, 1, Provedor.CLAUDE, papel = "draft", texto = textoDoRascunho),
+            { a -> custodia(Provedor.CLAUDE, textoDoRascunho, a!!.id, a.id, 1, 0, emptySet(), emptySet(), 1) },
+        ) as Gravacao.Gravada).artefato!!
+        // Um checkpoint cujo texto aceito é só espaço é recusado antes de ser gravado.
+        val vazio = assertThrows(IntegridadeDeLinks.Falha::class.java) {
+            t.ponto.gravarTurno(id, execucao, null, { _ -> custodia(Provedor.CLAUDE, "   ", rascunho.id, rascunho.id, 1, 1, emptySet(), emptySet(), 1) })
+        }
+        assertEquals("Accepted text is empty.", vazio.message)
+        assertEquals(textoDoRascunho, t.sessoes.carregar(id)!!.textoAtual)
+        // Uma linha com autor e sem texto (adulterada) é custódia inválida na retomada, não uma sessão nova a redigir de novo.
+        t.adulterar("UPDATE sessoes SET textoAtual = '' WHERE id = '$id'")
+        val preparacao = t.retomada.preparar(id)
+        assertTrue(preparacao is Preparacao.CustodiaInvalida)
+        assertEquals(Estados.RETOMADA_INVALIDA, t.sessoes.carregar(id)!!.status)
     }
 
     @Test

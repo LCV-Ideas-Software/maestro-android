@@ -109,6 +109,9 @@ class RepositorioDeSessoesTest {
         t.sessoes.cancelar(id)
         t.sessoes.subirPisoDeCusto(id, BigDecimal("11"))
         assertEquals(BigDecimal("11.00000000"), Dinheiro.deE8(t.sessoes.carregar(id)!!.custoObservadoE8))
+        // Um custo observado que não cabe na coluna satura no extremo, sem lançar: o gasto fica registrado e pausa pelo teto.
+        t.sessoes.subirPisoDeCusto(id, BigDecimal("1e30"))
+        assertEquals(Long.MAX_VALUE, t.sessoes.carregar(id)!!.custoObservadoE8)
     }
 
     @Test
@@ -138,12 +141,12 @@ class RepositorioDeSessoesTest {
     @Test
     fun marcarInterrompidaDeixaASessaoRetomavel() {
         val id = criar().id
-        assertTrue(t.sessoes.marcarInterrompida(id, t.evento(EventoDaSessao.ERRO, "processo morreu")))
+        assertTrue(t.sessoes.marcarInterrompida(id, null, t.evento(EventoDaSessao.ERRO, "processo morreu")))
         val linha = t.sessoes.carregar(id)!!
         assertEquals(Estados.ERRO, linha.status)
         assertEquals(RepositorioDeSessoes.MENSAGEM_INTERROMPIDA, linha.erro)
         assertTrue(linha.status in Estados.RETOMAVEIS)
-        assertFalse(t.sessoes.marcarInterrompida(id))
+        assertFalse(t.sessoes.marcarInterrompida(id, null))
         assertEquals(0, t.sessoes.emExecucao().size)
         assertEquals("processo morreu", t.mensagens(id).last())
     }

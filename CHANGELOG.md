@@ -66,7 +66,14 @@ All material changes to Maestro Android are recorded here.
     records of another schema version are not returned; file-backed stores
     refuse to run inside a caller's transaction, since they reclaim files
     only after a commit; and a settings save runs its read, rules and write
-    in one transaction;
+    in one transaction; and, from the Codex round that landed after the
+    merge of #67: the reconciliation writes only against the execution it
+    inspected (a replacement worker that claimed the session meanwhile is
+    left alone), an observed cost above the money column saturates instead
+    of throwing after the paid request, an empty accepted text is refused
+    at the checkpoint and a stored author with no text is an invalid
+    custody rather than a new session to draft again, and a link record
+    whose `link_id` differs from its row key is treated as corrupt;
   - the tables the desktop keeps as files (link records and their journal,
     evidence records, attachments) and one row per worker execution, so the
     app can show what is left of the 24-hour `dataSync` budget (executions

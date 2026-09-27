@@ -47,7 +47,7 @@ public data class EventoDaSessao(
             papel = papel,
             status = status,
             mensagem = mensagem,
-            custoE8 = custoUsd?.let(Dinheiro::paraE8),
+            custoE8 = custoUsd?.let(Dinheiro::paraE8Observado),
             fonteDoCusto = fonteDoCusto?.let { if (it == Custo.Fonte.PROVEDOR) "provider" else "estimate" },
             modelo = modelo,
             auditoriaDeLinksJson = auditoriaDeLinksJson,

@@ -19,8 +19,21 @@ public object Dinheiro {
 
     public fun cabe(valor: BigDecimal): Boolean = valor <= MAXIMO && valor >= MAXIMO.negate()
 
-    /** Para a coluna: arredonda para cima, como a soma do protocolo, para nunca subestimar um gasto. */
+    /** Para a coluna: arredonda para cima, como a soma do protocolo, para nunca subestimar um gasto. Só para valores que [cabe] já admitiu. */
     public fun paraE8(valor: BigDecimal): Long = valor.multiply(FATOR).setScale(0, RoundingMode.CEILING).longValueExact()
+
+    /**
+     * Para a coluna, um valor **observado** de fora (custo devolvido por um
+     * provedor): o que não cabe satura no extremo da coluna em vez de lançar,
+     * porque esse caminho corre depois da chamada paga e um piso saturado
+     * pausa a sessão pelo teto, enquanto uma exceção perderia o registro do
+     * gasto. O que o operador digita continua sendo recusado por [cabe].
+     */
+    public fun paraE8Observado(valor: BigDecimal): Long = when {
+        cabe(valor) -> paraE8(valor)
+        valor.signum() > 0 -> Long.MAX_VALUE
+        else -> Long.MIN_VALUE
+    }
 
     /** Da coluna: exato, na escala interna. */
     public fun deE8(valor: Long): BigDecimal = BigDecimal.valueOf(valor).movePointLeft(Custo.ESCALA_INTERNA)

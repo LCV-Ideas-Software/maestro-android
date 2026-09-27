@@ -58,6 +58,11 @@ class RegistroDeLinksRoomTest {
         assertNull(registro.carregar(linha.linkId))
         t.banco.links().gravar(gravada)
         assertEquals(linha, registro.carregar(linha.linkId))
+        // Um JSON válido de outro link sob esta chave é corrupção: não volta por esta chave.
+        val outra = auditar("[b](https://example.org/b)").linhas.single()
+        t.banco.links().gravar(gravada.copy(linhaJson = t.banco.links().carregar(outra.linkId)!!.linhaJson))
+        assertNull(registro.carregar(linha.linkId))
+        assertEquals(listOf(outra), registro.todos())
     }
 
     @Test

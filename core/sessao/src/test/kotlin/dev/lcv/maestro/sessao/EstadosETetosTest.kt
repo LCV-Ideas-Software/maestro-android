@@ -42,6 +42,10 @@ class EstadosETetosTest {
         assertEquals(Long.MAX_VALUE, Dinheiro.paraE8(Dinheiro.MAXIMO))
         assertEquals(true, Dinheiro.cabe(Dinheiro.MAXIMO))
         assertEquals(false, Dinheiro.cabe(Dinheiro.MAXIMO.add(BigDecimal("0.00000001"))))
+        // Um valor observado de fora satura em vez de lançar; o que cabe converte igual.
+        assertEquals(Long.MAX_VALUE, Dinheiro.paraE8Observado(BigDecimal("1e30")))
+        assertEquals(Long.MIN_VALUE, Dinheiro.paraE8Observado(BigDecimal("-1e30")))
+        assertEquals(500_000_000L, Dinheiro.paraE8Observado(BigDecimal("5")))
     }
 
     @Test
