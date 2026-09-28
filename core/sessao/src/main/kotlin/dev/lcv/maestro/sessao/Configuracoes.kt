@@ -1,6 +1,7 @@
 package dev.lcv.maestro.sessao
 
 import dev.lcv.maestro.protocolo.Custo
+import dev.lcv.maestro.provedores.AgenteDeColeta
 import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.seguranca.CofreDeChaves
 import dev.lcv.maestro.sessao.Agentes.rotulo
@@ -27,6 +28,8 @@ public data class Configuracoes(
     val maxCiclos: Int,
     val taxas: Map<Provedor, Custo.Taxas>,
     val atualizadaEm: String,
+    /** O e-mail de contato opcional para o Crossref (seção 5.4, item 7); `null` quando não há. */
+    val emailDeContato: String? = null,
 )
 
 /** O corpo do `PUT /settings` (`MaestroSettingsRequest`), sem chaves de API: elas são do cofre. */
@@ -37,6 +40,8 @@ public data class PedidoDeConfiguracoes(
     val tetoDeMinutos: Campo<Int?> = Campo.Ausente,
     val maxCiclos: Int? = null,
     val taxas: Map<Provedor, Custo.Taxas?>? = null,
+    /** Presente e `null` (ou vazio) limpa o e-mail; ausente mantém o atual. Só no Android. */
+    val emailDeContato: Campo<String?> = Campo.Ausente,
 )
 
 /**
@@ -99,6 +104,8 @@ public class RepositorioDeConfiguracoes(
             maxCiclos = linha.maxCiclos.takeIf { it != 0 } ?: 2,
             taxas = Taxas.lerJson(linha.taxasJson),
             atualizadaEm = linha.atualizadaEm,
+            // Um valor gravado antes desta regra existir, ou adulterado no arquivo, não chega ao agente de coleta.
+            emailDeContato = linha.emailDeContato?.takeIf(AgenteDeColeta::emailDeContatoValido),
         )
     }
 
@@ -123,21 +130,31 @@ public class RepositorioDeConfiguracoes(
         // não é "limpar", é entrada inválida, e cai na mesma recusa da faixa —
         // o web o trataria como `null` (desvio declarado; achado do Codex na #67).
         if (limiteBruto != null && limiteBruto < 0) {
-            return Resultado.Recusado("Limite de tempo opcional deve ficar entre 1 e $TETO_DE_MINUTOS minutos.")
+            return Resultado.Recusado(MENSAGEM_LIMITE_DE_MINUTOS)
         }
         val tetoDeMinutos = limiteBruto?.takeIf { it > 0 }
         val maxCiclos = pedido.maxCiclos ?: atual?.maxCiclos ?: 2
         if (protocolo.length < 100) {
-            return Resultado.Recusado("Protocolo editorial integral deve ter pelo menos 100 caracteres.")
+            return Resultado.Recusado(MENSAGEM_PROTOCOLO_CURTO)
         }
-        if (tetoDeCustoUsd.signum() <= 0) return Resultado.Recusado("Teto financeiro em USD deve ser positivo.")
+        if (tetoDeCustoUsd.signum() <= 0) return Resultado.Recusado(MENSAGEM_TETO_POSITIVO)
         if (!Dinheiro.cabe(tetoDeCustoUsd)) return Resultado.Recusado(MENSAGEM_TETO_ACIMA_DO_MAXIMO)
         if (maxCiclos < 1 || maxCiclos > 5) return Resultado.Recusado("Ciclos maximos devem ser um inteiro entre 1 e 5.")
         if (tetoDeMinutos != null && (tetoDeMinutos < 1 || tetoDeMinutos > TETO_DE_MINUTOS)) {
-            return Resultado.Recusado("Limite de tempo opcional deve ficar entre 1 e $TETO_DE_MINUTOS minutos.")
+            return Resultado.Recusado(MENSAGEM_LIMITE_DE_MINUTOS)
         }
         if (pedido.taxas != null && Taxas.algumaNaoCabe(pedido.taxas)) return Resultado.Recusado(MENSAGEM_TAXA_ACIMA_DO_MAXIMO)
         val taxas = pedido.taxas?.let(Taxas::sanear) ?: Taxas.lerJson(atual?.taxasJson)
+        // O e-mail obedece à regra do `AgenteDeColeta` antes de ser gravado (revisão cruzada de 28/09/2026,
+        // emenda A3): um valor que o agente recusaria quebraria toda auditoria e toda busca depois.
+        val emailBruto = when (val campo = pedido.emailDeContato) {
+            is Campo.Presente -> campo.valor
+            Campo.Ausente -> atual?.emailDeContato
+        }
+        val emailDeContato = emailBruto?.trim()?.takeUnless { it.isEmpty() }
+        if (emailDeContato != null && (emailDeContato.length > MAX_EMAIL || !AgenteDeColeta.emailDeContatoValido(emailDeContato))) {
+            return Resultado.Recusado(MENSAGEM_EMAIL_INVALIDO)
+        }
         val linha = ConfiguracoesEntidade(
             protocolo = protocolo,
             tetoDeCustoE8 = Dinheiro.paraE8(tetoDeCustoUsd),
@@ -145,6 +162,7 @@ public class RepositorioDeConfiguracoes(
             maxCiclos = maxCiclos,
             taxasJson = Taxas.paraJson(taxas),
             atualizadaEm = FormatoDeInstante.iso(relogio()),
+            emailDeContato = emailDeContato,
         )
         banco.configuracoes().gravar(linha)
         return Resultado.Ok(carregar())
@@ -163,11 +181,23 @@ public class RepositorioDeConfiguracoes(
          */
         public const val TETO_DE_MINUTOS: Int = 300
 
+        /** As recusas do `saveSettings` do web, que a tela também aplica antes de salvar, na ordem do web. */
+        public const val MENSAGEM_PROTOCOLO_CURTO: String = "Protocolo editorial integral deve ter pelo menos 100 caracteres."
+        public const val MENSAGEM_TETO_POSITIVO: String = "Teto financeiro em USD deve ser positivo."
+
+        /** A recusa da faixa do limite de tempo, com o teto de produto no lugar dos 720 do web. */
+        public const val MENSAGEM_LIMITE_DE_MINUTOS: String = "Limite de tempo opcional deve ficar entre 1 e $TETO_DE_MINUTOS minutos."
+
         /** Só aqui: o web não tem coluna inteira e aceita qualquer `Number`; a nossa cabe até `Dinheiro.MAXIMO`. */
         public const val MENSAGEM_TETO_ACIMA_DO_MAXIMO: String = "Teto financeiro em USD acima do maximo suportado (92233720368.54775807)."
 
         /** Só aqui: o web guarda tarifas como `double`; a nossa coluna de custo não guardaria o que uma tarifa acima disto produz. */
         public const val MENSAGEM_TAXA_ACIMA_DO_MAXIMO: String = "Tarifa em USD acima do maximo suportado (92233720368.54775807)."
+
+        /** O maior endereço que a RFC 5321 admite (254 octetos); o resto da regra é a do `AgenteDeColeta`. */
+        public const val MAX_EMAIL: Int = 254
+        public const val MENSAGEM_EMAIL_INVALIDO: String =
+            "E-mail de contato invalido: use ate 254 caracteres ASCII visiveis, sem espaco, com um @."
 
         /** `DEFAULT_PROTOCOL` (`sessions.ts:314-324`). */
         public const val PROTOCOLO_PADRAO: String = """# Maestro Editorial Protocol

@@ -1,11 +1,13 @@
 package dev.lcv.maestro.sessao
 
+import android.app.PendingIntent
 import android.content.Context
 import androidx.work.WorkManager
 import dev.lcv.maestro.protocolo.AuditoriaFinal
 import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.provedores.AgenteDeColeta
 import dev.lcv.maestro.provedores.AnalisadorDeUrlOkHttp
+import dev.lcv.maestro.provedores.BuscaDeEvidencias
 import dev.lcv.maestro.provedores.ClienteDeProvedores
 import dev.lcv.maestro.provedores.ColetorHttp
 import dev.lcv.maestro.provedores.ResolvedorPublico
@@ -30,9 +32,12 @@ import okhttp3.OkHttpClient
 public class Fabrica(
     contexto: Context,
     private val cofre: CofreDeChaves,
-    versaoDoAplicativo: String,
-    emailDeContato: String?,
+    private val versaoDoAplicativo: String,
+    /** O toque na notificação abre a tela da sessão (o `:app` fornece o `PendingIntent`); `null` deixa a notificação sem destino. */
+    abrirSessao: ((sessaoId: String) -> PendingIntent)? = null,
     private val relogio: () -> Instant = Instant::now,
+    /** Só os testes trocam: é por aqui que provam que construir a fábrica não inicializa o WorkManager. */
+    workManager: () -> WorkManager = contexto.applicationContext.let { aplicativo -> { WorkManager.getInstance(aplicativo) } },
 ) : GrafoDaSessao {
     // O contexto do aplicativo não fica guardado aqui: a fábrica é referência
     // estática do processo, e um `Context` num campo estático é o que o lint
@@ -46,13 +51,38 @@ public class Fabrica(
     public val configuracoes: RepositorioDeConfiguracoes = RepositorioDeConfiguracoes(banco, cofre, relogio)
     public val anexos: AnexosDaSessao = AnexosDaSessao(banco, File(contexto.applicationContext.noBackupFilesDir, "anexos"), relogio)
     public val evidencias: ArmazemDeEvidenciasEmArquivo = ArmazemDeEvidenciasEmArquivo(banco, File(contexto.applicationContext.noBackupFilesDir, "evidencias"), relogio)
-    public val agendador: Agendador = Agendador(WorkManager.getInstance(contexto.applicationContext))
-    override val notificacao: Notificacao = Notificacao(contexto.applicationContext)
-    private val agenteDeColeta = AgenteDeColeta(versaoDoAplicativo, emailDeContato)
+
+    /**
+     * O WorkManager só é tocado no primeiro uso do agendador, nunca durante a
+     * construção. Com a inicialização sob demanda, a primeira chamada a
+     * `WorkManager.getInstance` inicializa a biblioteca, e a inicialização pode
+     * começar na hora um trabalho pendente cuja restrição já está satisfeita;
+     * o worker nasce pela `FabricaDeTrabalhos`, que lê [doProcesso] — e, se a
+     * fábrica ainda estivesse no meio da construção, sem ter sido instalada, o
+     * WorkManager marcaria o trabalho daquela sessão como falho. Preguiçoso, o
+     * agendador só existe depois de `instalar`, que é quando alguém o usa.
+     */
+    public val agendador: Agendador by lazy { Agendador(workManager()) }
+    override val notificacao: Notificacao = Notificacao(contexto.applicationContext, abrirSessao)
     private val resolvedor = ResolvedorPublico.dnsDoGoogle()
+
+    /**
+     * O agente de coleta com o e-mail de contato **atual** das configurações
+     * (seção 5.4, item 7), montado a cada auditoria e a cada busca: um agente
+     * guardado na fábrica congelaria o `mailto` do Crossref no valor do
+     * arranque (revisão cruzada de 28/09/2026, emenda A3). Lê o Room: chamar
+     * fora da linha principal.
+     */
+    internal fun agenteDeColeta(): AgenteDeColeta = AgenteDeColeta(versaoDoAplicativo, configuracoes.carregar().emailDeContato)
+
+    /** A busca de evidências (Crossref e OpenAlex) com o e-mail atual; um objeto por chamada. Bloqueante: `Dispatchers.IO`. */
+    public fun buscaDeEvidencias(): BuscaDeEvidencias = BuscaDeEvidencias(resolvedor, agenteDeColeta())
 
     /** O cliente dos seis provedores: novo, limpo e só TLS moderno, como o transporte da auditoria. */
     private val cliente = ClienteDeProvedores(OkHttpClient.Builder().connectionSpecs(listOf(ConnectionSpec.MODERN_TLS)).build(), cofre)
+
+    /** O "Testar chaves" da tela de configurações, sobre o mesmo cliente das sessões. */
+    public val testeDeChaves: TesteDeChaves = TesteDeChaves(cliente::chamar)
 
     /**
      * A auditoria de cinco estágios com o motor de links real: um coletor por
@@ -60,7 +90,7 @@ public class Fabrica(
      * corrotina for cancelada no meio da coleta.
      */
     public val auditoria: AuditoriaDaSessao = AuditoriaDaSessao { sessaoId, texto, citacoes ->
-        val coletor = ColetorHttp(resolvedor, agenteDeColeta, evidencias)
+        val coletor = ColetorHttp(resolvedor, withContext(Dispatchers.IO) { agenteDeColeta() }, evidencias)
         val registro = RegistroDeLinksRoom(banco, sessaoId, relogio)
         val motor = AuditoriaFinal.MotorDeLinks { candidato -> IntegridadeDeLinks.auditar(candidato, AnalisadorDeUrlOkHttp, coletor, registro, relogio) }
         coroutineScope {
@@ -94,7 +124,10 @@ public class Fabrica(
         aoAvancar = aoAvancar,
     )
 
-    public val reconciliacao: Reconciliacao = Reconciliacao(banco, sessoes, retomada, agendador, configuracoes::chaves, evidencias, anexos, relogio)
+    /** Preguiçosa pela mesma razão do [agendador], que ela recebe. */
+    public val reconciliacao: Reconciliacao by lazy {
+        Reconciliacao(banco, sessoes, retomada, agendador, configuracoes::chaves, evidencias, anexos, relogio)
+    }
 
     public companion object {
         /** A fábrica do processo, instalada pelo `Application` antes de qualquer worker ou receptor. */

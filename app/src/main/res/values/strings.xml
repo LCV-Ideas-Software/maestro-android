@@ -1,4 +1,196 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Textos medidos no cliente web (`admin-app/src/modules/maestro-ai/MaestroAiModule.tsx`
+  em `c5f5d73c`), não reescritos: o porte se parece com a origem também nas
+  palavras (rótulos, mensagens de validação, nomes das abas). O que só existe
+  no Android — permissão de notificações, autenticação, cofre, orçamento de
+  seis horas, teto na retomada — vem da especificação, com as frases da seção
+  6.1 palavra por palavra.
+-->
 <resources>
     <string name="app_name">Maestro AI</string>
+    <string name="titulo">Maestro AI</string>
+    <string name="subtitulo">Redação editorial em colegiado circular</string>
+    <string name="marca_descricao">LCV Ideas &amp; Software</string>
+
+    <!-- Navegação -->
+    <string name="acao_voltar">Voltar</string>
+    <string name="acao_configuracoes">Configurações</string>
+    <string name="acao_licencas">Licenças</string>
+
+    <!-- Cartões de métrica (web) -->
+    <string name="metrica_sessao">Sessão</string>
+    <string name="metrica_sem_sessao">Sem sessão</string>
+    <string name="metrica_com_o_trabalho">Com o trabalho agora</string>
+    <string name="metrica_agentes_prontos">Agentes prontos</string>
+    <string name="metrica_agentes_prontos_valor">%1$d / %2$d</string>
+    <string name="metrica_teto">Teto configurado</string>
+    <string name="metrica_custo_acumulado">Custo acumulado</string>
+    <string name="metrica_custo_valor">US$ %1$s / teto US$ %2$s</string>
+    <string name="valor_usd">US$ %1$s</string>
+
+    <!-- Nova sessão (web) -->
+    <string name="secao_operacional">Seção operacional</string>
+    <string name="secao_sessao">Sessão</string>
+    <string name="nova_sessao">Nova sessão</string>
+    <string name="pedido_editorial">Pedido editorial</string>
+    <string name="campo_titulo">Título</string>
+    <string name="campo_pedido">Pedido do usuário</string>
+    <string name="pedido_exemplo">Descreva o texto, objetivo, público, tom, restrições e fontes desejadas.</string>
+    <string name="campo_texto_inicial">Texto inicial opcional</string>
+    <string name="texto_inicial_exemplo">Cole aqui um rascunho existente caso a sessão deva partir de um texto já produzido.</string>
+    <string name="campo_redator_inicial">Redator inicial</string>
+    <string name="campo_colegiado">Colegiado participante</string>
+    <string name="agente_pronto">pronto</string>
+    <string name="agente_configure">configure chave e valores em Configurações</string>
+    <string name="acao_iniciar">Iniciar sessão</string>
+    <string name="iniciada">Sessão Maestro AI iniciada.</string>
+    <string name="erro_pedido_vazio">Descreva o trabalho editorial antes de iniciar.</string>
+    <string name="erro_dois_agentes">Configure pelo menos dois agentes antes de iniciar.</string>
+    <string name="erro_dois_prontos">Selecione pelo menos dois agentes prontos para o colegiado.</string>
+    <string name="erro_redator_fora">O redator inicial deve participar do colegiado selecionado.</string>
+    <string name="historico">Histórico</string>
+    <string name="sessoes_recentes">Sessões recentes</string>
+    <string name="nenhuma_sessao">Nenhuma sessão registrada.</string>
+
+    <!-- Orçamento de seis horas (seção 4.1): contabilidade própria das execuções, não a cota da plataforma -->
+    <string name="orcamento_aviso">Este aparelho já usou %1$s das 6 h de sessão em segundo plano que o Android permite em 24 h, pela contagem das execuções deste aplicativo; uma sessão longa pode ser interrompida. Restam %2$s.</string>
+
+    <!-- Permissão de notificações (seção 4.1) -->
+    <string name="notificacoes_razao">A sessão roda em segundo plano e mostra numa notificação a rodada, o agente da vez, o custo acumulado e um botão para cancelar. Esta tela continua sendo o lugar principal de acompanhamento e de cancelamento; sem a permissão, perde-se só o aviso na gaveta.</string>
+    <string name="notificacoes_permitir">Permitir notificações</string>
+    <string name="notificacoes_seguir_sem">Seguir sem notificações</string>
+    <string name="notificacoes_estado_concedida">Notificações permitidas: a sessão avisa na gaveta a rodada, o agente e o custo.</string>
+    <string name="notificacoes_estado_negada">Notificações negadas: a sessão roda igual, e o acompanhamento fica só nesta tela.</string>
+    <string name="notificacoes_abrir_ajustes">Abrir os ajustes de notificações</string>
+
+    <!-- Autenticação (seção 6.2) -->
+    <string name="autenticacao_titulo">Maestro AI</string>
+    <string name="autenticacao_subtitulo">Confirme a sua identidade para usar as chaves guardadas neste aparelho</string>
+    <string name="autenticacao_recusada">Sem a sua autenticação, a sessão não usa as chaves guardadas; nada foi iniciado.</string>
+    <string name="autenticacao_recusada_retomada">Sem a sua autenticação, a sessão não usa as chaves guardadas; nada foi retomado.</string>
+    <string name="autenticacao_recusada_configuracoes">Sem a sua autenticação, as chaves guardadas não são usadas; nada foi feito.</string>
+
+    <!-- Sessão (web) -->
+    <string name="acao_cancelar">Cancelar</string>
+    <string name="acao_retomar">Retomar</string>
+    <string name="cancelada">Sessão cancelada.</string>
+    <string name="retomada">Sessão retomada.</string>
+    <string name="rastreamento">Rastreamento</string>
+    <string name="agente_ativo">Agente ativo: %1$s</string>
+    <string name="sem_eventos">Sem eventos para exibir.</string>
+    <string name="mostrar_todos_os_eventos">Mostrar todos os eventos</string>
+    <string name="mostrar_ultimos_eventos">Mostrar só os últimos</string>
+    <string name="evento_custo">US$ %1$s</string>
+    <string name="autos">Autos / Evidências</string>
+    <string name="cadeia_viva">Cadeia viva de revisão</string>
+    <string name="sem_artefatos">Os artefatos aparecerão aqui conforme os agentes produzirem drafts e revisões.</string>
+    <string name="artefato_titulo">Ciclo %1$d · Turno %2$d · %3$s</string>
+    <!-- O web escreve "link(s) inválido(s)"; aqui, o plural da plataforma. -->
+    <plurals name="artefato_links_invalidos">
+        <item quantity="one">%1$d link inválido</item>
+        <item quantity="many">%1$d de links inválidos</item>
+        <item quantity="other">%1$d links inválidos</item>
+    </plurals>
+    <string name="aba_texto">Texto</string>
+    <string name="aba_diff">Diff</string>
+    <string name="aba_relatorio">Relatório</string>
+    <string name="aba_links">Links</string>
+    <string name="aba_metadados">Metadados</string>
+    <string name="primeiro_artefato">Primeiro artefato da sessão.</string>
+    <string name="sem_links">Nenhum link encontrado neste artefato.</string>
+    <string name="selecione_artefato">Selecione um artefato para consultar texto, diff, relatório, links e metadados.</string>
+    <string name="secao_texto">Texto</string>
+    <string name="texto_atual">Texto atual</string>
+    <string name="texto_final">Texto final</string>
+    <string name="sem_texto">Nenhum texto produzido ainda.</string>
+    <string name="erro_operacional">Erro operacional</string>
+    <string name="parada_pelo_sistema">Última parada registrada pelo sistema: %1$s</string>
+    <string name="chamada_indeterminada_aviso">A execução anterior morreu durante ou logo depois de uma chamada paga, e ninguém sabe se o provedor cobrou. Retomar pode pagar essa chamada de novo; a decisão é sua.</string>
+    <string name="sessao_nao_encontrada">Sessão não encontrada.</string>
+
+    <!-- Retomada (web + Android) -->
+    <string name="retomar_titulo">Retomar a sessão</string>
+    <string name="retomar_lider">Líder da retomada</string>
+    <string name="retomar_painel">Colegiado da retomada</string>
+    <string name="retomar_novo_teto">Novo teto financeiro (USD)</string>
+    <string name="retomar_novo_teto_ajuda">A sessão parou por custo: o teto vale sobre o acumulado da sessão inteira, então retomar com o mesmo teto pausaria de novo. Informe um valor acima do teto atual (US$ %1$s) e do custo já observado (US$ %2$s).</string>
+    <string name="erro_retomar_dois">Selecione pelo menos dois agentes prontos para retomar o colegiado.</string>
+    <string name="erro_retomar_lider">O líder da retomada deve participar do colegiado selecionado.</string>
+    <string name="erro_teto_invalido">Informe o novo teto em USD, com ponto decimal.</string>
+    <string name="acao_fechar">Fechar</string>
+
+    <!-- Configurações (web) -->
+    <string name="configuracoes">Configurações</string>
+    <string name="ajustes">Ajustes</string>
+    <string name="chaves_dos_agentes">Chaves dos agentes</string>
+    <string name="chaves_explicacao">A chave é guardada apenas neste aparelho, cifrada por chave do Keystore que não é exportável; ela é enviada, por TLS, apenas ao provedor a que pertence, e só quando você roda uma sessão com aquele provedor ativo ou pede o teste das chaves; nenhum servidor da LCV Ideas &amp; Software a recebe, vê ou guarda; ela nunca é exibida de volta depois de gravada.</string>
+    <string name="chave_do_agente">Chave de API (%1$s)</string>
+    <string name="chave_configurada_placeholder">Chave já configurada; preencha apenas para substituir</string>
+    <string name="chave_informe">Informe a chave</string>
+    <string name="chave_nao_verificavel_placeholder">Não foi possível verificar agora</string>
+    <string name="pilula_configurada">configurada</string>
+    <string name="pilula_nao_configurada">não configurada</string>
+    <string name="pilula_nao_verificavel">não verificável</string>
+    <string name="acao_salvar">Salvar</string>
+    <string name="acao_remover">Remover</string>
+    <string name="acao_testar_chaves">Testar chaves</string>
+    <string name="chave_guardada">Chave guardada neste aparelho.</string>
+    <string name="chave_removida">Chave removida deste aparelho.</string>
+    <string name="chave_nao_removida">Não foi possível remover a chave agora; tente de novo.</string>
+    <string name="chave_invalida">A chave tem caracteres que não vão num cabeçalho HTTP; cole a chave de novo.</string>
+    <string name="cofre_falhou">O Keystore não respondeu; tente de novo.</string>
+    <string name="sem_trava_titulo">Defina uma trava de tela</string>
+    <string name="sem_trava_texto">Sem trava de tela, o Keystore do Android não gera a chave que cifra as suas chaves de API. Defina um PIN, padrão, senha ou biometria e volte aqui.</string>
+    <string name="sem_trava_abrir">Abrir os ajustes de segurança</string>
+    <string name="sem_trava_aviso">Este aparelho está sem trava de tela. Sem ela, o Keystore não gera a chave que cifra as chaves de API, e as que estavam guardadas se perdem quando a trava é removida. Defina uma trava de tela para guardar chaves.</string>
+    <string name="cofre_nivel_strongbox">Chave do Keystore em chip dedicado (StrongBox).</string>
+    <string name="cofre_nivel_tee">Chave do Keystore em ambiente seguro do processador.</string>
+    <string name="cofre_nivel_software">Chave do Keystore em software: este aparelho não tem hardware seguro.</string>
+    <string name="cofre_nivel_desconhecido">Nível da chave do Keystore não informado pelo aparelho.</string>
+    <string name="cofre_nivel_ausente">A chave do Keystore ainda não foi gerada: ela nasce ao guardar a primeira chave de API.</string>
+
+    <string name="testar_titulo">Testar as chaves configuradas?</string>
+    <string name="testar_texto">Uma chamada pequena e paga (até 256 tokens) é feita a cada provedor com chave e tarifas configuradas, cobrada na sua conta daquele provedor. Nada é guardado pelo provedor além da própria política dele.</string>
+    <string name="testar_resultado_ok">OK</string>
+    <string name="testar_resultado_falha">falha</string>
+    <string name="testar_todos_responderam">Todos os agentes configurados responderam.</string>
+    <plurals name="testar_exigem_atencao">
+        <item quantity="one">%1$d agente exige atenção.</item>
+        <item quantity="many">%1$d de agentes exigem atenção.</item>
+        <item quantity="other">%1$d agentes exigem atenção.</item>
+    </plurals>
+
+    <string name="custos">Custos</string>
+    <string name="valores_dos_tokens">Valores dos tokens</string>
+    <string name="campo_teto">Teto financeiro por sessão (USD)</string>
+    <string name="campo_limite_de_tempo">Limite de tempo opcional (minutos)</string>
+    <string name="sem_limite">Sem limite</string>
+    <string name="limite_de_tempo_ajuda">1 a 300 minutos; vazio = sem limite</string>
+    <string name="taxa_entrada">Entrada</string>
+    <string name="taxa_saida">Saída</string>
+    <string name="taxa_busca">Busca / 1k req.</string>
+    <string name="modelos">Modelos</string>
+    <string name="modelo_por_agente">Modelo por agente</string>
+    <string name="ajustes_internos">Ajustes internos</string>
+    <string name="protocolo_editorial">Protocolo editorial</string>
+    <string name="protocolo_explicacao">O protocolo fica salvo neste aparelho e é carregado em todas as sessões.</string>
+    <string name="campo_protocolo">Protocolo editorial integral</string>
+    <string name="acao_salvar_configuracoes">Salvar configurações</string>
+    <string name="configuracoes_salvas">Configurações salvas.</string>
+    <string name="erro_numero">Informe um número com ponto decimal.</string>
+
+    <string name="contato">Contato para o Crossref</string>
+    <string name="campo_email">E-mail de contato (opcional)</string>
+    <string name="contato_explicacao">Se preenchido, vai só ao Crossref, na busca de evidências, como a documentação dele pede; o OpenAlex não usa e-mail. Nenhum e-mail ou identificador da LCV Ideas &amp; Software vai em requisição nenhuma.</string>
+
+    <string name="notificacoes">Notificações</string>
+    <string name="sobre">Sobre</string>
+    <string name="versao">Versão %1$s</string>
+
+    <!-- Licenças -->
+    <string name="licencas_aviso">Aviso</string>
+    <string name="licencas_terceiros">Componentes de terceiros</string>
+    <string name="licencas_aplicativo">Licença do aplicativo</string>
+    <string name="licencas_apache">Licença Apache, versão 2.0 (componentes de terceiros)</string>
 </resources>

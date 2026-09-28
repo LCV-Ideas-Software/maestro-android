@@ -45,7 +45,12 @@ public sealed interface Resultado {
      * recusou ou parou por outro motivo. É cobrada como qualquer resposta, e
      * por isso carrega o uso.
      */
-    public data class Incompleta(val motivo: String, val uso: Uso) : Resultado
+    public data class Incompleta(val motivo: String, val uso: Uso) : Resultado {
+        public companion object {
+            /** O motivo de uma resposta que o provedor deu por concluída sem texto nenhum. */
+            public const val SEM_TEXTO: String = "completed without text"
+        }
+    }
 
     /** Resposta HTTP de erro, depois da política de nova tentativa. */
     public data class FalhaHttp(val status: Int, val mensagem: String) : Resultado

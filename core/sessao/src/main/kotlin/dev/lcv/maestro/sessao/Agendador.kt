@@ -19,7 +19,7 @@ import java.util.UUID
  */
 public open class Agendador(private val workManager: WorkManager) {
 
-    public fun enfileirar(sessaoId: String): UUID {
+    public open fun enfileirar(sessaoId: String): UUID {
         val pedido = OneTimeWorkRequestBuilder<TrabalhoDaSessao>()
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .setInputData(workDataOf(TrabalhoDaSessao.CHAVE_DA_SESSAO to sessaoId))
@@ -37,10 +37,10 @@ public open class Agendador(private val workManager: WorkManager) {
      * (`WorkInfo.getStopReason()`), ou `null` quando não houve parada ou o
      * trabalho ainda vive. É rótulo, não salvaguarda (seção 4.1).
      */
-    public fun ultimaParada(sessaoId: String): Int? =
+    public open fun ultimaParada(sessaoId: String): Int? =
         infos(sessaoId).lastOrNull { it.state.isFinished }?.stopReason?.takeIf { it != WorkInfo.STOP_REASON_NOT_STOPPED }
 
-    public fun cancelar(sessaoId: String) {
+    public open fun cancelar(sessaoId: String) {
         workManager.cancelUniqueWork(nome(sessaoId))
     }
 

@@ -141,6 +141,13 @@ public data class ConfiguracoesEntidade(
     @ColumnInfo(defaultValue = "2") val maxCiclos: Int = 2,
     val taxasJson: String,
     val atualizadaEm: String,
+    /**
+     * O e-mail de contato opcional, do usuário, que vai só ao Crossref
+     * (especificação, seção 5.4, item 7); esquema v3 (plano do `:app`). Já
+     * validado pela regra do `AgenteDeColeta` ao gravar: só ASCII visível e um
+     * `@`, para nunca lançar ao montar o agente de coleta.
+     */
+    val emailDeContato: String? = null,
 )
 
 public const val CONFIGURACOES_ID: String = "default"

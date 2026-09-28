@@ -94,6 +94,11 @@ jobs:
     # SQLite do Android, e o caso que importa reabre o banco em arquivo depois
     # de descartar cada objeto (especificação, seção 8).
     #
+    # Os do `:app` também: as telas em Compose sobre o Room real, com o cofre e
+    # o agendador substituídos por dublês, e o arranque do `Application` (a
+    # fábrica instalada, a configuração do WorkManager e a reconciliação na
+    # entrada em primeiro plano).
+    #
     # Job próprio, com prazo próprio, para que o emulador não entre no prazo
     # do job de build.
     name: Instrumented tests (emulator)
@@ -140,9 +145,9 @@ jobs:
         # `notClass` deixa de fora o caso 1, que exige o hardware de StrongBox:
         # o relatório do Gradle Managed Devices contaria o pulo dele como
         # falha, e o resultado precisa mostrar só o que rodou de fato. Os dois
-        # argumentos são inertes para o `:core:sessao`, que não os lê.
+        # argumentos são inertes para o `:core:sessao` e o `:app`, que não os leem.
         run: >-
-          ./gradlew :core:seguranca:api37DebugAndroidTest :core:sessao:api37DebugAndroidTest --no-daemon --stacktrace
+          ./gradlew :core:seguranca:api37DebugAndroidTest :core:sessao:api37DebugAndroidTest :app:api37DebugAndroidTest --no-daemon --stacktrace
           -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
           -Pandroid.testInstrumentationRunnerArguments.emuladorDaCi=true
           -Pandroid.testInstrumentationRunnerArguments.notClass=dev.lcv.maestro.seguranca.CofreDeChavesStrongBoxTest
@@ -167,6 +172,7 @@ jobs:
           modulos = (
               ("core/seguranca", {"CofreDeChavesStrongBoxTest"}),
               ("core/sessao", set()),
+              ("app", set()),
           )
           reprovado = False
           for modulo, fora in modulos:
@@ -208,5 +214,6 @@ jobs:
           path: |
             core/seguranca/build/outputs/androidTest-results/
             core/sessao/build/outputs/androidTest-results/
+            app/build/outputs/androidTest-results/
           retention-days: 14
           if-no-files-found: error

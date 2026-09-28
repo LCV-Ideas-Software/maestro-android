@@ -1,5 +1,10 @@
 package dev.lcv.maestro.sessao
 
+import com.fasterxml.jackson.core.StreamWriteFeature
+import com.fasterxml.jackson.core.util.DefaultIndenter
+import com.fasterxml.jackson.core.util.DefaultPrettyPrinter
+import com.fasterxml.jackson.core.util.Separators
+import com.fasterxml.jackson.databind.json.JsonMapper
 import dev.lcv.maestro.protocolo.LinhaDeLink
 import dev.lcv.maestro.provedores.Provedor
 import java.math.BigDecimal
@@ -71,7 +76,35 @@ public data class ResumoDoArtefato(
     val linksInvalidos: Int,
     val criadoEm: String,
 ) {
+    /**
+     * A aba **Metadados** do web (`MaestroAiModule.tsx:1075-1098`): os onze
+     * campos, na ordem e com os nomes do web, como `JSON.stringify(…, null, 2)`
+     * os escreve — dois espaços de recuo, `"campo": valor`, `null` para o que
+     * falta. O custo sai como decimal sem zeros à direita e sem expoente (o
+     * JavaScript usaria expoente abaixo de 1e-6; desvio declarado).
+     */
+    public fun metadadosJson(): String {
+        val no = METADADOS.createObjectNode()
+            .put("id", id)
+            .put("cycle", ciclo)
+            .put("turn", turno)
+            .put("agent", agente)
+            .put("role", papel)
+            .put("status", status)
+            .put("model", modelo)
+            .put("cost_usd", custoUsd.stripTrailingZeros())
+            .put("previous_artifact_id", artefatoAnteriorId)
+            .put("content_bytes", bytesDoConteudo)
+            .put("created_at", criadoEm)
+        return METADADOS.writer(IMPRESSORA).writeValueAsString(no)
+    }
+
     public companion object {
+        private val METADADOS: JsonMapper = JsonMapper.builder().enable(StreamWriteFeature.WRITE_BIGDECIMAL_AS_PLAIN).build()
+        private val IMPRESSORA: DefaultPrettyPrinter =
+            DefaultPrettyPrinter(Separators.createDefaultInstance().withObjectFieldValueSpacing(Separators.Spacing.AFTER))
+                .withObjectIndenter(DefaultIndenter("  ", "\n"))
+
         public fun de(linha: ArtefatoEntidade): ResumoDoArtefato = ResumoDoArtefato(
             id = linha.id,
             sessaoId = linha.sessaoId,

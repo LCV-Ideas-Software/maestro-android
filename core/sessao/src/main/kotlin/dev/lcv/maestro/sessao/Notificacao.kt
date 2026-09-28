@@ -23,7 +23,11 @@ import dev.lcv.maestro.sessao.Agentes.rotulo
  * grava `blocked_cancelled` no Room primeiro e só então para o trabalho
  * (revisão cruzada de 27/09/2026, emenda A3).
  */
-public class Notificacao(private val contexto: Context) {
+public class Notificacao(
+    private val contexto: Context,
+    /** O destino do toque na notificação: a tela da sessão, que o `:app` sabe abrir. */
+    private val abrirSessao: ((sessaoId: String) -> PendingIntent)? = null,
+) {
 
     private fun canal() {
         val gerente = contexto.getSystemService(NotificationManager::class.java)
@@ -52,6 +56,7 @@ public class Notificacao(private val contexto: Context) {
             .setContentText(texto)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .apply { abrirSessao?.let { setContentIntent(it(sessaoId)) } }
             .addAction(
                 Notification.Action.Builder(
                     Icon.createWithResource(contexto, android.R.drawable.ic_menu_close_clear_cancel),

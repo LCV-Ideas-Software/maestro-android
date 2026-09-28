@@ -269,6 +269,49 @@ As 20 chamadas de backend somem: no Android não há backend a chamar. O que era
 `fetch` vira chamada a um caso de uso local, e o que era *polling* de
 `GET /sessions/{id}` vira observação de um `Flow` do Room.
 
+#### O que a PR 4a implementa disto (28/09/2026)
+
+O `:app` é Jetpack Compose com Material 3, uma `Activity` só e a Navigation 3
+(a regra do plano mandava usá-la se houvesse versão 1.x estável na página
+oficial no dia, e havia: 1.2.0, de 23/09/2026). A `Fabrica` do `:core:sessao`
+é a raiz de composição, sem Hilt (decisão 18 do operador, 28/09/2026). O
+porte segue o modelo Proton: mesmo produto, mesmos rótulos, moldura da
+plataforma. Cada unidade do cliente web tem destino:
+
+| Unidade do web | Destino na 4a |
+| --- | --- |
+| Os nove tipos de domínio | as projeções do `:core:sessao` (`ProjecaoDaSessao`, `ResumoDoArtefato`, `DetalheDoArtefato`, `Configuracoes`, `EventoDaSessao`); a tela não tem tipo próprio além do estado de interface |
+| `statusLabel`, `agentLabel`, `isRunning`, `isResumable` | `Rotulos`, Kotlin puro, com os 18 rótulos do web e o 19.º, "Pausada aguardando autenticação"; `isResumable` usa `Estados.RETOMAVEIS`, que inclui a pausa de autenticação |
+| `eventDate`, `formatBytes`, `simpleDiff` | `Formatos` e `Diff`, com as fronteiras e o corte de 220 linhas do web |
+| As 20 chamadas `fetch` e a sondagem de 4 s | `Flow` do Room (`observarTodas`, `observar`, `observarEventos`) e chamadas aos repositórios fora da linha principal |
+| Botões **Atualizar**, **Atualizar autos**, **Recarregar** | **saem**: a tela observa o banco |
+| Métricas **Sessão**, **Com o trabalho agora**, **Agentes prontos**, **Teto configurado** | tela inicial, sobre a sessão mais recente; a tela da sessão ganha **Custo acumulado** ao vivo com o teto da linha |
+| **Nova sessão** (campos, padrões e as quatro validações) | tela inicial, com as mensagens do web; depois delas, a permissão de notificações e a autenticação (seções 4.1 e 6.2) |
+| **Sessões recentes** | tela inicial, observada, na ordem e no corte do `GET /sessions` do web (a tocada por último primeiro, 30) |
+| **Cancelar** / **Retomar** | tela da sessão; retomar abre o diálogo com líder e colegiado (as duas validações do web) e, numa pausa por custo, o teto novo |
+| **Rastreamento** (últimos 8 eventos) | tela da sessão, com "Mostrar todos os eventos" |
+| **Autos / Evidências** e as cinco abas | tela da sessão: Texto, Diff, Relatório, Links (a pílula segue a regra dos inválidos do motor) e Metadados (os onze campos do web, no formato de `JSON.stringify(…, null, 2)`) |
+| **Texto atual / Texto final** | tela da sessão, monoespaçado como o `<pre>` do web |
+| **Criar Post** e o editor do MainSite | **substituído** pela tela do texto final com exportação (seção 4.4), que é da PR 4b |
+| **Chaves dos agentes** | configurações: cada chave vai ao cofre do aparelho pelo botão da própria linha, nunca volta à tela nem fica com o serviço de preenchimento automático (o `autoComplete="off"` do web, pelo `AutofillManager.cancel` que a documentação do Compose indica), e a pílula tem o terceiro estado "não verificável" (seção 6.2) |
+| **Testar chaves** | **porta**, atrás de uma confirmação que diz o custo e da autenticação (decisão 20 do operador, 28/09/2026); a regra é o `TesteDeChaves` do `:core:sessao` |
+| **Custos / Valores dos tokens** | configurações; limite de tempo de 1 a 300 minutos (seção 4.1) |
+| **Modelos** | só leitura: o modelo é fixo por provedor |
+| **Protocolo editorial** | configurações, salvo no aparelho |
+
+O que só existe no Android, também na 4a: o contato opcional para o Crossref
+(seção 5.4), o estado da permissão de notificações com o atalho para os
+ajustes, a linha que diz onde vive a chave do Keystore, o aviso de aparelho sem
+trava de tela, a tela de licenças e o ícone do aplicativo com a marca da LCV
+Ideas & Software (decisão 21 do operador, 28/09/2026).
+
+Desvios de aparência declarados: tema só claro, como o web; a fonte Inter não
+vem embutida (fica a sem serifa da plataforma); as grades de duas colunas
+viram uma coluna; os ícones são os Material Symbols oficiais do Google no
+lugar dos do Lucide, com o mesmo sentido; a linha escolhida de uma lista ganha
+a borda de foco do web, porque o fundo que o web troca (8 % contra 10 %) não se
+distingue num telefone; os textos com "(s)" do web viram plurais da plataforma.
+
 ### 2.4 O que sai, e por quê
 
 Nenhuma unidade fica sem destino declarado. Unidade não mencionada vira
@@ -522,6 +565,35 @@ serviço interno do WorkManager; `POST_NOTIFICATIONS` fica com o `:app`. O
 saldo do orçamento de seis horas é `Orcamento.restanteNaJanela`, sobre as
 execuções que tocam a janela de 24 horas, para a tela avisar antes de uma
 segunda sessão longa morrer sem explicação.
+
+#### O que a PR 4a implementa disto (28/09/2026)
+
+- **A permissão de notificações** é pedida quando a pessoa toca **Iniciar
+  sessão** sem tê-la concedido, com a explicação antes do pedido do sistema, e
+  a sessão começa qualquer que seja a resposta: sem a permissão, perde-se só o
+  aviso na gaveta. As configurações mostram o estado e levam aos ajustes.
+- **O aviso do orçamento de seis horas** aparece no formulário quando o que
+  resta na conta das execuções deste aplicativo nas últimas 24 horas é menor
+  que o limite de tempo da sessão, ou menor que uma hora quando não há limite.
+  O texto diz que a conta é a do aplicativo, e não a cota que a plataforma
+  guarda. É aviso, não recusa.
+- **O rótulo da parada** (`getStopReason()`) aparece no cartão de erro da
+  sessão, como informação de produto; e o erro da decisão 16 ganha a frase que
+  diz que retomar pode pagar a mesma chamada de novo.
+- **O toque na notificação abre a tela da sessão**, por uma `PendingIntent`
+  imutável e explícita, com código próprio por sessão, separado do da ação de
+  cancelar; a `Activity` é `singleTask`, e o pedido chega por `onCreate` ou
+  `onNewIntent`.
+- **A reconciliação da seção 4.3 roda a cada entrada do processo em primeiro
+  plano** (`ProcessLifecycleOwner`, `ON_START`), sob a mesma trava que as telas
+  usam entre gravar uma sessão e enfileirá-la, para uma linha recém-criada não
+  ser varrida como "sem trabalho vivo" nesse intervalo.
+- **O WorkManager é inicializado sob demanda**, com a configuração do
+  `Application` e a `FabricaDeTrabalhos`; o inicializador automático sai do
+  provedor do App Startup. A `Fabrica` só toca o WorkManager no primeiro uso do
+  agendador, depois de instalada: a primeira chamada a `getInstance` pode
+  começar na hora um trabalho pendente, e o worker precisa encontrar a fábrica
+  do processo já instalada.
 
 ### 4.2 Room no lugar do D1
 
@@ -802,6 +874,22 @@ rodada de revisão cruzada e seis decisões do operador em 26/09/2026):**
   `falhas` do motor. Taxas, modelos e agentes ativos continuam lidos com
   tolerância, como o `parseJson` do web; os registros de link e de evidência
   recusam número fracionário em campo inteiro.
+
+**O que a PR 4a acrescenta ao esquema e aos repositórios (28/09/2026).**
+O esquema vai à versão 3, por `AutoMigration(2, 3)`: `configuracoes` ganha
+`emailDeContato`, o contato opcional para o Crossref (seção 5.4), gravado só
+se obedecer à regra do `AgenteDeColeta` — ASCII visível, sem espaço, com um
+`@`, até 254 caracteres —, porque um valor que o agente recusasse quebraria
+toda auditoria dali em diante; e o agente de coleta é montado a cada auditoria
+e a cada busca com o valor gravado naquele momento. `subirTeto` eleva o teto
+financeiro de uma sessão retomável sem texto final: o teto vale sobre o
+acumulado da sessão inteira, e uma sessão pausada por custo pausaria de novo
+na primeira chamada se fosse retomada com o mesmo teto. O teto novo tem de
+passar do atual **e** do custo já observado, e a escrita e o evento no jornal
+são uma transação só, com o portão no SQL. `observarTodas` dá à tela inicial
+a lista observada, no lugar da fotografia de `listar`, na ordem e no corte
+do `GET /sessions` do web (`ORDER BY updated_at DESC LIMIT 30`): a sessão
+tocada por último vem primeiro, e é dela que saem os cartões da tela inicial.
 
 ### 4.3 Morte de processo é o novo timeout de Worker
 
@@ -1120,7 +1208,9 @@ O que é verdade, e é o que a tela de configurações dirá com estas palavras:
 - a chave é **guardada apenas neste aparelho**, cifrada por chave do Keystore
   que não é exportável;
 - ela é **enviada, por TLS, apenas ao provedor a que pertence**, e só quando o
-  usuário roda uma sessão com aquele provedor ativo;
+  usuário roda uma sessão com aquele provedor ativo ou pede o teste das chaves
+  (redação acrescentada pelo operador em 28/09/2026, quando o "Testar chaves"
+  do web foi portado);
 - **nenhum servidor da LCV Ideas & Software** a recebe, vê ou guarda — não há
   servidor nosso no caminho;
 - ela **nunca é exibida de volta** depois de gravada: a tela mostra
@@ -1192,6 +1282,16 @@ O desenho que atende à decisão do operador é, então:
    usuário na mão.
 
 O que está decidido e não se revisita é o modo: **por tempo, não por operação.**
+
+**O valor da janela é 300 minutos** (decisão 17 do operador, 28/09/2026): o
+mesmo teto de tempo de uma sessão (`TETO_DE_MINUTOS`), uma constante de
+produto amarrada à outra. Uma sessão sem limite de tempo que passar da janela
+pausa em `pausada_aguardando_autenticacao` e volta com um toque. A tela pede a
+autenticação antes de **toda** partida, retomada e "Testar chaves", com o
+`BiometricPrompt` da plataforma (biometria forte ou a credencial do aparelho,
+sem botão negativo, que a credencial proíbe), e nada começa quando ela falha:
+o cofre não distingue uma janela vencida sem decifrar, e pausar logo depois de
+começar é pior do que pedir antes.
 
 A v1 assume `minSdk` 34, herdando a decisão do operador de 19/09/2026 na
 calculadora. Isso torna as duas APIs acima universalmente disponíveis e dispensa
@@ -1460,7 +1560,23 @@ de teste, porque compra confiança sem entregá-la.
      com espera real.
 - **`:app`, instrumentado.** As telas com `testTag`, no padrão que a CALANDR-16
   provou: o teste digita, toca e lê, com ViewModel montado sobre falsos em
-  memória, sem Hilt e sem rede.
+  memória, sem Hilt e sem rede. Na PR 4a, sobre o Room real num arquivo
+  temporário, com o cofre, o agendador e a autenticação substituídos por
+  dublês: as quatro validações do início e as duas da retomada, com as
+  mensagens do web; o caminho permissão → autenticação → gravação →
+  enfileiramento, e nada gravado nem enfileirado quando a autenticação falha;
+  a lista observada e as chaves relidas na volta à tela; o aviso do orçamento
+  com cinco horas e meia gastas, e a ausência dele com uma; as métricas, a
+  janela dos últimos oito eventos, os autos e as cinco abas; o custo
+  acumulado que acompanha o banco sem evento novo; o cancelamento gravado
+  **antes** de o trabalho ser cancelado; o teto novo recusado abaixo do gasto
+  e aceito acima, com a autenticação antes; a chave guardada na segunda
+  tentativa depois da autenticação; o aparelho sem trava; o terceiro estado do
+  cofre; o limite de 301 minutos recusado sem gravar; o teste de chaves que só
+  chama quem tem chave. E o arranque do processo: a fábrica instalada, a
+  configuração do WorkManager que é a do `Application`, e a sessão "rodando"
+  sem trabalho vivo reconciliada na entrada em primeiro plano. Na JVM: os
+  rótulos, os formatos, o diff, o limiar do aviso e o manifesto.
 
 Nenhum teste embute chave de API, nem sequer inválida com forma de chave real —
 o *secret scanning* da frota não distingue chave falsa de chave vazada, e nem
@@ -1549,7 +1665,9 @@ apontada na calculadora, e não se repete.
    (`getStopReason()` no jornal, sob a cerca) e o caminho da segunda execução
    depois de uma parada (`preparar` com a decisão 16); a medição em aparelho
    de verdade continua pendente, e a tela do `:app` (MAEANDR-21) é quem a
-   torna possível.
+   torna possível. **Estado em 28/09/2026:** a PR 4a entregou as telas de
+   sessão e de configurações; a medição pode ser feita num aparelho com
+   chaves de verdade.
 2. **O prazo por chamada, com o raciocínio no máximo, nos seis provedores.** O
    prazo canônico é 120 s (`PRAZO_POR_CHAMADA` no `:core:provedores`), pensado
    para o esforço padrão e 20 mil tokens de saída. Com o raciocínio no máximo e
@@ -1571,8 +1689,9 @@ apontada na calculadora, e não se repete.
    (seção 4.1). O número que o produto adota tem de sair de sessões reais, e
    trocá-lo depois exige recifrar o segredo — então não é escolha para ser
    revista sem custo. **O teto de sessão foi fixado em 300 minutos em
-   25/09/2026** (seção 4.1), revisável sem recifrar nada; o valor da janela
-   continua aberto.
+   25/09/2026** (seção 4.1), revisável sem recifrar nada. **O valor da
+   janela foi fixado pelo operador em 28/09/2026: 300 minutos** (seção 6.2);
+   fica aberta só a medição, em sessões reais, de que o par se sustenta.
 
 Uma pendência de medição **saiu daqui por estar documentada, não por ter sido
 medida**: o teto do `dataSync`. Uma versão anterior afirmava que a documentação

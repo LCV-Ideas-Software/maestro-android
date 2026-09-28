@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Monograma LCV derivado de `Outros Trabalhos/brand/lcv-ideas-software-mark.svg`,
+  o ativo de marca da LCV Ideas & Software, o mesmo da calculadora-android.
+
+  Geometria: o SVG de origem desenha num quadro de 512 e já traz o quadrado
+  arredondado como fundo. Num ícone adaptativo o fundo é camada própria e a
+  máscara do aparelho pode cortar a borda, então o monograma é reduzido para a
+  zona de conteúdo (66 dp dos 108 dp do quadro, ou 313 das 512 unidades) e
+  recentrado: o traçado ocupa de 110 a 496 em X, com centro em 303, e o grupo
+  o encolhe em torno desse centro e o desloca 47 unidades à esquerda, para o
+  centro do quadro.
+
+  Os cinco círculos do SVG original não foram convertidos: cada um tem raio 18
+  e a mesma cor da ponta arredondada do traço de raio 22 que já cai sobre ele,
+  de modo que o desenho renderizado é idêntico.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <group
+        android:pivotX="303"
+        android:pivotY="256"
+        android:scaleX="0.81"
+        android:scaleY="0.81"
+        android:translateX="-47">
+        <path
+            android:pathData="M134,74h246"
+            android:strokeColor="#334155"
+            android:strokeWidth="18"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M132,136v240h154"
+            android:strokeColor="#7DD3FC"
+            android:strokeWidth="44"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M366,136c-88,0 -150,60 -150,120s62,120 150,120"
+            android:strokeColor="#34D399"
+            android:strokeWidth="44"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M310,144l82,232l82,-232"
+            android:strokeColor="#F59E0B"
+            android:strokeWidth="44"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M134,438h246"
+            android:strokeColor="#334155"
+            android:strokeWidth="18"
+            android:strokeLineCap="round" />
+    </group>
+</vector>

@@ -37,6 +37,15 @@ android {
     }
 }
 
+// O esquema exportado entra nos assets dos testes instrumentados: o
+// `MigrationTestHelper` do Room abre um banco na versão antiga a partir dele e
+// valida a migração automática (PR 4a, esquema v3). API de variantes do AGP 9.
+androidComponents {
+    onVariants { variante ->
+        variante.androidTest?.sources?.assets?.addStaticSourceDirectory("$projectDir/schemas")
+    }
+}
+
 room {
     // O esquema exportado fica no repositório: é o que uma migração futura
     // compara, e o que a revisão lê para conferir uma coluna.

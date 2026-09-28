@@ -1,5 +1,6 @@
 package dev.lcv.maestro.sessao
 
+import dev.lcv.maestro.protocolo.Custo
 import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.sessao.Agentes.rotulo
 import kotlinx.coroutines.flow.Flow
@@ -41,6 +42,9 @@ public class RepositorioDeSessoes(
     public fun observar(id: String): Flow<SessaoEntidade?> = banco.sessoes().observar(id)
 
     public fun listar(): List<SessaoEntidade> = banco.sessoes().listar()
+
+    /** A lista observada, para a tela; `listar()` é uma fotografia. */
+    public fun observarTodas(): Flow<List<SessaoEntidade>> = banco.sessoes().observarTodas()
 
     /** `runnerStopRequested` visto do banco: as sessões que ainda estão na fila ou rodando. */
     public fun emExecucao(): List<SessaoEntidade> = banco.sessoes().emExecucao()
@@ -171,6 +175,40 @@ public class RepositorioDeSessoes(
         Dinheiro.deE8(banco.sessoes().carregar(id)?.custoObservadoE8 ?: 0L)
     }
 
+    /**
+     * O operador eleva o teto financeiro de uma sessão pausada (tipicamente
+     * `paused_cost_limit`) para poder retomá-la: o teto vale sobre o acumulado
+     * da sessão inteira (emenda A13 do plano da 3a), então retomar com o mesmo
+     * teto pausaria de novo na primeira chamada. Regras (plano do `:app`,
+     * emenda A9): só sessão retomável sem texto final; valor positivo que
+     * cabe na coluna; acima do teto atual **e** do custo observado; a escrita e
+     * o evento numa transação, com o portão no SQL.
+     */
+    public fun subirTeto(id: String, teto: BigDecimal): Resultado<SessaoEntidade> {
+        val linha = carregar(id) ?: return Resultado.Recusado(MENSAGEM_NAO_ENCONTRADA)
+        if (linha.status !in Estados.RETOMAVEIS || linha.textoFinal != null) return Resultado.Recusado(MENSAGEM_TETO_SO_RETOMAVEL)
+        if (teto.signum() <= 0) return Resultado.Recusado(RepositorioDeConfiguracoes.MENSAGEM_TETO_POSITIVO)
+        if (!Dinheiro.cabe(teto)) return Resultado.Recusado(RepositorioDeConfiguracoes.MENSAGEM_TETO_ACIMA_DO_MAXIMO)
+        val tetoE8 = Dinheiro.paraE8(teto)
+        if (tetoE8 <= linha.tetoDeCustoE8 || tetoE8 <= linha.custoObservadoE8) return Resultado.Recusado(MENSAGEM_TETO_NAO_SOBE)
+        val evento = EventoDaSessao(
+            em = agora(),
+            status = EventoDaSessao.BLOQUEADO,
+            mensagem = "Teto financeiro da sessao elevado para US$ ${Custo.paraExibir(teto).toPlainString()} pelo operador.",
+        )
+        val aplicado = try {
+            banco.runInTransaction<Boolean> {
+                if (banco.sessoes().subirTeto(id, Estados.RETOMAVEIS.toList(), tetoE8, agora()) == 0) throw CasPerdido()
+                banco.eventos().inserir(evento.paraEntidade(id))
+                true
+            }
+        } catch (perdido: CasPerdido) {
+            false
+        }
+        if (!aplicado) return Resultado.Recusado(Retomada.MENSAGEM_MUDOU_DE_ESTADO)
+        return Resultado.Ok(carregar(id) ?: linha)
+    }
+
     /** O total observado gravado agora, para o guarda de custo não comparar um valor local velho com o teto. */
     public fun custoObservado(id: String): BigDecimal = Dinheiro.deE8(banco.sessoes().carregar(id)?.custoObservadoE8 ?: 0L)
 
@@ -247,6 +285,8 @@ public class RepositorioDeSessoes(
         public const val MENSAGEM_NAO_ENCONTRADA: String = "Sessao Maestro AI nao encontrada."
         public const val MENSAGEM_CANCELADA: String = "Sessao cancelada pelo operador."
         public const val MENSAGEM_MUDOU_NA_EDICAO: String = "Sessao mudou de estado durante a edicao; recarregue antes de editar."
+        public const val MENSAGEM_TETO_SO_RETOMAVEL: String = "O teto financeiro so pode ser elevado numa sessao retomavel, sem texto final."
+        public const val MENSAGEM_TETO_NAO_SOBE: String = "O novo teto deve ser maior que o teto atual e que o custo ja observado."
         public const val MENSAGEM_INTERROMPIDA: String =
             "Sessao interrompida: o processo do aplicativo foi encerrado antes de a deliberacao terminar."
 

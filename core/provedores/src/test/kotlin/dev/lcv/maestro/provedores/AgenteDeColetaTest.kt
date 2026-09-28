@@ -2,8 +2,10 @@ package dev.lcv.maestro.provedores
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /** A identidade do crawler, literal, e o que não cabe num cabeçalho. */
 class AgenteDeColetaTest {
@@ -28,6 +30,17 @@ class AgenteDeColetaTest {
             "MaestroEditorialAI/1.2.3 (Android; +https://github.com/LCV-Ideas-Software/maestro-android; mailto:leitor@example.com)",
             polido.userAgentPolido,
         )
+    }
+
+    @Test
+    fun `a regra publica do e-mail e a mesma do construtor`() {
+        for (valido in listOf("leitor@example.com", "a@b", "x+y@z.io")) {
+            assertTrue(AgenteDeColeta.emailDeContatoValido(valido), valido)
+            assertEquals(valido, AgenteDeColeta("1.0.0", valido).emailDeContato)
+        }
+        for (invalido in listOf("", "sem-arroba", "a b@example.com", "leitorç@example.com", "x@y\rz", "x@y\u007fz")) {
+            assertFalse(AgenteDeColeta.emailDeContatoValido(invalido), invalido)
+        }
     }
 
     @Test
