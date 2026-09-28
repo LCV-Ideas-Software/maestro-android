@@ -94,23 +94,21 @@ class RepositorioDeSessoesTest {
     }
 
     @Test
-    fun pisoDeCustoNuncaBaixaEEAtomico() {
+    fun custoObservadoSomaCadaChamadaSemPortaoESatura() {
         val id = criar().id
-        t.sessoes.subirPisoDeCusto(id, BigDecimal("0.50"))
-        assertEquals(BigDecimal("0.50000000"), Dinheiro.deE8(t.sessoes.carregar(id)!!.custoObservadoE8))
-        t.sessoes.subirPisoDeCusto(id, BigDecimal("0.25"))
-        assertEquals(BigDecimal("0.50000000"), Dinheiro.deE8(t.sessoes.carregar(id)!!.custoObservadoE8))
-        t.sessoes.subirPisoDeCusto(id, BigDecimal("-3"))
-        assertEquals(BigDecimal("0.50000000"), Dinheiro.deE8(t.sessoes.carregar(id)!!.custoObservadoE8))
-        t.sessoes.subirPisoDeCusto(id, BigDecimal("9"))
-        t.sessoes.subirPisoDeCusto(id, BigDecimal("10"))
-        assertEquals(BigDecimal("10.00000000"), Dinheiro.deE8(t.sessoes.carregar(id)!!.custoObservadoE8))
-        // O piso não tem portão: registra gasto mesmo com a sessão cancelada.
+        assertEquals(BigDecimal("0.50000000"), t.sessoes.somarCusto(id, BigDecimal("0.50")))
+        // Cada chamada paga soma (achado do Codex na #70: um `MAX` sobre totais locais perdia a chamada de uma execução cruzada).
+        assertEquals(BigDecimal("0.75000000"), t.sessoes.somarCusto(id, BigDecimal("0.25")))
+        // Um custo negativo conta zero.
+        assertEquals(BigDecimal("0.75000000"), t.sessoes.somarCusto(id, BigDecimal("-3")))
+        assertEquals(BigDecimal("0.75000000"), t.sessoes.custoObservado(id))
+        // Sem portão: registra gasto mesmo com a sessão cancelada.
         t.sessoes.cancelar(id)
-        t.sessoes.subirPisoDeCusto(id, BigDecimal("11"))
-        assertEquals(BigDecimal("11.00000000"), Dinheiro.deE8(t.sessoes.carregar(id)!!.custoObservadoE8))
-        // Um custo observado que não cabe na coluna satura no extremo, sem lançar: o gasto fica registrado e pausa pelo teto.
-        t.sessoes.subirPisoDeCusto(id, BigDecimal("1e30"))
+        assertEquals(BigDecimal("11.75000000"), t.sessoes.somarCusto(id, BigDecimal("11")))
+        // Acima da coluna satura no extremo, sem lançar: o gasto fica registrado e pausa pelo teto.
+        t.sessoes.somarCusto(id, BigDecimal("1e30"))
+        assertEquals(Long.MAX_VALUE, t.sessoes.carregar(id)!!.custoObservadoE8)
+        t.sessoes.somarCusto(id, BigDecimal("1"))
         assertEquals(Long.MAX_VALUE, t.sessoes.carregar(id)!!.custoObservadoE8)
     }
 
@@ -170,7 +168,7 @@ class RepositorioDeSessoesTest {
         delay(500)
         t.sessoes.transicionar(id, Estados.RODANDO, null, t.evento(EventoDaSessao.RODANDO, "vai"))
         delay(500)
-        t.sessoes.subirPisoDeCusto(id, BigDecimal("0.1"))
+        t.sessoes.somarCusto(id, BigDecimal("0.1"))
         val lidas = linhas.await()
         assertEquals(listOf(Estados.NA_FILA, Estados.RODANDO, Estados.RODANDO), lidas.map { it!!.status })
         assertEquals(10_000_000L, lidas.last()!!.custoObservadoE8)

@@ -6,6 +6,50 @@ All material changes to Maestro Android are recorded here.
 
 ### Added
 
+- Add the orchestration on the device to `:core:sessao` (MAEANDR-22, second
+  of two pull requests): `Deliberacao` ports the web's `runSession`
+  (`sessions.ts@22f1c05f`, 3320–4300) over the Room transactions of the
+  first pull request — the draft with fallback, the serial loop with the
+  web's scheduler (`Escalonamento` in `:core:protocolo`, ported with its
+  tests), corrective retries, the three-strike escalation, the guards before
+  every paid call, the per-turn checkpoint, the web's statuses and journal
+  messages — with the desktop's additions decided on 24/09/2026: the
+  five-stage release audit with the session's citation context (the protocol
+  hash is the SHA-256 of the stored protocol text), the operator-evidence
+  pause at the top of every iteration and the citation-manifest block at the
+  end of both prompts (the sentence about links being audited at
+  finalization returns to the revision prompt). `TrabalhoDaSessao` is the
+  `CoroutineWorker` (`setForeground` `dataSync` before any paid call,
+  `Result.success()` on every outcome, the stop reason as a journal label
+  under the execution fence), `Agendador` the unique work per session,
+  `Reconciliacao` the app-open sweep, `Notificacao` the foreground
+  notification whose cancel action writes `blocked_cancelled` to Room before
+  stopping the job, `Fabrica` the production graph and `FabricaDeTrabalhos`
+  the official `WorkerFactory`; the library manifest declares the
+  foreground-service permissions and merges the `dataSync` type into
+  WorkManager's service. Room schema v2 with an automatic migration:
+  `execucoes.chamadaEmVoo` marks the paid call in flight (operator's
+  decision 16 of 27/09/2026, after the cross-review round on the plan): it
+  is written right before every paid dispatch and cleared by the
+  transaction that records the outcome, an execution that died with it is
+  never claimed again (`preparar` pauses the session as `error` with the
+  message and the reconciliation does not re-queue it), and `retomar` clears
+  the execution fence so a late checkpoint of the dead execution cannot pass.
+  `ClienteDeProvedores` gains a public constructor with the endpoint
+  resolver. Instrumented tests cover the four cost cases and the time case of
+  the specification, the discard-and-rebuild resume, the indeterminate paid
+  call, the in-flight cancellation, the worker with `work-testing` and the
+  reconciliation; the disarm matrix has 51 rows (16 JVM, 35 device).
+  From Codex's first round on the pull request: the observed cost is the
+  atomic **sum** of every paid call (saturating), not the web's `MAX` floor
+  over each execution's local total, which lost one paid call when the
+  operator cancelled and resumed while the old call was completing, and the
+  cost guard compares the ceiling with the stored total re-read before every
+  call; the time limit is enforced before every corrective retry; an
+  incomplete response without token counts is charged as the full output
+  ceiling; and the corrective-retry counters are seeded at resume from the
+  round's blocked artifacts over the current text, so a stopped worker does
+  not regain three retries.
 - Add `:core:sessao` (MAEANDR-22, first of two pull requests): the Android
   library that holds the Maestro AI state on the device, ported from
   `admin-app` `c70dc54f` (`sessions.ts`) over Room 2.8.5 with the Room Gradle

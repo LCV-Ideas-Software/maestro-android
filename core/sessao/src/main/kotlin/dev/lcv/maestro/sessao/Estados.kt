@@ -12,6 +12,22 @@ public object Estados {
     public const val RETOMADA_INVALIDA: String = "paused_resume_state_invalid"
     public const val LIMITE_DE_CICLOS: String = "paused_cycle_limit"
 
+    // ── as pausas que a deliberação grava (`runSession`, 3b) ──
+    public const val LIMITE_DE_CUSTO: String = "paused_cost_limit"
+    public const val LIMITE_DE_TEMPO: String = "paused_time_limit"
+    public const val RODADA_INCOMPLETA: String = "paused_round_incomplete"
+    public const val AUDITORIA_FINAL: String = "paused_final_audit"
+    public const val AUTORREVISAO: String = "paused_self_review"
+    public const val PANE_DE_REVISORES: String = "paused_reviewer_outage"
+    public const val SEM_RASCUNHO: String = "paused_draft_unavailable"
+
+    /**
+     * O fim da deliberação (`sessions.ts:4257-4264`): terminal, com
+     * `textoFinal` gravado; [Retomada.pedir] o recusa porque o texto final
+     * existe, e ele não está em [RETOMAVEIS].
+     */
+    public const val CONVERGIDA: String = "converged"
+
     /**
      * Só no Android: a janela de autenticação do Keystore venceu no meio da
      * sessão; a chave está intacta e o que se pede é autenticação, nunca a
@@ -30,14 +46,14 @@ public object Estados {
      * mais o de autenticação, que só existe aqui.
      */
     public val RETOMAVEIS: Set<String> = setOf(
-        "paused_cost_limit",
-        "paused_time_limit",
+        LIMITE_DE_CUSTO,
+        LIMITE_DE_TEMPO,
         LIMITE_DE_CICLOS,
-        "paused_round_incomplete",
-        "paused_final_audit",
-        "paused_self_review",
-        "paused_reviewer_outage",
-        "paused_draft_unavailable",
+        RODADA_INCOMPLETA,
+        AUDITORIA_FINAL,
+        AUTORREVISAO,
+        PANE_DE_REVISORES,
+        SEM_RASCUNHO,
         RETOMADA_INVALIDA,
         CANCELADA,
         "blocked_max_cycles",

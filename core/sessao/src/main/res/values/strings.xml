@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="maestro_sessao_canal">Sessões do Maestro AI</string>
+    <string name="maestro_sessao_canal_descricao">Andamento da deliberação editorial em execução</string>
+    <string name="maestro_sessao_titulo">Maestro AI em deliberação</string>
+    <string name="maestro_sessao_progresso">Rodada %1$d · %2$s · US$ %3$s</string>
+    <string name="maestro_sessao_sem_agente">aguardando o primeiro turno</string>
+    <string name="maestro_sessao_cancelar">Cancelar sessão</string>
+</resources>

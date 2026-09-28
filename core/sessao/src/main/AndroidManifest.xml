@@ -1,2 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- O worker da deliberação sobe um serviço em primeiro plano do tipo
+         dataSync (especificação, seção 4.1). POST_NOTIFICATIONS é do :app,
+         pedida antes da primeira sessão. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <application>
+        <!-- O serviço interno do WorkManager precisa do tipo declarado no
+             manifesto (targetSdk 34+), fundido com tools:node="merge". -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+
+        <receiver
+            android:name="dev.lcv.maestro.sessao.CancelamentoDaSessao"
+            android:exported="false" />
+    </application>
+
+</manifest>

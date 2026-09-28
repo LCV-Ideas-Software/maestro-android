@@ -17,10 +17,15 @@ package dev.lcv.maestro.protocolo
  *
  * - "Web/API" vira "Android/API", e "web module"/"web engine" vira "Android
  *   app".
- * - Sai a frase do web que diz ao agente que os links públicos são auditados
- *   na finalização. Aqui essa auditoria ainda não existe (MAEANDR-18), e o
- *   agente não pode contar com uma rede de proteção ausente. A frase volta
- *   junto com a auditoria.
+ * - A frase do web que diz ao agente que os links públicos são auditados na
+ *   finalização saiu na MAEANDR-14, quando a auditoria não existia, e voltou
+ *   com ela (MAEANDR-18, PR 3b), dizendo "Android app".
+ * - Os dois prompts recebem, no fim, o bloco de evidências do desktop
+ *   (`evidence.block` em `session_orchestration.rs`): o resumo do manifesto
+ *   de citações ([resumoDoManifesto]) e, numa tentativa corretiva, o pacote
+ *   do portão determinístico ([pacoteDoPortao]). O web não tem manifesto de
+ *   citações; a auditoria de cinco estágios veio do desktop por decisão do
+ *   operador de 24/09/2026, e o prompt tem de contar ao agente o que ela cobra.
  * - O item `changed_blocks` do contrato de saída descreve a trava deste
  *   repositório. O do web manda usar `new_block_count`, que a trava daqui não
  *   lê: aqui o crescimento é decidido pelo registro de procedência, e a seção
@@ -85,8 +90,34 @@ public object PromptsDaSessao {
         "\nOnly request operator evidence for a decision that cannot be made by deleting, narrowing, or quarantining the unsupported claim without harming the article.\n",
     ).joinToString("")
 
-    /** `buildDraftPrompt`. */
-    public fun rascunho(pedido: PedidoDaSessao, execucao: String): String {
+    /**
+     * `## Manifesto deterministico de citacoes` (`session_orchestration.rs:361-372`),
+     * byte a byte: o que a sessão diz ao agente sobre o manifesto que a
+     * auditoria ABNT vai cobrar. [implicito] é o manifesto vazio que a sessão
+     * inicializa quando nenhum foi anexado.
+     */
+    public fun resumoDoManifesto(implicito: Boolean, citacoes: Int, fontes: Int): String {
+        val origem = if (implicito) "vazio inicializado pelo Maestro porque nenhum manifesto foi anexado" else "anexado pelo operador"
+        return "\n## Manifesto deterministico de citacoes\n\nA sessao usa um `citation_manifest.v1` $origem com $citacoes citacao(oes) e $fontes fonte(s). " +
+            "Ele e a fonte de verdade mecanica para chaves de autoria, acesso, verificacao e formatacao. " +
+            "O texto final deve conter exatamente as citacoes e referencias normalizadas correspondentes. " +
+            "Nao invente metadados para satisfazer o gate; quando a evidencia fornecida for insuficiente, remova, restrinja ou coloque a afirmacao/fonte em quarentena e registre a necessidade do operador.\n"
+    }
+
+    /**
+     * `## Current Deterministic Editorial Gate Packet` (`session_orchestration.rs:1266-1280`):
+     * numa tentativa corretiva, o motivo (cortado em 300) e o pacote da
+     * auditoria do texto atual ([ValorJson.bonito]), para o agente corrigir o
+     * que o portão vai cobrar em vez de adivinhar.
+     */
+    public fun pacoteDoPortao(motivo: String, pacoteJson: String): String =
+        "\n## Current Deterministic Editorial Gate Packet\n\nReason: ${Saneamento.texto(motivo, 300)}\n\n```json\n$pacoteJson\n```\n\n" +
+            "Treat this packet as deterministic gate evidence, not as permission to invent bibliographic metadata or replacement links. " +
+            "Correct, format, verify, remove, narrow, or quarantine every unresolved item. " +
+            "When the gate requires operator-provided evidence or an updated citation_manifest.v1, state that requirement explicitly instead of fabricating it.\n"
+
+    /** `buildDraftPrompt`, com o bloco de evidências do desktop no fim (`editorial_prompts.rs:163-210`). */
+    public fun rascunho(pedido: PedidoDaSessao, execucao: String, blocoDeEvidencias: String = ""): String {
         val conteudo = pedido.conteudoInicial.ifEmpty { "No existing editor content was provided." }
         return """$CABECALHO_DO_RASCUNHO
 
@@ -119,7 +150,7 @@ $conteudo
 ```markdown
 ${pedido.protocolo}
 ```
-"""
+$blocoDeEvidencias"""
     }
 
     /**
@@ -156,7 +187,7 @@ ${pedido.protocolo}
         }
     }
 
-    /** `buildRevisionPrompt`. */
+    /** `buildRevisionPrompt`, com o bloco de evidências do desktop no fim (`editorial_prompts.rs:403-545`). */
     public fun revisao(
         pedido: PedidoDaSessao,
         execucao: String,
@@ -166,6 +197,7 @@ ${pedido.protocolo}
         revisor: String,
         relatoriosAnteriores: List<RelatorioDeTurno>,
         turnoDeFechamento: Boolean,
+        blocoDeEvidencias: String = "",
     ): String {
         val manifesto = TravaDeConteudo.formatarManifestoParaPrompt(textoAtual)
         val historico = historicoDeRevisoes(relatoriosAnteriores)
@@ -192,7 +224,7 @@ Session: ${sanearTitulo(pedido.titulo)}
 - The original redactor may act in the closing redactor turn only when the current version author is another peer. In that case, the original redactor reviews the completed peer circuit, may revise only issues raised by prior reviewers or concrete final-delivery blockers, and must preserve all approved content.
 - You must act as reviewer and reviser in one turn: inspect the current text, apply only authorized corrections, and return the complete current article.
 - A Maestro round is a full circular pass through all active AI agents. This call is one turn inside that round; do not call it a new round in your own report.
-- Do not fabricate URLs. If a link cannot be verified from the provided context, mark it as [EVIDENCIA_PENDENTE] instead of inventing one.
+- The Android app audits public links automatically when a text attempts finalization. Do not fabricate URLs. If a link cannot be verified from the provided context, mark it as [EVIDENCIA_PENDENTE] instead of inventing one.
 
 ## Sovereign Approved-Content Lock
 
@@ -286,7 +318,7 @@ $textoAtual
 
 ## Prior Serial Revision Reports
 $historico
-"""
+$blocoDeEvidencias"""
     }
 
     /** O `sanitizeText(value, 200)` do web. */

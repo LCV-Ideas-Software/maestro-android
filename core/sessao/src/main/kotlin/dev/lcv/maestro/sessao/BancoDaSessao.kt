@@ -1,6 +1,7 @@
 package dev.lcv.maestro.sessao
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -27,8 +28,12 @@ import java.io.File
         AnexoEntidade::class,
         ExecucaoEntidade::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
+    // v2 (PR 3b): `execucoes.chamadaEmVoo` e `chamadaIniciadaEm`, o marcador da
+    // chamada paga sem resultado (decisão 16 do operador, 27/09/2026). Colunas
+    // novas e anuláveis: a migração automática do Room basta.
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
 )
 public abstract class BancoDaSessao : RoomDatabase() {
     public abstract fun sessoes(): SessaoDao

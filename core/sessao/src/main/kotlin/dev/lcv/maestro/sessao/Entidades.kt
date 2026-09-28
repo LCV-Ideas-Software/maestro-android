@@ -204,9 +204,16 @@ public data class AnexoEntidade(
 
 /**
  * Cada execução do worker sobre uma sessão: nasce em `preparar`, que a
- * reivindica em `sessoes.execucaoAtual`; a 3b grava [fim] e [motivoDaParada].
- * A tela soma as que tocam a janela de 24 horas do orçamento agregado do
- * `dataSync` (especificação, seção 4.1).
+ * reivindica em `sessoes.execucaoAtual`; quem a encerra grava [fim] e
+ * [motivoDaParada]. A tela soma as que tocam a janela de 24 horas do
+ * orçamento agregado do `dataSync` (especificação, seção 4.1).
+ *
+ * [chamadaEmVoo] é o marcador da chamada paga (decisão 16 do operador,
+ * 27/09/2026): o provedor a quem a execução acabou de despachar um pedido
+ * pago, gravado antes do envio e apagado na transação que registra o
+ * desfecho. Uma execução ainda aberta com o marcador morreu durante ou logo
+ * depois da chamada, e ninguém sabe se o provedor cobrou: a sessão não é
+ * retomada sozinha (esquema v2).
  */
 @Entity(
     tableName = "execucoes",
@@ -221,4 +228,6 @@ public data class ExecucaoEntidade(
     val inicio: String,
     val fim: String? = null,
     val motivoDaParada: String? = null,
+    val chamadaEmVoo: String? = null,
+    val chamadaIniciadaEm: String? = null,
 )

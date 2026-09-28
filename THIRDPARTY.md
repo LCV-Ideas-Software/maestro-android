@@ -179,7 +179,7 @@ never reach a distributed binary and are not listed.
 | --- | --- | --- | --- |
 | `androidx.room:room-runtime` (`-android`) and `androidx.room:room-common` (`-jvm`) | 2.8.5 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | The Maestro AI state on the device: sessions, artifacts, settings, link records, evidence records, attachments and executions (specification, section 4.2) |
 | `androidx.sqlite:sqlite` (`-android`) and `androidx.sqlite:sqlite-framework` (`-android`) | 2.6.2 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of Room: the driver over the platform's SQLite |
-| `androidx.work:work-runtime` | 2.12.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Declared for the second pull request: the `CoroutineWorker` that runs the deliberation as a `dataSync` foreground service (section 4.1) |
+| `androidx.work:work-runtime` | 2.12.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | The `CoroutineWorker` that runs the deliberation as a `dataSync` foreground service, the unique work per session and the `WorkInfo` liveness the reconciliation reads (section 4.1) |
 | `com.google.guava:listenablefuture` | 1.0 | Apache-2.0, as Guava's repository states; this artifact's POM carries no licence block | Transitive of WorkManager and `profileinstaller`: the `ListenableFuture` interface alone |
 | `androidx.concurrent:concurrent-futures` and `-ktx` | 1.1.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of WorkManager |
 | `androidx.core:core` | 1.12.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of WorkManager |
@@ -209,8 +209,9 @@ Measured size of each artifact, before shrinking: 558 KB and 61 KB for Room;
 
 Build-time and test-only dependencies (`androidx.room:room-compiler` under
 KSP, `androidx.room:room-testing`, `androidx.work:work-testing`,
-`kotlinx-coroutines-test`, `androidx.test:runner`, `androidx.test.ext:junit`,
-JUnit and `kotlin-test`) never reach a distributed binary and are not listed.
+`mockwebserver3`, `kotlinx-coroutines-test`, `androidx.test:runner`,
+`androidx.test.ext:junit`, JUnit and `kotlin-test`) never reach a distributed
+binary and are not listed.
 
 ## Accepted upstream constraints
 

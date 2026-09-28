@@ -2,8 +2,9 @@
 // aparelho (especificação, seções 4 a 4.3). É biblioteca Android porque o Room
 // e o WorkManager são API de plataforma; o que decide se um turno é válido
 // continua no `:core:protocolo`, e o que fala com a rede, no `:core:provedores`.
-// Esta entrega (3a) traz o Room, as configurações, os artefatos, os tetos e a
-// retomada do estado circular; a orquestração (3b) vem depois.
+// A 3a trouxe o Room, as configurações, os artefatos, os tetos e a retomada do
+// estado circular; a 3b, a deliberação (`Deliberacao`), o worker, a
+// reconciliação na abertura e a notificação.
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.ksp)
@@ -51,7 +52,7 @@ dependencies {
     api(project(":core:seguranca"))
     api(libs.androidx.room.runtime)
     ksp(libs.androidx.room.compiler)
-    // Só declarado nesta entrega: o `CoroutineWorker` entra na 3b.
+    // `CoroutineWorker`, `ForegroundInfo`, `WorkManager.enqueueUniqueWork`.
     implementation(libs.androidx.work.runtime)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.jackson.databind)
@@ -67,6 +68,9 @@ dependencies {
     androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation(libs.androidx.work.testing)
     androidTestImplementation(libs.kotlinx.coroutines.test)
+    // O cliente dos provedores contra um servidor local, pelo construtor
+    // público com endereço: os quatro casos de custo contam requisições.
+    androidTestImplementation(libs.okhttp.mockwebserver)
 }
 
 tasks.withType<Test> {

@@ -100,7 +100,7 @@ mudaram; só as linhas.
 | Chamada aos provedores e montagem do corpo (2558–2904; `RESUMABLE_STATUSES` em 2828–2842 porta) | 347 | **reescrita** nas APIs novas — seção 5 |
 | Persistência da sessão (2906–3009) | 104 | vira Room |
 | Estado da revisão circular e retomada (3011–3318) | 308 | porta |
-| `runSession` — a orquestração (3320–4300) | 981 | porta; é o coração do produto |
+| `runSession` — a orquestração (3320–4300) | 981 | **portado** (PR 3b, `Deliberacao`), com os acréscimos do desktop da seção 4.2; é o coração do produto |
 | Rotas HTTP e varredura de sessões velhas (4302–4860) | 559 | **o transporte desaparece** — seção 2.4; as regras de negócio das rotas (`resolveStartRequest`, o insert da sessão, a validação das configurações, a troca de conteúdo, cancelar, retomar e a varredura) portam para o `:core:sessao` |
 
 `content-lock.ts` (526 linhas) porta inteiro: é segmentação de blocos
@@ -495,6 +495,34 @@ sozinho. Duas obrigações decorrem:
    espelha. Negada a permissão, nada de essencial se perde; ganha-se um aviso a
    menos.
 
+#### O que a PR 3b implementa disto (27/09/2026)
+
+`TrabalhoDaSessao` é o `CoroutineWorker`: sobe o serviço `dataSync` com
+`setForeground()` **antes** de qualquer chamada paga (se o sistema recusar,
+`Result.failure()` sem tocar na sessão; a reconciliação da seção 4.3 a marca),
+corre a `Deliberacao` e devolve `Result.success()` em **todo** desfecho — uma
+pausa ou um erro é a sessão parada num status retomável, nunca uma nova
+tentativa do WorkManager, que repetiria um rascunho pago. O `Agendador` põe um
+trabalho único por sessão (`enqueueUniqueWork("sessao-<id>", KEEP)`, rede
+exigida); a `FabricaDeTrabalhos` é a `WorkerFactory` oficial que o `:app`
+instala. Uma parada pelo sistema chega como cancelamento da corrotina: o estado
+já está no *checkpoint*, e o worker só **rotula** a pausa com
+`getStopReason()` no jornal, sob a cerca da execução, da melhor forma possível.
+O WorkManager reenfileira o trabalho parado, e a segunda execução passa por
+`preparar`, que recusa seguir sobre uma chamada paga sem resultado (decisão 16,
+seção 4.2). A notificação mostra rodada, agente e custo, e é atualizada a cada
+*checkpoint*; a ação de cancelar **não** é o `createCancelPendingIntent` do
+WorkManager, que só para o trabalho e deixaria a linha `running` para a
+reconciliação retomar e pagar de novo: ela vai a um receptor da biblioteca
+(`CancelamentoDaSessao`) que grava `blocked_cancelled` no Room primeiro e só
+então cancela o trabalho, para a chamada em voo parar logo (revisão cruzada
+de 27/09/2026 sobre o plano da 3b, emenda A3). A biblioteca declara
+`FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC` e a fusão do tipo no
+serviço interno do WorkManager; `POST_NOTIFICATIONS` fica com o `:app`. O
+saldo do orçamento de seis horas é `Orcamento.restanteNaJanela`, sobre as
+execuções que tocam a janela de 24 horas, para a tela avisar antes de uma
+segunda sessão longa morrer sem explicação.
+
 ### 4.2 Room no lugar do D1
 
 O esquema do D1 (166 linhas de `ensureSchema`) vira entidades do Room: sessão,
@@ -632,10 +660,14 @@ rodada de revisão cruzada e seis decisões do operador em 26/09/2026):**
     do turno órfão na retomada fica (`max` dos turnos gravados), e a inserção
     de artefato é interna ao checkpoint;
   - **dinheiro em inteiros de 10⁻⁸ USD** nas colunas (a escala interna do
-    protocolo), `BigDecimal` na API; o piso de custo é
-    `SET custo = MAX(custo, :novo)`, atômico e sem portão, nunca dentro da
-    transação do checkpoint, para que um checkpoint desfeito não apague gasto
-    incorrido.
+    protocolo), `BigDecimal` na API; o custo observado é a **soma** de cada
+    chamada paga — `SET custo = custo + :delta`, atômico, saturando no máximo
+    da coluna, sem portão e nunca dentro da transação do checkpoint, para que
+    um checkpoint desfeito não apague gasto incorrido. Uma versão anterior
+    desta seção prescrevia o piso `MAX(custo, :novo)` do web sobre o total
+    local de cada execução; o Codex mostrou na #70 que duas execuções que se
+    cruzam (o operador cancela e retoma enquanto a chamada antiga termina)
+    partem do mesmo total e o `MAX` perde uma chamada paga. A soma não perde.
 - **Nada se corta em silêncio.** Um artefato cujo markdown passaria do teto
   de 500 000 pontos de código do web é recusado no *checkpoint*, não
   truncado, e o teto é medido na mesma renderização que o leitor recebe
@@ -693,7 +725,77 @@ rodada de revisão cruzada e seis decisões do operador em 26/09/2026):**
   o que a varredura do web e a reconciliação daqui gravam, e continua
   retomável. A reconciliação na abertura do aplicativo marca como `error` a
   sessão ainda ativa cujo *worker* não está vivo e pede a retomada com o
-  líder e o painel da própria linha, sem o usuário redigitar nada.
+  líder e o painel da própria linha, sem o usuário redigitar nada — salvo
+  a exceção da decisão 16, abaixo. `converged` é o fim: terminal, com
+  `textoFinal` gravado, não retomável.
+- **A deliberação (PR 3b) é o `runSession` do web sobre estas transações**,
+  variável local por variável local, com os nove pontos de cancelamento
+  cooperativo (a linha relida diz `running` e ainda aponta para esta
+  execução, e o worker não pediu para parar) e as mensagens do web no jornal.
+  O que difere, declarado:
+  - **decisão 16 do operador (27/09/2026): chamada paga sem resultado não é
+    retomada sozinha.** `execucoes` tem `chamadaEmVoo` e `chamadaIniciadaEm`
+    (esquema v2): gravados numa atualização cercada pela execução
+    imediatamente antes de cada despacho pago — rascunho ou revisor — e
+    apagados na transação que registra o desfecho (*checkpoint*, artefato
+    bloqueado, evento de pane, tentativa de rascunho falhada, pausa). Uma
+    execução ainda aberta com o marcador morreu durante ou logo depois da
+    chamada, e ninguém sabe se o provedor cobrou: `preparar` não a reivindica
+    — põe a sessão em `error` com o evento "Chamada paga a X sem resultado
+    registrado" — e a reconciliação não a reenfileira. O operador retoma pela
+    tela e paga de novo por decisão dele, como o web exige depois de uma
+    queda. A emenda A8 do plano da 3a fica estreitada a "retomada automática
+    só quando nenhuma chamada paga estava em voo". O pedido de retomada
+    (`retomar`) zera `execucaoAtual`, para um *checkpoint* tardio da execução
+    morta não passar na cerca entre o pedido e a reivindicação seguinte;
+  - **a ordem dos portões no topo de cada iteração é a do desktop**
+    (`session_orchestration.rs:970-984`): releitura, evidência do operador
+    (`falhaDeEvidenciaDoOperador`, que pausa `paused_final_audit` antes de
+    qualquer revisor pago), convergência, teto de turnos seriais, escolha do
+    revisor. Quando a evidência do operador e a convergência coincidem, a
+    pausa por evidência vence. O web não tem esse portão;
+  - **a auditoria do candidato é a de cinco estágios com o contexto de
+    citações da sessão**: o hash do protocolo é o SHA-256 (64 hexadecimais)
+    do texto do protocolo gravado na linha — o desktop usa o hash fixado
+    pela interface ao importar o arquivo; aqui não há importação separada —,
+    o manifesto é o anexo `citation-manifest` ou o vazio inicializado com
+    esse hash, e o resumo dele vai no fim dos dois prompts, como o
+    `evidence.block` do desktop; um anexo que se apresenta como manifesto e
+    não pode ser lido pausa a sessão em `paused_final_audit` antes de
+    qualquer chamada paga. O turno sem revisão usa a auditoria memorizada
+    por texto dentro da execução (Plano D do web); a finalização a refaz do
+    zero — "fresca" quer dizer nova execução da auditoria, não descarte do
+    armazém de evidências, cuja validade canônica de 30 dias continua, no
+    web e no desktop também. A tentativa corretiva leva o pacote do portão do
+    texto atual (`## Current Deterministic Editorial Gate Packet`), como o
+    desktop; o web não o tem;
+  - **o revisor inescalável segue o web**: `paused_round_incomplete`
+    ("No eligible reviewer could be scheduled before convergence."); o
+    desktop audita e finaliza se a auditoria passar. Fonte da orquestração é
+    o web (decisão 1 de 25/09/2026);
+  - **não há hash de contexto de revisão** (`review_context_sha256` do
+    desktop): o web, fonte da orquestração, não o tem, e os anexos não mudam
+    com a sessão ativa;
+  - **a estimativa de custo usa o teto de saída que a chamada realmente pede**
+    (64 mil tokens, decisão de 23/09/2026), não os 20 mil do web; o teto vale
+    sobre o acumulado da sessão inteira (emenda A13); a resposta
+    `ExigeAutenticacao` do cofre pausa `pausada_aguardando_autenticacao`
+    (emenda A1); `Incompleta` do provedor é falha operacional cobrada;
+  - **a soma de custo é declaradamente sem cerca** (atômica): uma execução
+    que pagou soma o seu custo mesmo depois de superada, e o guarda de custo
+    de cada chamada compara o teto com o total **gravado**, relido na hora,
+    não com um valor local que outra execução pode ter deixado velho. Todo o
+    resto — evento, custódia, status, conclusão — carrega a cerca;
+  - **quatro regras da rodada 1 do Codex na #70**, cada uma com teste e
+    linha na matriz: o teto de tempo vale antes de cada tentativa corretiva
+    (no desktop a tentativa volta ao topo do laço; o web perdeu a checagem ao
+    aninhar); uma resposta `Incompleta` sem contagem de saída é cobrada como
+    se tivesse gerado o teto de saída inteiro (pode ser uma geração parada
+    nos 64 mil tokens; cobrar zero deixaria passar chamadas além do teto);
+    os contadores de tentativa corretiva são semeados, na retomada, dos
+    artefatos bloqueados da rodada sobre o texto atual (um worker parado no
+    meio das tentativas não ganha três novas ao voltar); e a soma de custo
+    acima.
 - **O bloco `## Link Audit` do markdown** leva as linhas
   `link_integrity_audit.v1` da auditoria do porte, não o `LinkAuditResult`
   legado, e `Invalid links` conta os tons `error` e `blocked` — a regra
@@ -712,6 +814,18 @@ parou".
 A retomada já existe no web e porta inteira (309 linhas de estado circular):
 ela reconstrói o ponto da rodada a partir dos artefatos aceitos e do jornal. O
 que muda é apenas quem a dispara.
+
+`Reconciliacao.naAbertura()` (PR 3b): para cada sessão em `queued`/`running`
+sem trabalho vivo, marca como interrompida — a execução que ela tinha é
+fechada na mesma transação, cercada pela execução inspecionada, com o motivo
+da última parada que o WorkManager registrou no rótulo — e, se nenhuma chamada
+paga estava em voo, pede a retomada e reenfileira (`pedir` e `enfileirar` só
+depois de a escrita ter passado: um cancelamento ou uma pausa que chegue entre
+a leitura e a escrita não é desfeito). Uma execução morta com o marcador da
+chamada paga fica em `error` com a mensagem que diz por quê, e só o operador a
+retoma (decisão 16, seção 4.2). Um pedido de retomada recusado (chave que
+sumiu, tarifa zerada) vira evento na sessão, que fica retomável à mão. No fim,
+os arquivos órfãos de evidências e anexos são limpos.
 
 ### 4.4 Exibição e exportação do texto final (decisão do operador de 25/09/2026)
 
@@ -1284,9 +1398,32 @@ de teste, porque compra confiança sem entregá-la.
   O caso grava estado no meio da rodada num banco em arquivo, **descarta e
   reconstrói Room, WorkManager e o grafo de dependências**, e só então verifica
   que a deliberação continua do ponto certo — não do começo, e não de um ponto
-  adiante. Esse caso inteiro é da segunda pull request, com o *worker*. A
-  primeira (26/09/2026) prova a metade que já existe, no mesmo emulador do
-  `:core:seguranca`, em toda pull request: `preparar` reivindica a sessão
+  adiante. Esse caso está na PR 3b (`DeliberacaoTest`), com o *worker*, e com
+  ele os casos da deliberação, cada um sobre Room em arquivo, com o chamador e
+  a auditoria substituídos por dublês combinados: a sessão nova que redige,
+  revisa e converge (jornal, artefatos, execução fechada, marcador limpo);
+  a revisão que transfere a custódia e exige nova rodada; a chamada paga sem
+  resultado que não é retomada sozinha e a retomada manual que segue do turno
+  certo (decisão 16); o marcador que sai com o desfecho de cada chamada; o
+  cancelamento pelo operador com a chamada em voo, que não grava artefato nem
+  evento; a parada pelo worker; três panes seguidas; tentativas corretivas
+  esgotadas com os artefatos bloqueados; `READY` sobre texto que falha na
+  auditoria recusado sem tentativa; a auditoria final fresca que pausa a
+  convergência; a evidência do operador antes do revisor pago e vencendo a
+  convergência na retomada; o teto de turnos seriais; rascunho vazio e
+  todos os agentes falhando; a janela de autenticação vencida; o erro
+  inesperado que vira `error`; o cancelar-e-retomar no meio de uma chamada
+  que não deixa a execução antiga escrever. Com o `work-testing` oficial
+  (`TrabalhoEReconciliacaoTest`): o serviço em primeiro plano sobe antes da
+  chamada; pausa e erro também são `Result.success()`; a parada pelo sistema
+  é rotulada sob a cerca e a segunda execução não paga de novo; a
+  reconciliação reenfileira só quem não tinha chamada em voo, não desfaz um
+  cancelamento que chegou entre a leitura e a escrita, não reenfileira um
+  pedido recusado, e o agendador mantém um trabalho por sessão. Na JVM: o
+  escalonador do web (`EscalonamentoTest`, os casos de `sessions.test.ts`),
+  o orçamento de seis horas e as citações da sessão. A
+  primeira pull request (26/09/2026) provou a metade que já existia, no mesmo
+  emulador do `:core:seguranca`, em toda pull request: `preparar` reivindica a sessão
   (execução e cerca) e uma sessão cancelada ou reconciliada não é
   reivindicada; o *checkpoint* grava artefato, custódia e evento juntos, um
   portão perdido não deixa nem o artefato, e um checkpoint de execução
@@ -1296,7 +1433,7 @@ de teste, porque compra confiança sem entregá-la.
   e o evento de retomada no fim do jornal; a custódia adulterada no arquivo
   (contador, texto) e o texto sem custódia caem em
   `paused_resume_state_invalid` com as mensagens do web; cada transição tem o
-  caso em que o portão recusa; o piso de custo é monotônico e não tem
+  caso em que o portão recusa; a soma de custo é atômica, satura e não tem
   portão; a troca de conteúdo preserva as colunas omitidas e só escreve no
   status lido; o pedido de retomada com painel e líder inválidos; o artefato
   órfão além do contador; os `Flow` da sessão e dos eventos; os registros de
@@ -1408,7 +1545,11 @@ apontada na calculadora, e não se repete.
    rotular a pausa, ou se o processo morre antes. Se qualquer das duas
    decepcionar, a troca é **serviço em primeiro plano do próprio aplicativo**,
    em que `onTimeout()` e `stopSelf()` são nossos. Isso muda o agendamento, não
-   o resto do desenho.
+   o resto do desenho. **Estado em 27/09/2026:** a PR 3b entregou o rótulo
+   (`getStopReason()` no jornal, sob a cerca) e o caminho da segunda execução
+   depois de uma parada (`preparar` com a decisão 16); a medição em aparelho
+   de verdade continua pendente, e a tela do `:app` (MAEANDR-21) é quem a
+   torna possível.
 2. **O prazo por chamada, com o raciocínio no máximo, nos seis provedores.** O
    prazo canônico é 120 s (`PRAZO_POR_CHAMADA` no `:core:provedores`), pensado
    para o esforço padrão e 20 mil tokens de saída. Com o raciocínio no máximo e

@@ -1,6 +1,7 @@
 package dev.lcv.maestro.sessao
 
 import dev.lcv.maestro.provedores.Provedor
+import dev.lcv.maestro.sessao.Agentes.rotulo
 import kotlinx.coroutines.flow.Flow
 import java.math.BigDecimal
 import java.time.Instant
@@ -80,17 +81,40 @@ public class RepositorioDeSessoes(
     /**
      * Um evento sob o portão (`pushEvent`, `sessions.ts:3369-3375`): gravado
      * só se a sessão ainda estiver em [seSituacaoEm] e, com [execucao], só
-     * pela execução que a reivindicou. Devolve se gravou.
+     * pela execução que a reivindicou. Devolve se gravou. Um evento da
+     * execução dona é, por padrão, um desfecho registrado: o marcador da
+     * chamada em voo dela é apagado na mesma transação. O rótulo de uma
+     * parada pelo sistema não é desfecho ([limpaChamada] falso): o marcador
+     * tem de sobreviver a ele (decisão 16).
      */
-    public fun anotar(id: String, evento: EventoDaSessao, seSituacaoEm: Set<String> = Estados.ATIVOS, execucao: Long? = null): Boolean = try {
+    public fun anotar(
+        id: String,
+        evento: EventoDaSessao,
+        seSituacaoEm: Set<String> = Estados.ATIVOS,
+        execucao: Long? = null,
+        limpaChamada: Boolean = true,
+    ): Boolean = try {
         banco.runInTransaction<Boolean> {
             if (banco.sessoes().tocar(id, seSituacaoEm.toList(), agora(), execucao) == 0) throw CasPerdido()
             banco.eventos().inserir(evento.paraEntidade(id))
+            if (limpaChamada) execucao?.let { banco.execucoes().limparChamada(it) }
             true
         }
     } catch (perdido: CasPerdido) {
         false
     }
+
+    /**
+     * O marcador da chamada paga (decisão 16 do operador, 27/09/2026): gravado
+     * imediatamente antes de cada despacho pago, só numa execução ainda
+     * aberta. `false` é "a execução já não é dona": nada é enviado.
+     */
+    public fun marcarChamadaEmVoo(execucao: Long, provedor: Provedor): Boolean =
+        banco.execucoes().marcarChamada(execucao, provedor.agente, agora()) == 1
+
+    /** As execuções que tocam a janela de 24 horas que termina em [agora] (orçamento do `dataSync`, seção 4.1). */
+    public fun execucoesNaJanela(agora: Instant): List<ExecucaoEntidade> =
+        banco.execucoes().naJanela(FormatoDeInstante.iso(agora.minus(Orcamento.JANELA)))
 
     /**
      * Uma transição de status com o seu evento (pausas da 3b, cancelamento,
@@ -109,6 +133,7 @@ public class RepositorioDeSessoes(
         banco.runInTransaction<Boolean> {
             if (banco.sessoes().mudarStatus(id, seSituacaoEm.toList(), status, erro, agora(), execucao) == 0) throw CasPerdido()
             if (evento != null) banco.eventos().inserir(evento.paraEntidade(id))
+            execucao?.let { banco.execucoes().limparChamada(it) }
             if (status !in Estados.ATIVOS) banco.encerrarExecucaoDa(id, agora(), status)
             true
         }
@@ -133,10 +158,21 @@ public class RepositorioDeSessoes(
         false
     }
 
-    /** `persistObservedCostFloor`: `max(0, custo)`, monotônico e atômico numa instrução, nunca dentro do checkpoint. */
-    public fun subirPisoDeCusto(id: String, custo: BigDecimal) {
-        banco.sessoes().subirPiso(id, Dinheiro.paraE8Observado(custo.max(BigDecimal.ZERO)), agora())
+    /**
+     * O lugar do `persistObservedCostFloor` do web: cada chamada paga soma o
+     * seu custo ao acumulado da sessão, atômico, sem portão e nunca dentro do
+     * checkpoint (um checkpoint desfeito não apaga gasto incorrido). Devolve
+     * o total gravado, que é o que o guarda de custo compara com o teto —
+     * inclusive o gasto de outra execução que se cruzou com esta (achado do
+     * Codex na #70). Um custo negativo conta zero; acima da coluna, satura.
+     */
+    public fun somarCusto(id: String, custo: BigDecimal): BigDecimal = banco.runInTransaction<BigDecimal> {
+        banco.sessoes().somarCusto(id, Dinheiro.paraE8Observado(custo.max(BigDecimal.ZERO)), agora())
+        Dinheiro.deE8(banco.sessoes().carregar(id)?.custoObservadoE8 ?: 0L)
     }
+
+    /** O total observado gravado agora, para o guarda de custo não comparar um valor local velho com o teto. */
+    public fun custoObservado(id: String): BigDecimal = Dinheiro.deE8(banco.sessoes().carregar(id)?.custoObservadoE8 ?: 0L)
 
     /** `handleMaestroAiSessionCancelPost` (`sessions.ts:4702-4731`). */
     public fun cancelar(id: String): Resultado<SessaoEntidade> {
@@ -190,9 +226,14 @@ public class RepositorioDeSessoes(
      * substituta que reivindicou a sessão nesse meio-tempo não seja pausada
      * nem fechada como morta (achado do Codex na #67, rodada 5).
      */
-    public fun marcarInterrompida(id: String, execucaoInspecionada: Long?, evento: EventoDaSessao? = null): Boolean = try {
+    public fun marcarInterrompida(
+        id: String,
+        execucaoInspecionada: Long?,
+        evento: EventoDaSessao? = null,
+        mensagem: String = MENSAGEM_INTERROMPIDA,
+    ): Boolean = try {
         banco.runInTransaction<Boolean> {
-            if (banco.sessoes().interromper(id, MENSAGEM_INTERROMPIDA, agora(), execucaoInspecionada) == 0) throw CasPerdido()
+            if (banco.sessoes().interromper(id, mensagem, agora(), execucaoInspecionada) == 0) throw CasPerdido()
             if (evento != null) banco.eventos().inserir(evento.paraEntidade(id))
             execucaoInspecionada?.let { banco.execucoes().encerrar(it, agora(), MOTIVO_INTERROMPIDA) }
             true
@@ -208,6 +249,10 @@ public class RepositorioDeSessoes(
         public const val MENSAGEM_MUDOU_NA_EDICAO: String = "Sessao mudou de estado durante a edicao; recarregue antes de editar."
         public const val MENSAGEM_INTERROMPIDA: String =
             "Sessao interrompida: o processo do aplicativo foi encerrado antes de a deliberacao terminar."
+
+        /** Decisão 16: a execução morreu com uma chamada paga em voo; só o operador retoma. */
+        public fun mensagemDeChamadaIndeterminada(provedor: Provedor): String =
+            "Chamada paga a ${provedor.rotulo} sem resultado registrado: a execucao anterior morreu durante ou logo apos a chamada; retome manualmente."
         /** O rótulo da execução cujo processo morreu e que a reconciliação fechou. */
         public const val MOTIVO_INTERROMPIDA: String = "interrupted"
 

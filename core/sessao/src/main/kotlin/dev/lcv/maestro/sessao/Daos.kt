@@ -58,7 +58,8 @@ public interface SessaoDao {
 
     /** O pedido de retomada (`sessions.ts:4787-4796`): volta à fila com o líder e o painel escolhidos, sob o status lido. */
     @Query(
-        "UPDATE sessoes SET status = 'queued', liderDoCiclo = :lider, agentesAtivosJson = :agentesJson, erro = NULL, atualizadaEm = :em " +
+        "UPDATE sessoes SET status = 'queued', liderDoCiclo = :lider, agentesAtivosJson = :agentesJson, erro = NULL, " +
+            "execucaoAtual = NULL, atualizadaEm = :em " +
             "WHERE id = :id AND status = :statusLido",
     )
     public fun retomar(id: String, statusLido: String, lider: String, agentesJson: String, em: String): Int
@@ -82,8 +83,18 @@ public interface SessaoDao {
     public fun substituirConteudo(id: String, statusLido: String, titulo: String?, textoAtual: String?, em: String): Int
 
     /** `persistObservedCostFloor` (`sessions.ts:2998-3009`): monotônico, atômico, sem portão, nunca dentro do checkpoint. */
-    @Query("UPDATE sessoes SET custoObservadoE8 = MAX(custoObservadoE8, :e8), atualizadaEm = :em WHERE id = :id")
-    public fun subirPiso(id: String, e8: Long, em: String): Int
+    /**
+     * O custo observado é a soma de cada chamada paga, atômica e sem portão
+     * (achado do Codex na #70): duas execuções que se cruzam — o operador
+     * cancela e retoma enquanto a chamada antiga termina — somam, em vez de
+     * um `MAX` sobre totais locais que perderia uma delas. Satura no máximo
+     * da coluna em vez de estourar. [deltaE8] nunca é negativo.
+     */
+    @Query(
+        "UPDATE sessoes SET custoObservadoE8 = CASE WHEN custoObservadoE8 > 9223372036854775807 - :deltaE8 THEN 9223372036854775807 " +
+            "ELSE custoObservadoE8 + :deltaE8 END, atualizadaEm = :em WHERE id = :id",
+    )
+    public fun somarCusto(id: String, deltaE8: Long, em: String): Int
 
     /** O carimbo de um evento (`appendEvent` do web também mexe em `updated_at`), sob o portão e a cerca opcional. */
     @Query(
@@ -232,6 +243,17 @@ public interface ExecucaoDao {
     /** Fecha uma execução que ainda estava aberta (a superada numa retomada, ou a que terminou); a já fechada fica como está. */
     @Query("UPDATE execucoes SET fim = COALESCE(fim, :fim), motivoDaParada = COALESCE(motivoDaParada, :motivo) WHERE seq = :seq")
     public fun encerrar(seq: Long, fim: String, motivo: String): Int
+
+    /**
+     * O marcador da chamada paga (decisão 16 do operador): só numa execução
+     * ainda aberta — uma superada ou encerrada não despacha nada, e zero
+     * linhas manda o worker parar.
+     */
+    @Query("UPDATE execucoes SET chamadaEmVoo = :provedor, chamadaIniciadaEm = :em WHERE seq = :seq AND fim IS NULL")
+    public fun marcarChamada(seq: Long, provedor: String, em: String): Int
+
+    @Query("UPDATE execucoes SET chamadaEmVoo = NULL, chamadaIniciadaEm = NULL WHERE seq = :seq")
+    public fun limparChamada(seq: Long): Int
 
     /**
      * As execuções que tocam a janela que começa em [desde], para a soma do
