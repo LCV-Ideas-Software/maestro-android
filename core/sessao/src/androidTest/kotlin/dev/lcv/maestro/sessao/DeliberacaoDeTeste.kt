@@ -58,6 +58,7 @@ internal class DeliberacaoDeTeste(val t: BancoDeTeste) {
         sessoes = t.sessoes,
         retomada = t.retomada,
         ponto = t.ponto,
+        artefatos = t.artefatos,
         anexos = anexos,
         chamador = chamador,
         auditoria = auditoria,

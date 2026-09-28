@@ -158,10 +158,21 @@ public class RepositorioDeSessoes(
         false
     }
 
-    /** `persistObservedCostFloor`: `max(0, custo)`, monotônico e atômico numa instrução, nunca dentro do checkpoint. */
-    public fun subirPisoDeCusto(id: String, custo: BigDecimal) {
-        banco.sessoes().subirPiso(id, Dinheiro.paraE8Observado(custo.max(BigDecimal.ZERO)), agora())
+    /**
+     * O lugar do `persistObservedCostFloor` do web: cada chamada paga soma o
+     * seu custo ao acumulado da sessão, atômico, sem portão e nunca dentro do
+     * checkpoint (um checkpoint desfeito não apaga gasto incorrido). Devolve
+     * o total gravado, que é o que o guarda de custo compara com o teto —
+     * inclusive o gasto de outra execução que se cruzou com esta (achado do
+     * Codex na #70). Um custo negativo conta zero; acima da coluna, satura.
+     */
+    public fun somarCusto(id: String, custo: BigDecimal): BigDecimal = banco.runInTransaction<BigDecimal> {
+        banco.sessoes().somarCusto(id, Dinheiro.paraE8Observado(custo.max(BigDecimal.ZERO)), agora())
+        Dinheiro.deE8(banco.sessoes().carregar(id)?.custoObservadoE8 ?: 0L)
     }
+
+    /** O total observado gravado agora, para o guarda de custo não comparar um valor local velho com o teto. */
+    public fun custoObservado(id: String): BigDecimal = Dinheiro.deE8(banco.sessoes().carregar(id)?.custoObservadoE8 ?: 0L)
 
     /** `handleMaestroAiSessionCancelPost` (`sessions.ts:4702-4731`). */
     public fun cancelar(id: String): Resultado<SessaoEntidade> {

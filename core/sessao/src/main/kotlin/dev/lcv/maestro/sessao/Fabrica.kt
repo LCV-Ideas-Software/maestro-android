@@ -85,6 +85,7 @@ public class Fabrica(
         sessoes = sessoes,
         retomada = retomada,
         ponto = ponto,
+        artefatos = artefatos,
         anexos = anexos,
         chamador = cliente::chamar,
         auditoria = auditoria,

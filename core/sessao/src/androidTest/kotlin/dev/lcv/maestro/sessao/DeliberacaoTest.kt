@@ -198,7 +198,7 @@ class DeliberacaoTest {
             if (provedor == Provedor.CODEX) d.deslocamento = Duration.ofMinutes(2)
             resposta
         }
-        val primeira = Deliberacao(t.sessoes, t.retomada, t.ponto, d.anexos, chamadorQueEsgota, d.auditoria, d.relogio)
+        val primeira = Deliberacao(t.sessoes, t.retomada, t.ponto, t.artefatos, d.anexos, chamadorQueEsgota, d.auditoria, d.relogio)
         assertEquals(Desfecho.Pausada(Estados.LIMITE_DE_TEMPO), executar(id, primeira))
         assertEquals(2, chamadasAntes)
         val pausada = t.sessoes.carregar(id)!!
@@ -309,6 +309,110 @@ class DeliberacaoTest {
         assertEquals(Estados.CANCELADA, t.sessoes.carregar(id)!!.status)
         // A releitura pós-chamada para antes da auditoria do turno: nenhuma requisição do motor para uma sessão cancelada.
         assertEquals(0, d.auditorias)
+    }
+
+    // ── rodada 1 do Codex na #70 ─────────────────────────────────────────
+
+    @Test
+    fun duasExecucoesCruzadasSomamOsSeusCustos() = runBlocking {
+        // A execução antiga está com a chamada ao Codex em voo; o operador cancela e retoma; a nova execução
+        // corre inteira; a antiga volta e soma o que pagou. O total é a soma das três chamadas, não o maior.
+        val id = criar()
+        d.responde(Provedor.CLAUDE, DeliberacaoDeTeste.rascunho())
+        val portao = CompletableDeferred<Unit>()
+        d.responde(Provedor.CODEX, DeliberacaoDeTeste.Combinada(DeliberacaoDeTeste.pronto(), antes = portao), DeliberacaoDeTeste.Combinada(DeliberacaoDeTeste.pronto()))
+        val antiga = async(Dispatchers.IO) { d.deliberacao().executar(id) }
+        withTimeout(10_000) { while (d.chamadas.size < 2) kotlinx.coroutines.delay(20) }
+        assertTrue(t.sessoes.cancelar(id) is Resultado.Ok)
+        assertTrue(t.retomada.pedir(id, null, null, BancoDeTeste.TODAS_AS_CHAVES) is Resultado.Ok)
+        assertEquals(Desfecho.Convergida, executar(id))
+        val depoisDaNova = t.sessoes.carregar(id)!!.custoObservadoE8
+        portao.complete(Unit)
+        assertEquals(Desfecho.Interrompida, antiga.await())
+
+        val custoDeUmaChamada = t.banco.eventos().daSessao(id).first { it.mensagem == "Initial draft produced." }.custoE8!!
+        assertEquals(2 * custoDeUmaChamada, depoisDaNova)
+        assertEquals(3 * custoDeUmaChamada, t.sessoes.carregar(id)!!.custoObservadoE8)
+    }
+
+    @Test
+    fun guardaDeCustoLeOTotalGravadoENaoOLocal() {
+        // Outra execução gasta entre o rascunho e o turno do revisor: o guarda vê o total gravado e para antes da chamada.
+        val referencia = criar()
+        val id = criar(teto = estimativaDoRascunho(referencia).add(BigDecimal("4")))
+        d.responde(Provedor.CLAUDE, DeliberacaoDeTeste.rascunho())
+        d.responde(Provedor.CODEX, DeliberacaoDeTeste.pronto())
+        val deliberacao = Deliberacao(
+            t.sessoes, t.retomada, t.ponto, t.artefatos, d.anexos, d.chamador, d.auditoria, d.relogio,
+            aoAvancar = { progresso -> if (progresso.agente == Provedor.CLAUDE) t.sessoes.somarCusto(id, BigDecimal("100")) },
+        )
+
+        assertEquals(Desfecho.Pausada(Estados.LIMITE_DE_CUSTO), executar(id, deliberacao))
+
+        assertEquals(listOf(Provedor.CLAUDE), d.chamadas.map { it.first })
+        assertTrue(d.mensagens(id).contains("Cost guard blocked provider call before Codex."))
+    }
+
+    @Test
+    fun tetoDeTempoValeAntesDeCadaTentativaCorretiva() {
+        // O tempo acaba durante a resposta que viola o contrato: a tentativa corretiva não é paga.
+        val id = criar(tetoDeMinutos = 1)
+        d.responde(Provedor.CLAUDE, DeliberacaoDeTeste.rascunho())
+        d.responde(Provedor.CODEX, DeliberacaoDeTeste.naoProntoSemMudanca(), DeliberacaoDeTeste.pronto())
+        val chamadorQueEsgota = Chamador { provedor, pedido, restante ->
+            val resposta = d.chamador.chamar(provedor, pedido, restante)
+            if (provedor == Provedor.CODEX) d.deslocamento = Duration.ofMinutes(2)
+            resposta
+        }
+        val deliberacao = Deliberacao(t.sessoes, t.retomada, t.ponto, t.artefatos, d.anexos, chamadorQueEsgota, d.auditoria, d.relogio)
+
+        assertEquals(Desfecho.Pausada(Estados.LIMITE_DE_TEMPO), executar(id, deliberacao))
+
+        assertEquals(listOf(Provedor.CLAUDE, Provedor.CODEX), d.chamadas.map { it.first })
+        val mensagens = d.mensagens(id)
+        assertEquals(1, mensagens.count { it.startsWith("Reclassificado para CONTRACT_VIOLATION") })
+        assertEquals(0, mensagens.count { it.startsWith("Corrective retry") })
+        assertEquals("Time guard blocked provider call before Codex.", mensagens.last())
+    }
+
+    @Test
+    fun respostaIncompletaSemUsoECobradaComASaidaMaxima() {
+        // Uma geração parada no teto de saída sem contagem de tokens custa o teto inteiro, não zero
+        // (com o teto de US$ 5 a cobrança esgotaria a sessão antes do rascunho de reserva: o teto aqui é maior).
+        val id = criar(tres, teto = BigDecimal("20"))
+        d.responde(Provedor.CLAUDE, RespostaDoProvedor.Incompleta("stop_reason: max_tokens", Uso(null, null)))
+        d.responde(Provedor.CODEX, DeliberacaoDeTeste.rascunho())
+        d.responde(Provedor.GEMINI, DeliberacaoDeTeste.pronto(Provedor.GEMINI))
+        d.responde(Provedor.CLAUDE, DeliberacaoDeTeste.pronto(Provedor.CLAUDE))
+        // A estimativa é a do prompt de rascunho de antes da execução (depois, `textoAtual` já é o texto final).
+        val esperado = Dinheiro.paraE8(estimativaDoRascunho(id))
+
+        assertEquals(Desfecho.Convergida, executar(id))
+
+        val evento = t.banco.eventos().daSessao(id).first { it.mensagem.startsWith("Draft attempt failed with Claude") }
+        assertEquals("estimate", evento.fonteDoCusto)
+        assertEquals(esperado, evento.custoE8)
+    }
+
+    @Test
+    fun tentativasCorretivasNaoRenascemNaRetomada() {
+        // Duas tentativas corretivas gravadas, o worker para; a segunda execução herda a contagem dos artefatos bloqueados.
+        val id = criar()
+        d.responde(Provedor.CLAUDE, DeliberacaoDeTeste.rascunho())
+        d.responde(Provedor.CODEX, DeliberacaoDeTeste.naoProntoSemMudanca(), DeliberacaoDeTeste.naoProntoSemMudanca())
+        d.parar = { d.chamadas.size >= 3 }
+        assertEquals(Desfecho.Interrompida, executar(id))
+        assertEquals(2, t.artefatos.daSessao(id).count { it.status == "blocked" })
+
+        d.parar = { false }
+        d.responde(Provedor.CODEX, DeliberacaoDeTeste.naoProntoSemMudanca(), DeliberacaoDeTeste.naoProntoSemMudanca(), DeliberacaoDeTeste.pronto())
+        assertEquals(Desfecho.Convergida, executar(id))
+
+        val mensagens = d.mensagens(id)
+        // 1 tentativa inicial + 3 corretivas ao todo, nas duas execuções: a quarta violação esgota e pula o turno.
+        assertEquals(4, mensagens.count { it.startsWith("Reclassificado para CONTRACT_VIOLATION") })
+        assertEquals(listOf("Corrective retry 1/3 started in round 1.", "Corrective retry 2/3 started in round 1.", "Corrective retry 3/3 started in round 1."), mensagens.filter { it.startsWith("Corrective retry") })
+        assertTrue(mensagens.contains("Operational turn failure (1/3): Corrective retries exhausted; reviewer turn skipped without a vote."))
     }
 
     @Test

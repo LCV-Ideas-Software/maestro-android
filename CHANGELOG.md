@@ -39,7 +39,17 @@ All material changes to Maestro Android are recorded here.
   resolver. Instrumented tests cover the four cost cases and the time case of
   the specification, the discard-and-rebuild resume, the indeterminate paid
   call, the in-flight cancellation, the worker with `work-testing` and the
-  reconciliation; the disarm matrix has 46 rows (16 JVM, 30 device).
+  reconciliation; the disarm matrix has 51 rows (16 JVM, 35 device).
+  From Codex's first round on the pull request: the observed cost is the
+  atomic **sum** of every paid call (saturating), not the web's `MAX` floor
+  over each execution's local total, which lost one paid call when the
+  operator cancelled and resumed while the old call was completing, and the
+  cost guard compares the ceiling with the stored total re-read before every
+  call; the time limit is enforced before every corrective retry; an
+  incomplete response without token counts is charged as the full output
+  ceiling; and the corrective-retry counters are seeded at resume from the
+  round's blocked artifacts over the current text, so a stopped worker does
+  not regain three retries.
 - Add `:core:sessao` (MAEANDR-22, first of two pull requests): the Android
   library that holds the Maestro AI state on the device, ported from
   `admin-app` `c70dc54f` (`sessions.ts`) over Room 2.8.5 with the Room Gradle

@@ -56,7 +56,7 @@ class TrabalhoEReconciliacaoTest {
         override val sessoes: RepositorioDeSessoes get() = t.sessoes
         override val notificacao: Notificacao = Notificacao(contexto)
         override fun deliberacao(parar: () -> Boolean, aoAvancar: suspend (Progresso) -> Unit): Deliberacao = Deliberacao(
-            sessoes = t.sessoes, retomada = t.retomada, ponto = t.ponto, anexos = d.anexos,
+            sessoes = t.sessoes, retomada = t.retomada, ponto = t.ponto, artefatos = t.artefatos, anexos = d.anexos,
             chamador = { provedor, pedido, restante ->
                 sequencia += "chamada:${provedor.agente}"
                 d.chamador.chamar(provedor, pedido, restante)

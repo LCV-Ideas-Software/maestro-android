@@ -660,10 +660,14 @@ rodada de revisão cruzada e seis decisões do operador em 26/09/2026):**
     do turno órfão na retomada fica (`max` dos turnos gravados), e a inserção
     de artefato é interna ao checkpoint;
   - **dinheiro em inteiros de 10⁻⁸ USD** nas colunas (a escala interna do
-    protocolo), `BigDecimal` na API; o piso de custo é
-    `SET custo = MAX(custo, :novo)`, atômico e sem portão, nunca dentro da
-    transação do checkpoint, para que um checkpoint desfeito não apague gasto
-    incorrido.
+    protocolo), `BigDecimal` na API; o custo observado é a **soma** de cada
+    chamada paga — `SET custo = custo + :delta`, atômico, saturando no máximo
+    da coluna, sem portão e nunca dentro da transação do checkpoint, para que
+    um checkpoint desfeito não apague gasto incorrido. Uma versão anterior
+    desta seção prescrevia o piso `MAX(custo, :novo)` do web sobre o total
+    local de cada execução; o Codex mostrou na #70 que duas execuções que se
+    cruzam (o operador cancela e retoma enquanto a chamada antiga termina)
+    partem do mesmo total e o `MAX` perde uma chamada paga. A soma não perde.
 - **Nada se corta em silêncio.** Um artefato cujo markdown passaria do teto
   de 500 000 pontos de código do web é recusado no *checkpoint*, não
   truncado, e o teto é medido na mesma renderização que o leitor recebe
@@ -777,9 +781,21 @@ rodada de revisão cruzada e seis decisões do operador em 26/09/2026):**
     sobre o acumulado da sessão inteira (emenda A13); a resposta
     `ExigeAutenticacao` do cofre pausa `pausada_aguardando_autenticacao`
     (emenda A1); `Incompleta` do provedor é falha operacional cobrada;
-  - **o piso de custo é declaradamente sem cerca** (`MAX`, atômico): uma
-    execução que pagou sobe o piso mesmo depois de superada. Todo o resto —
-    evento, custódia, status, conclusão — carrega a cerca.
+  - **a soma de custo é declaradamente sem cerca** (atômica): uma execução
+    que pagou soma o seu custo mesmo depois de superada, e o guarda de custo
+    de cada chamada compara o teto com o total **gravado**, relido na hora,
+    não com um valor local que outra execução pode ter deixado velho. Todo o
+    resto — evento, custódia, status, conclusão — carrega a cerca;
+  - **quatro regras da rodada 1 do Codex na #70**, cada uma com teste e
+    linha na matriz: o teto de tempo vale antes de cada tentativa corretiva
+    (no desktop a tentativa volta ao topo do laço; o web perdeu a checagem ao
+    aninhar); uma resposta `Incompleta` sem contagem de saída é cobrada como
+    se tivesse gerado o teto de saída inteiro (pode ser uma geração parada
+    nos 64 mil tokens; cobrar zero deixaria passar chamadas além do teto);
+    os contadores de tentativa corretiva são semeados, na retomada, dos
+    artefatos bloqueados da rodada sobre o texto atual (um worker parado no
+    meio das tentativas não ganha três novas ao voltar); e a soma de custo
+    acima.
 - **O bloco `## Link Audit` do markdown** leva as linhas
   `link_integrity_audit.v1` da auditoria do porte, não o `LinkAuditResult`
   legado, e `Invalid links` conta os tons `error` e `blocked` — a regra
@@ -1417,7 +1433,7 @@ de teste, porque compra confiança sem entregá-la.
   e o evento de retomada no fim do jornal; a custódia adulterada no arquivo
   (contador, texto) e o texto sem custódia caem em
   `paused_resume_state_invalid` com as mensagens do web; cada transição tem o
-  caso em que o portão recusa; o piso de custo é monotônico e não tem
+  caso em que o portão recusa; a soma de custo é atômica, satura e não tem
   portão; a troca de conteúdo preserva as colunas omitidas e só escreve no
   status lido; o pedido de retomada com painel e líder inválidos; o artefato
   órfão além do contador; os `Flow` da sessão e dos eventos; os registros de

@@ -83,6 +83,7 @@ public class Deliberacao(
     private val sessoes: RepositorioDeSessoes,
     private val retomada: Retomada,
     private val ponto: PontoDeRetomada,
+    private val artefatos: RepositorioDeArtefatos,
     private val anexos: AnexosDaSessao,
     private val chamador: Chamador,
     private val auditoria: AuditoriaDaSessao,
@@ -146,13 +147,23 @@ public class Deliberacao(
         val pedido = PromptsDaSessao.PedidoDaSessao(sessao.titulo, sessao.pedido, sessao.textoAtual, sessao.protocolo)
         val protocolo = sessao.protocolo
 
-        // `observedCost`: o acumulado da sessão inteira — o teto vale sobre ele (emenda A13, 25/09/2026).
+        // `observedCost`: o acumulado da sessão inteira — o teto vale sobre ele (emenda A13,
+        // 25/09/2026). É o total gravado, relido antes de cada guarda e devolvido por cada
+        // soma: outra execução que se cruzou com esta (cancelar e retomar com a chamada antiga
+        // ainda em voo) também conta (achado do Codex na #70).
         var observado: BigDecimal = Dinheiro.deE8(sessao.custoObservadoE8)
         var autorAtual: Provedor = lider
         var textoAtual = ""
         var turnoDoArtefato = 0
         var artefatoAnteriorId: String? = null
         var custodiaArtefatoId: String? = null
+        /**
+         * `correctiveRetryCounts`, por `rodada:revisor:texto` (o índice do turno
+         * é função do revisor dentro da rodada e sai da chave). Na retomada é
+         * semeado dos artefatos bloqueados desta rodada sobre o texto atual
+         * (achado do Codex na #70): um worker parado no meio das tentativas
+         * não ganha três tentativas novas ao voltar.
+         */
         val contadoresDeRetentativa = HashMap<String, Int>()
         val relatorios = ArrayList<PromptsDaSessao.RelatorioDeTurno>()
         var rodada = 1
@@ -182,7 +193,15 @@ public class Deliberacao(
             turnoDoArtefato = progresso.turnoDoArtefato
             artefatoAnteriorId = progresso.artefatoAnteriorId
             relatorios += progresso.relatorios
+            for (bloqueado in artefatos.daSessao(id)) {
+                if (bloqueado.papel != "revision" || bloqueado.status != "blocked" || bloqueado.ciclo != rodada || bloqueado.textoAceito != textoAtual) continue
+                val tentativa = Json.tolerante(bloqueado.relatorioDeRevisaoJson)?.get("attempt")?.takeIf { it.canConvertToInt() }?.intValue() ?: continue
+                val chave = chaveDeRetentativa(Agentes.porChave(bloqueado.agente) ?: continue)
+                contadoresDeRetentativa[chave] = maxOf(contadoresDeRetentativa[chave] ?: 0, tentativa)
+            }
         }
+
+        fun chaveDeRetentativa(revisor: Provedor): String = "$rodada:${revisor.agente}:$textoAtual"
 
         // ── o que o web relê e escreve a cada passo ──────────────────────────
 
@@ -275,13 +294,27 @@ public class Deliberacao(
             return chamador.chamar(provedor, Pedido(sistema(provedor), prompt), tempoRestante())
         }
 
-        /** `calculateObservedCost` + `persistObservedCostFloor`, logo depois de cada chamada paga. */
-        fun cobrar(provedor: Provedor, prompt: String, texto: String, uso: dev.lcv.maestro.provedores.Uso): Custo.Observado {
-            val custo = Custo.observar(taxasDe(provedor), prompt, texto, uso.tokensDeEntrada, uso.tokensDeSaida, uso.custoInformadoUsd)
+        /**
+         * `calculateObservedCost` + a soma atômica, logo depois de cada chamada
+         * paga; [observado] passa a ser o total gravado. Uma resposta
+         * [incompleta] sem contagem de saída é cobrada como se tivesse gerado o
+         * teto de saída inteiro: ela pode ser uma geração parada nos 64 mil
+         * tokens, e cobrar zero deixaria passar chamadas além do teto (achado
+         * do Codex na #70).
+         */
+        fun cobrar(provedor: Provedor, prompt: String, texto: String, uso: dev.lcv.maestro.provedores.Uso, incompleta: Boolean = false): Custo.Observado {
+            val saida = uso.tokensDeSaida ?: if (incompleta) MAX_TOKENS_DE_SAIDA.toLong() else null
+            val custo = Custo.observar(taxasDe(provedor), prompt, texto, uso.tokensDeEntrada, saida, uso.custoInformadoUsd)
                 ?: Custo.Observado(BigDecimal.ZERO, Custo.Fonte.ESTIMATIVA)
-            observado = observado.add(custo.valor)
-            sessoes.subirPisoDeCusto(id, observado)
+            observado = sessoes.somarCusto(id, custo.valor)
             return custo
+        }
+
+        /** `estimateCost` + a regra do teto sobre o total gravado agora, não sobre um valor local que outra execução pode ter deixado velho. */
+        fun admitido(provedor: Provedor, prompt: String): Pair<BigDecimal?, Boolean> {
+            val projetado = estimativa(provedor, prompt)
+            observado = sessoes.custoObservado(id)
+            return projetado to (Custo.admitir(observado, projetado, teto) is Custo.Admissao.Permitida)
         }
 
         fun corta(texto: String, maximo: Int): String = Texto.sanear(texto, maximo)
@@ -326,8 +359,8 @@ public class Deliberacao(
                     anotar(evento(EventoDaSessao.BLOQUEADO, "Time guard blocked draft call before ${agente.rotulo}.", agente, "draft"))
                     return pausar(Estados.LIMITE_DE_TEMPO, null, null)
                 }
-                val projetado = estimativa(agente, prompt)
-                if (Custo.admitir(observado, projetado, teto) !is Custo.Admissao.Permitida) {
+                val (projetado, cabe) = admitido(agente, prompt)
+                if (!cabe) {
                     anotar(evento(EventoDaSessao.BLOQUEADO, "Cost guard blocked draft call before ${agente.rotulo}.", agente, "draft", custoUsd = projetado))
                     return pausar(Estados.LIMITE_DE_CUSTO, null, null)
                 }
@@ -347,7 +380,7 @@ public class Deliberacao(
                         }
                     }
                     is RespostaDoProvedor.Incompleta -> {
-                        custo = cobrar(agente, prompt, "", resposta.uso)
+                        custo = cobrar(agente, prompt, "", resposta.uso, incompleta = true)
                         resposta.motivo
                     }
                     RespostaDoProvedor.ExigeAutenticacao -> return pausar(
@@ -482,7 +515,15 @@ public class Deliberacao(
         suspend fun turno(revisor: Provedor): Desfecho? {
             var tentativa = 0
             while (true) {
-                if (tentativa > 0) consumirOrcamentoDeTurnos()?.let { return it }
+                if (tentativa > 0) {
+                    consumirOrcamentoDeTurnos()?.let { return it }
+                    // Cada tentativa corretiva é uma chamada paga nova: o teto de tempo vale antes dela,
+                    // como no desktop, onde a tentativa volta ao topo do laço (achado do Codex na #70).
+                    if (tempoEsgotado()) {
+                        anotar(evento(EventoDaSessao.BLOQUEADO, "Time guard blocked provider call before ${revisor.rotulo}.", revisor, "revision"))
+                        return pausar(Estados.LIMITE_DE_TEMPO, null, null)
+                    }
+                }
                 anotar(
                     evento(
                         EventoDaSessao.RODANDO,
@@ -503,8 +544,8 @@ public class Deliberacao(
                     // Desktop (`session_orchestration.rs:1266-1280`): o pacote do portão do texto atual.
                     auditoriaMemorizada(textoAtual)?.let { prompt += PromptsDaSessao.pacoteDoPortao(it.motivo, it.contexto.bonito()) }
                 }
-                val projetado = estimativa(revisor, prompt)
-                if (Custo.admitir(observado, projetado, teto) !is Custo.Admissao.Permitida) {
+                val (projetado, cabe) = admitido(revisor, prompt)
+                if (!cabe) {
                     anotar(evento(EventoDaSessao.BLOQUEADO, "Cost guard blocked provider call before ${revisor.rotulo}.", revisor, "revision", custoUsd = projetado))
                     return pausar(Estados.LIMITE_DE_CUSTO, null, null)
                 }
@@ -517,7 +558,7 @@ public class Deliberacao(
                         texto = resposta.texto
                     }
                     is RespostaDoProvedor.Incompleta -> {
-                        val cobrado = cobrar(revisor, prompt, "", resposta.uso)
+                        val cobrado = cobrar(revisor, prompt, "", resposta.uso, incompleta = true)
                         return pane(revisor, resposta.motivo, cobrado, revisor.modelo)
                     }
                     RespostaDoProvedor.ExigeAutenticacao -> return pausar(
@@ -571,7 +612,7 @@ public class Deliberacao(
                 }
                 val relatorio = lida?.relatorio ?: TurnoSerial.extrairRelatorio(texto)
                 if (erroDeContrato != null) {
-                    val chave = "$rodada:$indiceDoTurno:${revisor.agente}:$textoAtual"
+                    val chave = chaveDeRetentativa(revisor)
                     val contagem = (contadoresDeRetentativa[chave] ?: 0) + 1
                     contadoresDeRetentativa[chave] = contagem
                     turnoDoArtefato += 1
