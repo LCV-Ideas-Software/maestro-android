@@ -16,6 +16,13 @@ public sealed interface Preparacao {
     /** A sessão já não estava em `queued`/`running` quando a execução tentou reivindicá-la: o runner para. */
     public data object Perdida : Preparacao
 
+    /**
+     * A execução anterior morreu com uma chamada paga a [provedor] em voo
+     * (decisão 16 do operador, 27/09/2026): a sessão foi posta em `error`,
+     * com o evento, e não é reivindicada — só o operador a retoma.
+     */
+    public data class ChamadaIndeterminada(val provedor: Provedor) : Preparacao
+
     /** Uma execução nova, reivindicada: o líder redige; a âncora do tempo é `criadaEm`. */
     public data class Nova(
         val sessao: SessaoEntidade,
@@ -139,6 +146,21 @@ public class Retomada(
                 // linha de `execucoes` que acabou de nascer. A execução que estava na linha
                 // (a que morreu) é encerrada aqui, para não ficar aberta no orçamento.
                 val anterior = sessoes.carregar(id) ?: throw CasPerdido()
+                // Decisão 16: uma execução ainda aberta com o marcador da chamada paga
+                // morreu durante ou logo depois dela, e ninguém sabe se o provedor cobrou.
+                // Reivindicar e seguir pagaria o rascunho ou o turno de novo sem que
+                // ninguém decidisse: a sessão vai para `error` e o operador retoma.
+                anterior.execucaoAtual?.let { banco.execucoes().uma(it) }?.takeIf { it.fim == null }
+                    ?.chamadaEmVoo?.let(Agentes::porChave)?.let { provedor ->
+                        val mensagem = RepositorioDeSessoes.mensagemDeChamadaIndeterminada(provedor)
+                        val execucaoMorta = anterior.execucaoAtual!!
+                        if (banco.sessoes().interromper(id, mensagem, agora(), execucaoMorta) == 0) throw CasPerdido()
+                        banco.eventos().inserir(
+                            EventoDaSessao(em = agora(), agente = provedor, status = EventoDaSessao.ERRO, mensagem = mensagem).paraEntidade(id),
+                        )
+                        banco.execucoes().encerrar(execucaoMorta, agora(), RepositorioDeSessoes.MOTIVO_INTERROMPIDA)
+                        return@runInTransaction Preparacao.ChamadaIndeterminada(provedor)
+                    }
                 anterior.execucaoAtual?.let { banco.execucoes().encerrar(it, agora(), MOTIVO_SUPERADA) }
                 val execucao = banco.execucoes().inserir(ExecucaoEntidade(sessaoId = id, inicio = agora()))
                 if (banco.sessoes().reivindicar(id, execucao, agora()) == 0) throw CasPerdido()
@@ -221,7 +243,8 @@ public sealed interface Gravacao {
  * portão de status e a cerca de execução. Um portão perdido desfaz também o
  * artefato; uma escrita tardia de uma execução superada falha na cerca. O
  * artefato é da sessão do checkpoint, e um status que sai de
- * `queued`/`running` fecha a execução junto.
+ * `queued`/`running` fecha a execução junto. O marcador da chamada em voo da
+ * execução é apagado na mesma transação (decisão 16).
  */
 public class PontoDeRetomada(
     private val banco: BancoDaSessao,
@@ -261,6 +284,8 @@ public class PontoDeRetomada(
             )
             if (gravadas == 0) throw CasPerdido()
             if (evento != null) banco.eventos().inserir(evento.paraEntidade(sessaoId))
+            // O checkpoint é o desfecho da chamada paga que o precedeu: o marcador sai junto.
+            banco.execucoes().limparChamada(execucao)
             if (status !in Estados.ATIVOS) banco.execucoes().encerrar(execucao, FormatoDeInstante.iso(relogio()), status)
             Gravacao.Gravada(inserido)
         }

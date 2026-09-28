@@ -389,9 +389,9 @@ class RetomadaTest {
         val depois = t.sessoes.carregar(id)!!
         assertEquals(Estados.RETOMADA_INVALIDA, depois.status)
         assertEquals(preparacao.mensagem, depois.erro)
-        // A reivindicação foi desfeita com a transação: a execução que fica é a da última execução válida,
-        // e ela é fechada junto da pausa, para não ficar aberta no orçamento.
-        assertEquals(execucaoAnterior, depois.execucaoAtual)
+        // A reivindicação foi desfeita com a transação; o pedido de retomada já tinha zerado a cerca
+        // (PR 3b, emenda A2), e a execução anterior foi fechada pela pausa, não ficando aberta no orçamento.
+        assertNull(depois.execucaoAtual)
         assertNotNull(t.banco.execucoes().uma(execucaoAnterior!!)!!.fim)
         assertEquals(0, t.banco.execucoes().naJanela("2000-01-01T00:00:00.000Z").count { it.fim == null })
         val ultimo = t.sessoes.eventos(id).last()

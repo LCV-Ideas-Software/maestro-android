@@ -136,7 +136,7 @@ Four of the five cases run on an emulator in CI on every pull request, as a
 required check; the fifth needs StrongBox hardware, which no available device
 has, and its test runs only where that hardware exists.
 
-The fourth module, `:core:sessao` (MAEANDR-22, first of two pull requests),
+The fourth module, `:core:sessao` (MAEANDR-22, two pull requests),
 is the Android library that holds the Maestro AI state on the device: the
 web's D1 tables as Room entities, plus the tables the desktop keeps as files
 (link records, evidence records, attachments) and one per foreground
@@ -155,8 +155,26 @@ product decisions of 25/09/2026 depart from the web: the cost ceiling applies
 to the whole session's accumulated cost, not to each execution, and the
 optional time limit accepts at most 300 minutes. The
 app excludes the database from cloud backup and device transfer through
-`data_extraction_rules.xml`. The orchestration itself — the worker, the
-turns, the providers — comes in the second pull request.
+`data_extraction_rules.xml`.
+
+The second pull request of the module is the orchestration on the device:
+`Deliberacao` is the web's `runSession` over those transactions — the draft
+with fallback across the active agents, the serial review-rewrite loop with
+the web's scheduler (stable-approval convergence, closure gating of the lead,
+seeded redraw), corrective retries, the three-strike operational escalation,
+the cost and time guards before every paid call and the per-turn checkpoint —
+plus what the desktop has and the web lacks: the five-stage release audit with
+the session's citation context, the operator-evidence pause at the top of
+every iteration and the citation-manifest block in the prompts.
+`TrabalhoDaSessao` is the `CoroutineWorker` that raises the `dataSync`
+foreground service before any paid call and returns success on every outcome
+(a pause is a resumable status, never a WorkManager retry); the notification's
+cancel action writes `blocked_cancelled` to Room before stopping the job; the
+reconciliation on app open re-queues interrupted sessions. One rule is the
+operator's decision of 27/09/2026: a paid call whose outcome was never
+recorded (the process died during or right after it) is marked on the
+execution row, and such a session is not resumed automatically — the operator
+resumes it from the screen, as the web requires after a crash.
 
 The native port is specified in
 [`docs/especificacao-v1.md`](docs/especificacao-v1.md) (in Portuguese), written

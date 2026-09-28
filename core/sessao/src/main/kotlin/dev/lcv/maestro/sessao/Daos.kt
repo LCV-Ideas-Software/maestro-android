@@ -58,7 +58,8 @@ public interface SessaoDao {
 
     /** O pedido de retomada (`sessions.ts:4787-4796`): volta à fila com o líder e o painel escolhidos, sob o status lido. */
     @Query(
-        "UPDATE sessoes SET status = 'queued', liderDoCiclo = :lider, agentesAtivosJson = :agentesJson, erro = NULL, atualizadaEm = :em " +
+        "UPDATE sessoes SET status = 'queued', liderDoCiclo = :lider, agentesAtivosJson = :agentesJson, erro = NULL, " +
+            "execucaoAtual = NULL, atualizadaEm = :em " +
             "WHERE id = :id AND status = :statusLido",
     )
     public fun retomar(id: String, statusLido: String, lider: String, agentesJson: String, em: String): Int
@@ -232,6 +233,17 @@ public interface ExecucaoDao {
     /** Fecha uma execução que ainda estava aberta (a superada numa retomada, ou a que terminou); a já fechada fica como está. */
     @Query("UPDATE execucoes SET fim = COALESCE(fim, :fim), motivoDaParada = COALESCE(motivoDaParada, :motivo) WHERE seq = :seq")
     public fun encerrar(seq: Long, fim: String, motivo: String): Int
+
+    /**
+     * O marcador da chamada paga (decisão 16 do operador): só numa execução
+     * ainda aberta — uma superada ou encerrada não despacha nada, e zero
+     * linhas manda o worker parar.
+     */
+    @Query("UPDATE execucoes SET chamadaEmVoo = :provedor, chamadaIniciadaEm = :em WHERE seq = :seq AND fim IS NULL")
+    public fun marcarChamada(seq: Long, provedor: String, em: String): Int
+
+    @Query("UPDATE execucoes SET chamadaEmVoo = NULL, chamadaIniciadaEm = NULL WHERE seq = :seq")
+    public fun limparChamada(seq: Long): Int
 
     /**
      * As execuções que tocam a janela que começa em [desde], para a soma do

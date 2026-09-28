@@ -81,6 +81,9 @@ public object TurnoSerial {
         return null
     }
 
+    /** O `maestro_revision_report` como veio, mesmo num turno que violou o contrato (`extractTagged` do web). */
+    public fun extrairRelatorio(saida: String): String? = extrairBloco(saida, TAG_DO_RELATORIO)
+
     /** `validate_serial_turn_output`. */
     public fun validar(stdout: String, status: String): Resultado {
         if (status != "READY" && status != "NOT_READY") {

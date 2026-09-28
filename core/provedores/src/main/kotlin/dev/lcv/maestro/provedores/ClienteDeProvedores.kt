@@ -70,6 +70,16 @@ public class ClienteDeProvedores internal constructor(
     public constructor(http: OkHttpClient, fonte: FonteDeChave) :
         this(http, fonte, { it.endereco }, { delay(it) }, Instant::now)
 
+    /**
+     * O mesmo cliente com o endereço de cada provedor decidido por quem chama:
+     * um gateway corporativo na frente dos seis, ou, nos testes instrumentados
+     * do `:core:sessao`, um servidor local — que só este módulo alcançaria pelo
+     * construtor interno (PR 3b). O que se troca é só a URL do POST; corpo,
+     * cabeçalhos, prazo e política de nova tentativa são os mesmos.
+     */
+    public constructor(http: OkHttpClient, fonte: FonteDeChave, endereco: (Provedor) -> String) :
+        this(http, fonte, endereco, { delay(it) }, Instant::now)
+
     internal val http: OkHttpClient = http.newBuilder()
         .retryOnConnectionFailure(false)
         .followRedirects(false)

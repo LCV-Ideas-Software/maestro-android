@@ -46,11 +46,47 @@ class PromptsDaSessaoTest {
     }
 
     @Test
-    fun `revisao nao promete auditoria de links que ainda nao existe`() {
-        // A frase do web volta quando a auditoria entrar (MAEANDR-18); antes
-        // disso, o agente contaria com uma checagem ausente.
-        assertFalse(revisao().contains("audits public links"))
-        assertContains(revisao(), "Do not fabricate URLs.")
+    fun `revisao diz que os links publicos sao auditados na finalizacao`() {
+        // A frase do web saiu na MAEANDR-14, quando a auditoria não existia, e
+        // voltou com ela (PR 3b): agora a promessa é verdadeira.
+        assertContains(
+            revisao(),
+            "- The Android app audits public links automatically when a text attempts finalization. Do not fabricate URLs.",
+        )
+    }
+
+    @Test
+    fun `bloco de evidencias vai no fim dos dois prompts e some quando vazio`() {
+        val bloco = PromptsDaSessao.resumoDoManifesto(implicito = true, citacoes = 0, fontes = 0)
+        val revisaoComBloco = PromptsDaSessao.revisao(pedido, "run-1", 2, textoAtual, "claude", "codex", emptyList(), false, bloco)
+        val rascunhoComBloco = PromptsDaSessao.rascunho(pedido, "run-1", bloco)
+
+        assertTrue(revisaoComBloco.endsWith(bloco))
+        assertTrue(rascunhoComBloco.endsWith("```\n$bloco"))
+        assertEquals(revisaoComBloco.removeSuffix(bloco), revisao())
+        assertFalse(revisao().contains("Manifesto deterministico"))
+    }
+
+    @Test
+    fun `resumo do manifesto diz se foi anexado ou inicializado vazio`() {
+        assertContains(
+            PromptsDaSessao.resumoDoManifesto(implicito = true, citacoes = 0, fontes = 0),
+            "A sessao usa um `citation_manifest.v1` vazio inicializado pelo Maestro porque nenhum manifesto foi anexado com 0 citacao(oes) e 0 fonte(s).",
+        )
+        assertContains(
+            PromptsDaSessao.resumoDoManifesto(implicito = false, citacoes = 3, fontes = 2),
+            "A sessao usa um `citation_manifest.v1` anexado pelo operador com 3 citacao(oes) e 2 fonte(s).",
+        )
+    }
+
+    @Test
+    fun `pacote do portao leva o motivo cortado em 300 e o json`() {
+        val pacote = PromptsDaSessao.pacoteDoPortao("m".repeat(400), "{\n  \"gate\": \"abnt_citation\"\n}")
+
+        assertContains(pacote, "## Current Deterministic Editorial Gate Packet")
+        assertContains(pacote, "Reason: " + "m".repeat(300) + "\n")
+        assertFalse(pacote.contains("m".repeat(301)))
+        assertContains(pacote, "```json\n{\n  \"gate\": \"abnt_citation\"\n}\n```")
     }
 
     @Test
