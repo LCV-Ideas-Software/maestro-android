@@ -112,15 +112,17 @@ class AnexosViewModel(private val d: Dependencias, private val id: String) : Vie
     fun remover(anexoId: String) {
         if (!podeMexer()) return
         mexer {
-            d.anexos.remover(anexoId)
-            Mensagem.DeRecurso(R.string.anexo_removido)
+            when (val removido = d.anexos.remover(anexoId)) {
+                is Resultado.Recusado -> Mensagem.Literal(removido.mensagem)
+                is Resultado.Ok -> Mensagem.DeRecurso(R.string.anexo_removido)
+            }
         }
     }
 
     private fun podeMexer(): Boolean {
         if (trabalhando.value) return false
         if (estado.value.emExecucao) {
-            eventos.trySend(Mensagem.DeRecurso(R.string.anexos_em_execucao))
+            eventos.trySend(Mensagem.Literal(AnexosDaSessao.MENSAGEM_EM_EXECUCAO))
             return false
         }
         return true

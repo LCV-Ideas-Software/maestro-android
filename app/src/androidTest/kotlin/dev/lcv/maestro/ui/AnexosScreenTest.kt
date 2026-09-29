@@ -14,7 +14,11 @@ import dev.lcv.maestro.protocolo.FormatoDoRegistro
 import dev.lcv.maestro.sessao.AnexosDaSessao
 import dev.lcv.maestro.sessao.Estados
 import dev.lcv.maestro.sessao.RepositorioDeConfiguracoes
+import dev.lcv.maestro.ui.anexos.AnexosViewModel
 import java.io.File
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -130,5 +134,20 @@ class AnexosScreenTest {
         regra.onNodeWithTag(Marcas.ANEXOS_EM_EXECUCAO).assertExists()
         regra.onNodeWithTag(Marcas.ANEXAR_MANIFESTO).assertIsNotEnabled()
         assertTrue(c.anexos.daSessao(id).isEmpty())
+    }
+
+    /**
+     * Achado do Codex na #78: a leitura do provedor de documentos demora e a sessão é retomada nesse
+     * meio-tempo. Um ViewModel recém-criado ainda não leu o status, como o que recebe o arquivo depois
+     * de o processo morrer: a tela deixa passar, e só a trava do núcleo recusa.
+     */
+    @Test
+    fun oArquivoQueChegaComASessaoJaEmExecucaoERecusadoNaGravacao() {
+        val id = c.sessao(Estados.RODANDO)
+        val vm = AnexosViewModel(c.dependencias, id)
+        vm.anexar(Uri.fromFile(c.arquivo("citation-manifest.json", MANIFESTO_DE_EXEMPLO.toByteArray())), c.contexto.contentResolver)
+        assertEquals(Mensagem.Literal(AnexosDaSessao.MENSAGEM_EM_EXECUCAO), runBlocking { withTimeout(10_000) { vm.avisos.first() } })
+        assertTrue(c.anexos.daSessao(id).isEmpty())
+        assertEquals(0, c.pastaDosAnexos.listFiles()?.size ?: 0)
     }
 }

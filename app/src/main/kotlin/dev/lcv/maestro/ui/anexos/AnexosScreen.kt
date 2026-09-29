@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.lcv.maestro.R
+import dev.lcv.maestro.sessao.AnexosDaSessao
 import dev.lcv.maestro.ui.BotaoFantasma
 import dev.lcv.maestro.ui.BotaoPrimario
 import dev.lcv.maestro.ui.Cabecalho
@@ -89,7 +90,7 @@ fun AnexosScreen(vm: AnexosViewModel) {
                         modifier = Modifier.testTag(Marcas.MANIFESTO_RESULTADO),
                     )
                     if (estado.emExecucao) {
-                        Legenda(stringResource(R.string.anexos_em_execucao), Modifier.testTag(Marcas.ANEXOS_EM_EXECUCAO))
+                        Legenda(AnexosDaSessao.MENSAGEM_EM_EXECUCAO, Modifier.testTag(Marcas.ANEXOS_EM_EXECUCAO))
                     }
                     BotaoPrimario(
                         stringResource(R.string.anexar_manifesto),

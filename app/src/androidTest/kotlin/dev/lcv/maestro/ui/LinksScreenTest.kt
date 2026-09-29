@@ -22,6 +22,7 @@ import dev.lcv.maestro.protocolo.StatusDaRevisao
 import dev.lcv.maestro.provedores.ImportacaoDoOperador
 import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.sessao.Estados
+import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -294,6 +295,49 @@ class LinksScreenTest {
         // Cancelada, a busca não chega a gravar proposta nenhuma.
         Thread.sleep(500)
         assertTrue(c.links.linhas(id).single { it.linkId == relatorio.linkId }.candidatosDeCorrecao.isEmpty())
+    }
+
+    @Test
+    fun umaAuditoriaDoMesmoTextoApareceComATelaAberta() {
+        // Achado do Codex na #78: a auditoria da sessão grava as linhas sem mudar o texto, e a tela
+        // aberta não as via, porque só relia a lista quando o texto mudava.
+        val id = c.sessao(Estados.AUDITORIA_FINAL, textoAtual = TEXTO)
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.ABRIR_LINKS)
+        regra.onNodeWithTag(Marcas.ABRIR_LINKS).performScrollTo().performClick()
+        esperarTag(Marcas.SEM_LINKS_AUDITADOS)
+
+        c.auditarLinks(id, TEXTO)
+        esperarTag(Marcas.link(linha(id, RELATORIO).linkId))
+        esperarTag(Marcas.link(linha(id, INTERNO).linkId))
+    }
+
+    @Test
+    fun oDiscoQueFalhaNaImportacaoEAvisadoSemDerrubarOAplicativo() {
+        // Achado do Codex na #78: a `IOException` do armazém de evidências derrubava o aplicativo.
+        val id = sessaoComLinks()
+        abrirOLink(id, RELATORIO, SeletorDeTeste(Uri.fromFile(c.arquivo("pagina-salva.html", "<html></html>".toByteArray()))))
+        // Um arquivo onde a pasta das evidências deveria estar: o corpo importado não pode ser gravado.
+        c.pastaDasEvidencias.deleteRecursively()
+        c.pastaDasEvidencias.writeBytes(byteArrayOf(0))
+
+        regra.onNodeWithTag(Marcas.IMPORTAR_CAPTURA).performScrollTo().performClick()
+        regra.esperarTexto(
+            "A importação falhou. O arquivo local não foi alterado. Motivo: cannot create directory ${c.pastaDasEvidencias.absolutePath}",
+        )
+        assertTrue(c.evidencias.registrosDe(setOf(RELATORIO)).isEmpty())
+    }
+
+    @Test
+    fun oDiscoQueFalhaNaBuscaEAvisadoSemDerrubarOAplicativo() {
+        // A busca real guarda cada resultado como evidência, e a falha do armazém sai dela crua.
+        val id = sessaoComLinks()
+        c.discoDaBusca = IOException("No space left on device")
+        abrirOLink(id, RELATORIO)
+
+        regra.onNodeWithTag(Marcas.BUSCAR_PROPOSTAS).performScrollTo().performClick()
+        regra.esperarTexto("A busca de candidatos falhou. O link e o texto permaneceram inalterados. Motivo: No space left on device")
+        assertTrue(linha(id, RELATORIO).candidatosDeCorrecao.isEmpty())
     }
 
     @Test

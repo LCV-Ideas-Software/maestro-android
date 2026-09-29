@@ -13,9 +13,13 @@ All material changes to Maestro Android are recorded here.
   content access, network and image loads, cache, DOM storage and navigation
   off, a content security policy that loads nothing, and the render-process
   death handled; Markdown and TXT export through `CreateDocument` and the
-  `ContentResolver`, PDF through `PrintManager` once the page has loaded. The
-  attachments screen, which reads the citation manifest exactly as the session
-  will read it at start, and an optional manifest in the new-session form,
+  `ContentResolver`, PDF through `PrintManager` once the page has loaded; an
+  export result that reaches a screen recreated while the picker was open
+  waits for the session to load, and without a released text the created
+  document is deleted. The attachments screen, which reads the citation
+  manifest exactly as the session will read it at start, and refuses to
+  change the attachments of a queued or running session in the same
+  transaction that would write them, and an optional manifest in the new-session form,
   stored with the session in one transaction (the file first, then the
   session row, its first event and the attachment row), so a failed write
   never leaves a queued session without it; a disk failure is refused with
@@ -30,7 +34,10 @@ All material changes to Maestro Android are recorded here.
   through `ACTION_VIEW`), the import of the saved page, Crossref and OpenAlex
   correction proposals, and the accept, reject or quarantine decision with
   the engine's refusal reason. The list is read again when the session's
-  text changes while the screen is open, a decision typed for a link that
+  text changes while the screen is open and when the session's audit
+  rewrites the rows or the evidence of the same text, a disk failure while
+  storing an imported file or a search result is reported as that action's
+  failure instead of crashing the screen, a decision typed for a link that
   left the list is cleared rather than applied to another, and leaving the
   screen cancels a running correction search. While the session is queued or
   running, review and proposals wait (operator's decision 24, 29/09/2026);

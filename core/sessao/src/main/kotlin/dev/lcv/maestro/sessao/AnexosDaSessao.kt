@@ -20,6 +20,11 @@ public class AnexosDaSessao(
     private val pasta: File,
     private val relogio: () -> Instant,
 ) {
+    /**
+     * Com a sessão na fila ou em execução, os anexos não mudam ([MENSAGEM_EM_EXECUCAO]). A tela confere
+     * antes, mas a leitura lenta de um provedor de documentos deixa a sessão ser retomada no meio: o
+     * status é conferido na mesma transação que grava a linha (achado do Codex na #78).
+     */
     public fun adicionar(sessaoId: String, nomeOriginal: String, tipoDeMidia: String, bytes: ByteArray): Resultado<AnexoEntidade> =
         synchronized(this) {
             check(!banco.inTransaction()) { "attachment files are published and reclaimed outside any transaction" }
@@ -29,11 +34,22 @@ public class AnexosDaSessao(
                 is Resultado.Ok -> publicado.valor
             }
             val linha = linha(id, sessaoId, nomeOriginal, tipoDeMidia, bytes, arquivo)
-            try {
-                banco.anexos().inserir(linha)
+            val gravou = try {
+                banco.runInTransaction<Boolean> {
+                    if (emExecucao(sessaoId)) {
+                        false
+                    } else {
+                        banco.anexos().inserir(linha)
+                        true
+                    }
+                }
             } catch (erro: RuntimeException) {
                 arquivo.delete()
                 throw erro
+            }
+            if (!gravou) {
+                arquivo.delete()
+                return Resultado.Recusado(MENSAGEM_EM_EXECUCAO)
             }
             Resultado.Ok(linha)
         }
@@ -94,22 +110,38 @@ public class AnexosDaSessao(
 
     public fun daSessao(sessaoId: String): List<AnexoEntidade> = banco.anexos().daSessao(sessaoId)
 
-    /** A linha some primeiro (commit próprio); o arquivo, depois. Devolve se havia o anexo. Nunca dentro de uma transação de quem chama. */
-    public fun remover(id: String): Boolean = synchronized(this) {
+    /**
+     * A linha some primeiro (commit próprio, com o status da sessão conferido nele, como em
+     * [adicionar]); o arquivo, depois. `Ok` diz se havia o anexo. Nunca dentro de uma transação de quem chama.
+     */
+    public fun remover(id: String): Resultado<Boolean> = synchronized(this) {
         check(!banco.inTransaction()) { "attachment files are published and reclaimed outside any transaction" }
-        val linha = banco.anexos().um(id) ?: return false
-        banco.anexos().remover(id)
+        val linha = banco.anexos().um(id) ?: return Resultado.Ok(false)
+        val removeu = banco.runInTransaction<Boolean> {
+            if (emExecucao(linha.sessaoId)) {
+                false
+            } else {
+                banco.anexos().remover(id)
+                true
+            }
+        }
+        if (!removeu) return Resultado.Recusado(MENSAGEM_EM_EXECUCAO)
         File(linha.caminho).delete()
-        true
+        Resultado.Ok(true)
     }
 
     public fun limparOrfaos(): Unit = synchronized(this) {
         Geracoes.limparOrfaos(pasta, banco.anexos().caminhos().toSet())
     }
 
+    private fun emExecucao(sessaoId: String): Boolean = banco.sessoes().carregar(sessaoId)?.status in Estados.ATIVOS
+
     public companion object {
         /** `MAX_OPERATOR_ARTIFACT_BYTES`: 16 MiB. */
         public const val MAX_BYTES: Int = 16 * 1024 * 1024
         public const val MENSAGEM_ACIMA_DO_TETO: String = "Anexo excede o limite de 16 MiB."
+
+        /** Só do aparelho: o trabalho lê os anexos ao começar. A tela de anexos mostra a mesma frase. */
+        public const val MENSAGEM_EM_EXECUCAO: String = "Com a sessão na fila ou em execução, os anexos não mudam: o trabalho os lê ao começar."
     }
 }

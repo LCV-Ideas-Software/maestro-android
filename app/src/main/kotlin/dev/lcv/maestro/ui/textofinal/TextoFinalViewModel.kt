@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -73,17 +74,27 @@ class TextoFinalViewModel(private val d: Dependencias, private val id: String) :
      * Grava [formato] no documento que o seletor devolveu, fora da linha
      * principal. [uri] nulo é o seletor cancelado; uma falha de escrita apaga
      * o documento que o seletor já tinha criado, para não sobrar arquivo
-     * vazio ou pela metade.
+     * vazio ou pela metade. Recriada a Activity com o seletor aberto, o
+     * resultado chega a um ViewModel que ainda não leu a sessão: a exportação
+     * espera essa leitura, e sem texto liberado o documento também é apagado
+     * (achado do Codex na #78). [aoFalhar] é o de [gravar].
      */
-    fun exportar(formato: Formato, uri: Uri?, resolver: ContentResolver) {
-        val texto = estado.value.textoFinal ?: return
+    fun exportar(formato: Formato, uri: Uri?, resolver: ContentResolver, aoFalhar: (ContentResolver, Uri) -> Unit = ::apagar) {
         if (uri == null) {
             eventos.trySend(Mensagem.DeRecurso(R.string.exportacao_cancelada))
             return
         }
         exportando.value = true
         viewModelScope.launch {
-            val gravou = withContext(Dispatchers.IO) { gravar(resolver, uri, formato.bytes(texto)) }
+            val texto = estado.first { it.carregada }.textoFinal
+            val gravou = withContext(Dispatchers.IO) {
+                if (texto == null) {
+                    aoFalhar(resolver, uri)
+                    false
+                } else {
+                    gravar(resolver, uri, formato.bytes(texto), aoFalhar)
+                }
+            }
             exportando.value = false
             eventos.send(Mensagem.DeRecurso(if (gravou) formato.sucesso else R.string.exportacao_falhou))
         }

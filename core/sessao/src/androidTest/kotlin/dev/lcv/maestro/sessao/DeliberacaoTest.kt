@@ -606,13 +606,15 @@ class DeliberacaoTest {
 
     @Test
     fun evidenciaDoOperadorPausaAntesDoRevisorPagoEDaConvergencia() {
-        val id = criar()
+        // A sessão nasce com um manifesto, como pelo formulário, que exige evidência do operador: o texto
+        // cita e o manifesto não tem a fonte.
+        val id = (
+            d.anexos.criarSessao(
+                t.sessoes, t.entrada(agentes = dois), "citation-manifest.json", "application/json",
+                """{"schema_version":"citation_manifest.v1","protocol_hash":"$HASH_DO_PROTOCOLO","citations":[],"sources":[]}""".toByteArray(),
+            ) as Resultado.Ok
+            ).valor.id
         d.responde(Provedor.CLAUDE, DeliberacaoDeTeste.rascunho("Alpha aprovado.\n\nSegundo Silva (2020, p. 3), beta."))
-        // Um manifesto anexado que exige evidência do operador: o texto cita e o manifesto não tem a fonte.
-        d.anexos.adicionar(
-            id, "citation-manifest.json", "application/json",
-            """{"schema_version":"citation_manifest.v1","protocol_hash":"$HASH_DO_PROTOCOLO","citations":[],"sources":[]}""".toByteArray(),
-        )
         d.responde(Provedor.CODEX, DeliberacaoDeTeste.pronto())
 
         val desfecho = executar(id)

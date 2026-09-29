@@ -4,6 +4,7 @@ import dev.lcv.maestro.protocolo.EstadoDaEvidencia
 import dev.lcv.maestro.protocolo.EstadoDoCache
 import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.protocolo.ModoDeAcesso
+import java.io.IOException
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -142,6 +143,18 @@ class BuscaDeEvidenciasTest {
         servidor.enqueue(RedeDeTeste.resposta(200, crossref, "Content-Type" to "application/json"))
         assertEquals("2026-09-01T00:00:00+00:00", busca(armazem = armazem).buscar("q", "crossref", 1).single().criadaEm)
         assertEquals(1, armazem.guardadas.size)
+    }
+
+    @Test
+    fun `a falha do armazem sai da busca como a do canonico, sem virar resultado vazio`() {
+        // `save_stored(...)?` devolve o erro a quem buscou; a tela o mostra como a falha da busca.
+        val armazem = object : ColetorHttp.ArmazemDeEvidencias {
+            override fun existente(id: String): ColetorHttp.Coleta? = null
+            override fun guardar(coleta: ColetorHttp.Coleta): Unit = throw IOException("No space left on device")
+        }
+        servidor.enqueue(RedeDeTeste.resposta(200, crossref, "Content-Type" to "application/json"))
+        val erro = assertFailsWith<IOException> { busca(armazem = armazem).buscar("q", "crossref", 1) }
+        assertEquals("No space left on device", erro.message)
     }
 
     @Test

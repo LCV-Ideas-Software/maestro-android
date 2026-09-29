@@ -191,7 +191,11 @@ escolheu os cinco. O que a escolha pede, e como fica:
   o que ainda está sendo lido —, e no início ele é lido de novo contra o
   protocolo que a sessão vai receber, porque as configurações podem ter
   mudado depois da escolha. O arquivo é lido só pelo `ContentResolver`, sem
-  permissão de armazenamento, e o teto de 16 MiB vale durante a leitura.
+  permissão de armazenamento, e o teto de 16 MiB vale durante a leitura. Com a
+  sessão na fila ou em execução, os anexos não mudam: a tela confere antes, e
+  o núcleo confere de novo na transação que grava ou remove a linha, porque a
+  leitura lenta de um provedor de documentos deixa a sessão ser retomada no
+  meio (achado do Codex na #78).
 - **As linhas de link de uma sessão:** o registro de links é global, como no
   canônico, porque o id de cada linha já leva a impressão da origem.
   `LinksDaSessao` acha as da sessão pela impressão do texto que ela tem agora
@@ -217,7 +221,9 @@ escolheu os cinco. O que a escolha pede, e como fica:
   barra (`SecurityException`), fica anotado no registro. O arquivo salvo volta
   pelo seletor de documentos e vira evidência fornecida pelo operador, sob o
   endereço do link para o qual o seletor foi aberto; se esse link saiu da
-  lista enquanto o seletor estava aberto, nada é importado. Nenhum dos dois registros toca a linha de
+  lista enquanto o seletor estava aberto, nada é importado; o disco que falha
+  ao guardar o arquivo é a falha da importação, com o erro no aviso, como o
+  desktop devolve o de `write_binary_file`. Nenhum dos dois registros toca a linha de
   link — no desktop também não: só a revisão explícita a libera. O tipo do
   arquivo segue o `captureMediaType` do desktop, e o `application/octet-stream`
   com que o Android informa uma extensão desconhecida conta como sem tipo.
@@ -228,13 +234,16 @@ escolheu os cinco. O que a escolha pede, e como fica:
   emenda A10 do plano do `:app` que pedia a declaração).
 - **Propostas de correção:** Crossref ou OpenAlex, fora da linha principal.
   Cada resultado é guardado como evidência, como o canônico faz, com o item
-  JSON como corpo. As propostas só sobrevivem à auditoria seguinte numa linha
+  JSON como corpo; o disco que falha ao guardar um deles é a falha da busca.
+  As propostas só sobrevivem à auditoria seguinte numa linha
   decidida (`preservarRevisao`, igual ao canônico), e por isso a tela pede a
   decisão depois de propor. Sair da tela cancela a busca em curso.
-- **A lista acompanha o texto:** com a tela aberta durante a execução, a
-  lista é relida quando o texto da sessão muda; se o link aberto sai dela, a
-  nota e a decisão digitadas para ele são apagadas e nunca vão para outro
-  link.
+- **A lista acompanha o texto e a auditoria:** com a tela aberta durante a
+  execução, a lista é relida quando o texto da sessão muda e quando a
+  auditoria regrava as linhas ou as evidências do mesmo texto (o
+  `InvalidationTracker` do Room sobre as duas tabelas); se o link aberto sai
+  dela, a nota e a decisão digitadas para ele são apagadas e nunca vão para
+  outro link.
 - **Decisão 23 do operador (29/09/2026):** todo turno de revisão cujo texto
   atual reprova na auditoria final leva ao revisor o pacote do portão — as
   linhas que falharam e os candidatos de correção. Antes, o pacote só ia numa
@@ -1078,7 +1087,10 @@ aprovou, e a exportação só é oferecida para texto liberado.
   pedido pela `Activity` na linha principal.
 - **Markdown e TXT** pelo `CreateDocument` do seletor de documentos, gravados
   pelo `ContentResolver` fora da linha principal; o seletor cancelado não grava
-  nada, e o documento de uma gravação que falhou é apagado.
+  nada, e o documento de uma gravação que falhou é apagado. Recriada a
+  `Activity` com o seletor aberto, o resultado chega a um ViewModel que ainda
+  não leu a sessão: a exportação espera essa leitura, e sem texto liberado o
+  documento criado também é apagado (achado do Codex na #78).
 
 ## 5. Os seis provedores
 
@@ -1717,19 +1729,24 @@ de teste, porque compra confiança sem entregá-la.
   exportações, o cliente da página que avisa o fim, recusa navegar e troca a
   página que morreu, a página que sai quando o texto perde a liberação, a
   sessão que não convergiu, o Markdown tal qual e o TXT do renderizador, o
-  seletor cancelado ou o documento que não abre, que não deixam arquivo, e a
-  gravação que falha, que pede a remoção do documento; o manifesto lido, o
-  recusado, o acima do teto e o que não muda com a sessão em execução, o do
+  seletor cancelado ou o documento que não abre, que não deixam arquivo, a
+  gravação que falha, que pede a remoção do documento, e a exportação que
+  chega a um ViewModel recém-criado, que espera a leitura da sessão ou, sem
+  texto liberado, pede a remoção; o manifesto lido, o
+  recusado, o acima do teto e o que não muda com a sessão em execução, nem
+  quando chega a um ViewModel que ainda não leu o status, o do
   formulário gravado antes do enfileiramento, o do formulário lido de novo
   contra o protocolo trocado depois da escolha, e o disco que falha, que avisa
   sem derrubar o aplicativo e sem deixar sessão na fila; os links do texto atual, e não
-  os de uma versão anterior, relidos quando o texto muda com a tela aberta, e
+  os de uma versão anterior, relidos quando o texto muda com a tela aberta e
+  quando a auditoria grava as linhas do mesmo texto, e
   a nota e a decisão de um link que saiu da lista, que não vão para outro; a
   revisão e as propostas desligadas com a sessão em execução, com a captura
   liberada; a passagem ao navegador só com a URL que a regra de rede aceitou,
   a recusada que não chega ao navegador, o navegador que não abre e o disparo
   barrado por política; o arquivo importado sob o link, sem mudá-lo, o de
-  tipo fora da lista e o escolhido para um link que saiu da lista; a revisão com a recusa
+  tipo fora da lista e o escolhido para um link que saiu da lista; o disco que
+  falha na importação e na busca, que avisa sem derrubar o aplicativo; a revisão com a recusa
   do motor para nota curta e para aceite de link que não passou; as propostas
   com o provedor escolhido, que sobrevivem à auditoria seguinte na linha
   decidida, e a busca cancelada quando a tela sai; e a aba Links dos autos que
@@ -1738,11 +1755,13 @@ de teste, porque compra confiança sem entregá-la.
   deixa começar durante a leitura dele; na tela de anexos, o manifesto de
   outro protocolo recusado com o hash ativo. No `:core:provedores`, na JVM, a
   captura assistida (as regras de nome, tipo, tamanho e bytes mágicos, a ordem
-  das recusas, os dois registros) e a busca que guarda cada resultado; no
+  das recusas, os dois registros) e a busca que guarda cada resultado e
+  devolve a falha do armazém, como o `save_stored(...)?` do canônico; no
   `:core:protocolo`, as quatro regras de vínculo do manifesto na auditoria e
   fora dela; no `:core:sessao`, na JVM, o manifesto desvinculado recusado
   antes do rascunho, e, instrumentado, a sessão do formulário que nasce com o
-  manifesto ou não nasce, as linhas de link da sessão e a ordem delas,
+  manifesto ou não nasce, os anexos travados na transação com a sessão na
+  fila ou em execução, as linhas de link da sessão e a ordem delas,
   os registros de evidência de um endereço, a decisão 23, o teto de tempo
   conferido de novo depois da auditoria do portão e o HTML cru que a auditoria
   real recusa antes de virar texto final.

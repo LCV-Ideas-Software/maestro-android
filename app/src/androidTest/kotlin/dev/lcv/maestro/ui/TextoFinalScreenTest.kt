@@ -15,11 +15,15 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.lcv.maestro.R
 import dev.lcv.maestro.sessao.Estados
 import dev.lcv.maestro.ui.textofinal.ClienteDaPagina
 import dev.lcv.maestro.ui.textofinal.RenderizadorDoTextoFinal
 import dev.lcv.maestro.ui.textofinal.TextoFinalViewModel
 import java.io.File
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -202,5 +206,31 @@ class TextoFinalScreenTest {
         val apagados = mutableListOf<Uri>()
         assertFalse(TextoFinalViewModel.gravar(c.contexto.contentResolver, impossivel, "texto".toByteArray()) { _, uri -> apagados += uri })
         assertEquals(listOf(impossivel), apagados)
+    }
+
+    /**
+     * Achado do Codex na #78: recriada a Activity com o seletor aberto, o resultado chega a um
+     * ViewModel novo, que ainda não leu a sessão. Chamar a exportação logo depois de criá-lo é
+     * exatamente esse instante.
+     */
+    @Test
+    fun aExportacaoQueChegaAntesDaLeituraDaSessaoEsperaOTexto() {
+        val id = c.sessao(Estados.CONVERGIDA, textoFinal = textoFinal, textoAtual = textoFinal)
+        val destino = c.arquivo("texto.md", ByteArray(0))
+        val vm = TextoFinalViewModel(c.dependencias, id)
+        vm.exportar(TextoFinalViewModel.Formato.MARKDOWN, Uri.fromFile(destino), c.contexto.contentResolver)
+        assertEquals(Mensagem.DeRecurso(R.string.exportado_markdown), runBlocking { withTimeout(10_000) { vm.avisos.first() } })
+        assertArrayEquals(textoFinal.toByteArray(Charsets.UTF_8), destino.readBytes())
+    }
+
+    @Test
+    fun semTextoLiberadoODocumentoQueOSeletorCriouEApagado() {
+        val id = c.sessao(Estados.ERRO, erro = "Falha qualquer.")
+        val destino = Uri.fromFile(c.arquivo("texto.md", ByteArray(0)))
+        val apagados = mutableListOf<Uri>()
+        val vm = TextoFinalViewModel(c.dependencias, id)
+        vm.exportar(TextoFinalViewModel.Formato.MARKDOWN, destino, c.contexto.contentResolver) { _, uri -> apagados += uri }
+        assertEquals(Mensagem.DeRecurso(R.string.exportacao_falhou), runBlocking { withTimeout(10_000) { vm.avisos.first() } })
+        assertEquals(listOf(destino), apagados)
     }
 }

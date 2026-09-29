@@ -55,6 +55,7 @@ import dev.lcv.maestro.sessao.SessaoEntidade
 import dev.lcv.maestro.sessao.Taxas
 import dev.lcv.maestro.sessao.TesteDeChaves
 import java.io.File
+import java.io.IOException
 import java.net.InetAddress
 import java.net.UnknownHostException
 import okhttp3.Dns
@@ -179,7 +180,7 @@ internal class Cenario {
     val pastaDosAnexos = File(contexto.cacheDir, "anexos-${UUID.randomUUID()}")
     val anexos = AnexosDaSessao(banco, pastaDosAnexos, relogio)
     val links = LinksDaSessao(banco, relogio)
-    private val pastaDasEvidencias = File(contexto.cacheDir, "evidencias-${UUID.randomUUID()}")
+    val pastaDasEvidencias = File(contexto.cacheDir, "evidencias-${UUID.randomUUID()}")
     val evidencias = ArmazemDeEvidenciasEmArquivo(banco, pastaDasEvidencias, relogio)
 
     /**
@@ -207,6 +208,9 @@ internal class Cenario {
      * ela lança `ColetaCancelada`, como a real.
      */
     @Volatile var buscaPresa: CountDownLatch? = null
+
+    /** Posto, a busca falha ao guardar os resultados, como a real com o disco cheio: a `IOException` do armazém sai crua. */
+    @Volatile var discoDaBusca: IOException? = null
     val buscasCanceladas = AtomicInteger()
     val navegador = NavegadorFalso()
     val dependencias = Dependencias(
@@ -222,6 +226,7 @@ internal class Cenario {
                         presa.await(10, TimeUnit.SECONDS)
                         if (buscasCanceladas.get() > 0) throw ColetaCancelada()
                     }
+                    discoDaBusca?.let { throw it }
                     resultadosDaBusca
                 },
                 cancelar = {

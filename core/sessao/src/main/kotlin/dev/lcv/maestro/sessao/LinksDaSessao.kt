@@ -3,6 +3,7 @@ package dev.lcv.maestro.sessao
 import dev.lcv.maestro.protocolo.FormatoDoRegistro
 import dev.lcv.maestro.protocolo.LinhaDeLink
 import java.time.Instant
+import kotlinx.coroutines.flow.Flow
 
 /**
  * Os links que a sessão tem agora, para a tela de revisão (especificação,
@@ -33,4 +34,11 @@ public class LinksDaSessao(private val banco: BancoDaSessao, private val relogio
             .filter { it.impressaoDaOrigem == impressao }
             .sortedWith(compareByDescending<LinhaDeLink> { it.verificadoEm }.thenBy { it.linkId })
     }
+
+    /**
+     * Cada gravação nas tabelas que a tela de links lê (as linhas de link e as evidências), com uma
+     * emissão inicial: a auditoria da sessão regrava as linhas do mesmo texto, e a tela não veria
+     * isso só pela mudança do texto (achado do Codex na #78).
+     */
+    public fun mudancas(): Flow<Set<String>> = banco.invalidationTracker.createFlow("links", "evidencias")
 }

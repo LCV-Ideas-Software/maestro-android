@@ -23,6 +23,7 @@ import dev.lcv.maestro.provedores.ImportacaoDoOperador
 import dev.lcv.maestro.ui.Documentos
 import dev.lcv.maestro.ui.Mensagem
 import dev.lcv.maestro.ui.Rotulos
+import java.io.IOException
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
@@ -32,6 +33,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -121,9 +123,12 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
 
     init {
         // A lista é a do texto que a sessão tem agora: relida quando esse texto muda com a tela aberta,
-        // durante a execução, e não só na volta à tela (achado do Codex na #78).
+        // durante a execução, e não só na volta à tela, e também quando a auditoria regrava as linhas
+        // ou as evidências do mesmo texto (achados do Codex na #78). Uma auditoria grava link a link:
+        // releituras pedidas durante outra viram uma só.
         viewModelScope.launch {
-            d.sessoes.observar(id).map { linha -> linha?.let { it.textoFinal ?: it.textoAtual } }.distinctUntilChanged().collect {
+            val texto = d.sessoes.observar(id).map { linha -> linha?.let { it.textoFinal ?: it.textoAtual } }.distinctUntilChanged()
+            combine(texto, d.links.mudancas()) { _, _ -> }.conflate().collect {
                 aplicar(withContext(Dispatchers.IO) { ler() })
             }
         }
@@ -214,9 +219,13 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                     )
                     when (val importacao = d.importacao.importar(pedido) { d.evidencias.existente(it)?.registro }) {
                         is ImportacaoDoOperador.Importacao.Recusada -> Saida(Mensagem.DeRecurso(R.string.captura_falhou, listOf(importacao.motivo)))
-                        is ImportacaoDoOperador.Importacao.Importada -> {
+                        is ImportacaoDoOperador.Importacao.Importada -> try {
                             d.evidencias.guardar(importacao.coleta)
                             Saida(Mensagem.DeRecurso(R.string.captura_importada)) { notaDaCaptura = "" }
+                        } catch (erro: IOException) {
+                            // O disco que falha é a falha da importação: no desktop, `write_binary_file`
+                            // devolve o erro à tela (achado do Codex na #78).
+                            Saida(Mensagem.DeRecurso(R.string.captura_falhou, listOf(erro.message.orEmpty())))
                         }
                     }
                 }
@@ -281,6 +290,9 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                             val proposta = IntegridadeDeLinks.proporCorrecoes(pedido, d.links.registro(id), busca.buscador, d.relogio())
                             Saida(Mensagem.DePlural(R.plurals.propostas_registradas, proposta.candidatosDeCorrecao.size))
                         } catch (erro: IntegridadeDeLinks.Falha) {
+                            Saida(Mensagem.DeRecurso(R.string.propostas_falharam, listOf(erro.message.orEmpty())))
+                        } catch (erro: IOException) {
+                            // A busca guarda cada resultado como evidência, e o disco que falha é a falha dela.
                             Saida(Mensagem.DeRecurso(R.string.propostas_falharam, listOf(erro.message.orEmpty())))
                         } catch (erro: ColetaCancelada) {
                             // Só acontece com a tela saindo: o escopo já foi cancelado, e o aviso não sai.
