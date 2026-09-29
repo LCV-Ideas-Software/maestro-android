@@ -94,6 +94,13 @@ fun interface Navegador {
 }
 
 /**
+ * Uma busca de evidências e o jeito de pará-la: a busca bloqueia no HTTP, e
+ * cancelar a corrotina não a interrompe — só o `cancelarTudo` dela. A tela
+ * cancela quando sai (achado do Codex na #78).
+ */
+class BuscaDaTela(val buscador: IntegridadeDeLinks.BuscadorDeEvidencia, val cancelar: () -> Unit)
+
+/**
  * O que as telas usam do grafo: os repositórios sobre o Room, o agendador, o
  * cofre visto pela tela, o teste de chaves, os anexos e a revisão dos links
  * (linhas, evidências, captura assistida, busca e navegador). Em produção vem da `Fabrica` do
@@ -113,7 +120,7 @@ class Dependencias(
     val evidencias: ArmazemDeEvidenciasEmArquivo,
     val importacao: ImportacaoDoOperador,
     /** A busca de evidências (Crossref e OpenAlex) com o e-mail de contato atual; lê o Room, então fora da linha principal. */
-    val busca: () -> IntegridadeDeLinks.BuscadorDeEvidencia,
+    val busca: () -> BuscaDaTela,
     val navegador: Navegador,
     val relogio: () -> Instant = Instant::now,
 ) {
@@ -131,7 +138,7 @@ class Dependencias(
                 links = grafo.links,
                 evidencias = grafo.evidencias,
                 importacao = grafo.importacao,
-                busca = grafo::buscaDeEvidencias,
+                busca = { grafo.buscaDeEvidencias().let { BuscaDaTela(it, it::cancelarTudo) } },
                 navegador = Navegador.DO_SISTEMA,
             )
         }

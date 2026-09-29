@@ -22,6 +22,7 @@ import dev.lcv.maestro.protocolo.StatusDaRevisao
 import dev.lcv.maestro.provedores.ImportacaoDoOperador
 import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.sessao.Estados
+import java.util.concurrent.CountDownLatch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -255,6 +256,44 @@ class LinksScreenTest {
     }
 
     @Test
+    fun aListaSegueOTextoDaSessaoEODigitadoParaUmLinkQueSaiuNaoVaiParaOutro() {
+        // Achados do Codex na #78: com a tela aberta durante a execução, o texto muda; a lista tem de
+        // ser a do texto novo, e a decisão digitada para um link que saiu não pode valer para outro.
+        val id = sessaoComLinks()
+        val relatorio = abrirOLink(id, RELATORIO)
+        val nota = "Nota escrita para o relatório oficial, que saiu do texto."
+        regra.onNodeWithTag(Marcas.decisao("rejeitar")).performScrollTo().performClick()
+        regra.onNodeWithTag(Marcas.NOTA_DA_REVISAO).performScrollTo().performTextInput(nota)
+        regra.onNodeWithTag(Marcas.REGISTRAR_DECISAO).performScrollTo().assertIsEnabled()
+
+        // Um revisor reescreveu o texto: a auditoria do texto novo e o checkpoint que grava o texto.
+        c.auditarLinks(id, TEXTO_NOVO)
+        c.mudarTextoAtual(id, TEXTO_NOVO)
+
+        esperarTag(Marcas.link(linha(id, NOVA).linkId))
+        assertTrue(regra.onAllNodesWithTag(Marcas.link(relatorio.linkId)).fetchSemanticsNodes().isEmpty())
+        regra.onNodeWithTag(Marcas.REGISTRAR_DECISAO).performScrollTo().assertIsNotEnabled()
+        assertTrue(regra.onAllNodes(hasText(nota)).fetchSemanticsNodes().isEmpty())
+    }
+
+    @Test
+    fun sairDaTelaCancelaABuscaDePropostasEmCurso() {
+        // Achado do Codex na #78: a busca bloqueia no HTTP e só para pelo cancelamento dela.
+        val id = sessaoComLinks()
+        c.buscaPresa = CountDownLatch(1)
+        val relatorio = abrirOLink(id, RELATORIO)
+        regra.onNodeWithTag(Marcas.BUSCAR_PROPOSTAS).performScrollTo().performClick()
+        regra.waitUntil(5_000) { c.buscas.isNotEmpty() }
+
+        regra.onNodeWithTag(Marcas.VOLTAR).performClick()
+
+        regra.waitUntil(5_000) { c.buscasCanceladas.get() > 0 }
+        // Cancelada, a busca não chega a gravar proposta nenhuma.
+        Thread.sleep(500)
+        assertTrue(c.links.linhas(id).single { it.linkId == relatorio.linkId }.candidatosDeCorrecao.isEmpty())
+    }
+
+    @Test
     fun aAbaLinksDosAutosLevaAosLinksAuditadosDaSessao() {
         val id = sessaoComLinks()
         val artefato = c.artefato(id, 1, Provedor.CLAUDE, TEXTO)
@@ -269,5 +308,7 @@ class LinksScreenTest {
         const val RELATORIO = "https://exemplo.org/relatorio"
         const val INTERNO = "https://interno.exemplo/dados"
         const val TEXTO = "Primeira fonte em [Relatório oficial]($RELATORIO) e segunda em [Base interna]($INTERNO)."
+        const val NOVA = "https://exemplo.org/nova"
+        const val TEXTO_NOVO = "O texto reescrito cita só a [Fonte nova]($NOVA)."
     }
 }

@@ -16,16 +16,21 @@ All material changes to Maestro Android are recorded here.
   `ContentResolver`, PDF through `PrintManager` once the page has loaded. The
   attachments screen, which reads the citation manifest exactly as the session
   will read it at start, and an optional manifest in the new-session form,
-  stored after the session is created and before it is queued. The link
-  review screen, a port of the desktop's `LinkIntegrityPanel.tsx` and of the
+  stored after the session is created and before it is queued; nothing
+  starts while that manifest is still being read. The link review screen, a port of the desktop's `LinkIntegrityPanel.tsx` and of the
   operator capture of `EvidenceScreen.tsx` (`maestro-app` `0e17817`) with
   their labels and messages: the links of the session's current text, the
   evidence kept for each address, "Abrir no navegador" (the handoff record is
   validated and built first; the system browser gets only the validated URL
   through `ACTION_VIEW`), the import of the saved page, Crossref and OpenAlex
   correction proposals, and the accept, reject or quarantine decision with
-  the engine's refusal reason. `<queries>` for `https` browsers, per
-  amendment A10 of the `:app` plan. Instrumented tests use the official
+  the engine's refusal reason. The list is read again when the session's
+  text changes while the screen is open, a decision typed for a link that
+  left the list is cleared rather than applied to another, and leaving the
+  screen cancels a running correction search. No `<queries>` element: `startActivity` does
+  not need package visibility to open a URL (official documentation), and a
+  missing browser arrives as `ActivityNotFoundException`, recorded on the
+  handoff. Instrumented tests use the official
   `ActivityResultRegistry` for the document picker and a browser double that
   only records the URL; no test opens a browser.
 - Add `ImportacaoDoOperador` to `:core:provedores`: the operator-assisted
@@ -1020,7 +1025,8 @@ All material changes to Maestro Android are recorded here.
 - Every revision turn whose current text fails the release audit now carries
   the gate packet — the failing rows and the correction candidates — to the
   reviewer, not only a corrective retry (operator's decision 23,
-  29/09/2026).
+  29/09/2026). That audit may reach the network, so the time ceiling is
+  checked again after it, before the paid call.
 - `BuscaDeEvidencias` stores each search result as evidence, with the item
   JSON as its body and an earlier record's creation date kept, as the
   canonical search does; the correction candidates cite those records.

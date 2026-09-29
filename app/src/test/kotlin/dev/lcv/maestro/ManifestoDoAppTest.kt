@@ -9,11 +9,10 @@ import org.w3c.dom.Element
 
 /**
  * O manifesto do `:app` (plano do `:app`, emenda A10): as três permissões que
- * o produto usa, a visibilidade dos navegadores `https`, o `Application` que
- * instala a fábrica, a Activity única em `singleTask` e a inicialização sob
- * demanda do WorkManager — o provedor do App Startup fica, e só o
- * inicializador do WorkManager sai. Lê o arquivo do repositório com o leitor
- * de XML da plataforma Java.
+ * o produto usa, o `Application` que instala a fábrica, a Activity única em
+ * `singleTask` e a inicialização sob demanda do WorkManager — o provedor do
+ * App Startup fica, e só o inicializador do WorkManager sai. Lê o arquivo do
+ * repositório com o leitor de XML da plataforma Java.
  */
 class ManifestoDoAppTest {
 
@@ -36,13 +35,6 @@ class ManifestoDoAppTest {
             setOf("android.permission.INTERNET", "android.permission.POST_NOTIFICATIONS", "android.permission.USE_BIOMETRIC"),
             elementos("uses-permission").map { it.android("name") }.toSet(),
         )
-    }
-
-    @Test
-    fun `os navegadores https sao visiveis, e so eles`() {
-        val intencao = elementos("queries").single().getElementsByTagName("intent").let { lista -> (0 until lista.length).map { lista.item(it) as Element } }.single()
-        assertEquals(listOf("android.intent.action.VIEW"), intencao.getElementsByTagName("action").let { lista -> (0 until lista.length).map { (lista.item(it) as Element).android("name") } })
-        assertEquals(listOf("https"), intencao.getElementsByTagName("data").let { lista -> (0 until lista.length).map { (lista.item(it) as Element).android("scheme") } })
     }
 
     @Test

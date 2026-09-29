@@ -18,18 +18,22 @@ import dev.lcv.maestro.protocolo.DecisaoDeRevisao
 import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.protocolo.LinhaDeLink
 import dev.lcv.maestro.protocolo.RegistroDeEvidencia
+import dev.lcv.maestro.provedores.ColetaCancelada
 import dev.lcv.maestro.provedores.ImportacaoDoOperador
 import dev.lcv.maestro.ui.Documentos
 import dev.lcv.maestro.ui.Mensagem
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -60,7 +64,10 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
         val trabalhando: Boolean = false,
     )
 
-    /** O link aberto; `null` é o primeiro da lista, que o desktop também abre sozinho. */
+    /**
+     * O link aberto. Cada leitura da lista o fixa ([aplicar]): o mesmo, se ainda
+     * existe; senão o primeiro, que o desktop também abre sozinho.
+     */
     var escolhido by mutableStateOf<String?>(null)
         private set
 
@@ -71,7 +78,7 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
     var decisao by mutableStateOf<DecisaoDeRevisao?>(null)
     var nota by mutableStateOf("")
 
-    fun escolher(linkId: String) {
+    fun escolher(linkId: String?) {
         escolhido = linkId
         notaDaCaptura = ""
         consulta = ""
@@ -98,11 +105,28 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
     }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Estado())
 
     init {
-        recarregar()
+        // A lista é a do texto que a sessão tem agora: relida quando esse texto muda com a tela aberta,
+        // durante a execução, e não só na volta à tela (achado do Codex na #78).
+        viewModelScope.launch {
+            d.sessoes.observar(id).map { linha -> linha?.let { it.textoFinal ?: it.textoAtual } }.distinctUntilChanged().collect {
+                aplicar(withContext(Dispatchers.IO) { ler() })
+            }
+        }
     }
 
     fun recarregar() {
-        viewModelScope.launch { conteudo.value = withContext(Dispatchers.IO) { ler() } }
+        viewModelScope.launch { aplicar(withContext(Dispatchers.IO) { ler() }) }
+    }
+
+    /**
+     * A lista relida. Se o link aberto sumiu dela (o texto mudou), abre o primeiro, e o que se
+     * digitou para o anterior é apagado: a nota e a decisão de um link nunca vão para outro
+     * (achado do Codex na #78). Linha principal.
+     */
+    private fun aplicar(links: List<Link>) {
+        conteudo.value = links
+        val aberto = links.firstOrNull { it.linha.linkId == escolhido }?.linha?.linkId ?: links.firstOrNull()?.linha?.linkId
+        if (aberto != escolhido) escolher(aberto)
     }
 
     private fun ler(): List<Link> {
@@ -129,10 +153,11 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                     d.importacao.passagem(linha.urlNormalizada) { d.evidencias.existente(it)?.registro }
                 }
                 val falha = d.navegador.abrir(contexto, passagem.registro.url)
-                withContext(Dispatchers.IO) {
+                val links = withContext(Dispatchers.IO) {
                     d.evidencias.guardar(d.importacao.aberta(passagem, falha))
-                    conteudo.value = ler()
+                    ler()
                 }
+                aplicar(links)
                 // O desktop dá o mesmo aviso nos dois casos; aqui, sem navegador, o aviso diz o que o registro anotou.
                 if (falha == null) Mensagem.DeRecurso(R.string.passagem_registrada) else Mensagem.DeRecurso(R.string.passagem_sem_navegador, listOf(falha))
             } catch (erro: IntegridadeDeLinks.Falha) {
@@ -212,13 +237,41 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
      * operador): o aviso diz para decidir o link.
      */
     fun proporCorrecoes(linha: LinhaDeLink) {
+        if (!comecar()) return
         val pedido = IntegridadeDeLinks.PedidoDeCorrecao(linha.linkId, provedor, consulta.trim().takeIf { it.isNotEmpty() }, LIMITE_DE_PROPOSTAS)
-        agir {
+        viewModelScope.launch {
             try {
-                val proposta = IntegridadeDeLinks.proporCorrecoes(pedido, d.links.registro(id), d.busca(), d.relogio())
-                Saida(Mensagem.DePlural(R.plurals.propostas_registradas, proposta.candidatosDeCorrecao.size))
-            } catch (erro: IntegridadeDeLinks.Falha) {
-                Saida(Mensagem.DeRecurso(R.string.propostas_falharam, listOf(erro.message.orEmpty())))
+                val busca = withContext(Dispatchers.IO) { d.busca() }
+                // Sair da tela cancela o escopo, mas não a busca, que bloqueia no HTTP: o vigia chama o
+                // cancelamento dela, e nada é gravado depois (achado do Codex na #78). Como na auditoria
+                // da `Fabrica`, o vigia também fecha a busca que terminou.
+                val vigia = launch {
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        busca.cancelar()
+                    }
+                }
+                val (saida, links) = try {
+                    withContext(Dispatchers.IO) {
+                        val saida = try {
+                            val proposta = IntegridadeDeLinks.proporCorrecoes(pedido, d.links.registro(id), busca.buscador, d.relogio())
+                            Saida(Mensagem.DePlural(R.plurals.propostas_registradas, proposta.candidatosDeCorrecao.size))
+                        } catch (erro: IntegridadeDeLinks.Falha) {
+                            Saida(Mensagem.DeRecurso(R.string.propostas_falharam, listOf(erro.message.orEmpty())))
+                        } catch (erro: ColetaCancelada) {
+                            // Só acontece com a tela saindo: o escopo já foi cancelado, e o aviso não sai.
+                            Saida(Mensagem.DeRecurso(R.string.propostas_falharam, listOf(erro.message.orEmpty())))
+                        }
+                        saida to ler()
+                    }
+                } finally {
+                    vigia.cancel()
+                }
+                aplicar(links)
+                eventos.send(saida.mensagem)
+            } finally {
+                trabalhando.value = false
             }
         }
     }
@@ -234,10 +287,9 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
         if (!comecar()) return
         viewModelScope.launch {
             try {
-                val saida = withContext(Dispatchers.IO) {
-                    acao().also { conteudo.value = ler() }
-                }
+                val (saida, links) = withContext(Dispatchers.IO) { acao() to ler() }
                 saida.aoGravar?.invoke()
+                aplicar(links)
                 eventos.send(saida.mensagem)
             } finally {
                 trabalhando.value = false

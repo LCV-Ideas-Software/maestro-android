@@ -549,6 +549,12 @@ public class Deliberacao(
                 // não tem editor, então ele vai em todo turno sobre texto reprovado, com as propostas de
                 // correção das linhas decididas (decisão 23 do operador, 29/09/2026).
                 auditoriaMemorizada(textoAtual)?.let { prompt += PromptsDaSessao.pacoteDoPortao(it.motivo, it.contexto.bonito()) }
+                // A auditoria acima pode ter ido à rede, link por link, e gastado o que restava do teto de
+                // tempo: o guarda vale de novo antes da chamada paga (achado do Codex na #78).
+                if (tempoEsgotado()) {
+                    anotar(evento(EventoDaSessao.BLOQUEADO, "Time guard blocked provider call before ${revisor.rotulo}.", revisor, "revision"))
+                    return pausar(Estados.LIMITE_DE_TEMPO, null, null)
+                }
                 val (projetado, cabe) = admitido(revisor, prompt)
                 if (!cabe) {
                     anotar(evento(EventoDaSessao.BLOQUEADO, "Cost guard blocked provider call before ${revisor.rotulo}.", revisor, "revision", custoUsd = projetado))

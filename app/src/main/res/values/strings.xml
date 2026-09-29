@@ -134,6 +134,7 @@
     <string name="campo_manifesto">Manifesto de citações (opcional)</string>
     <string name="escolher_manifesto">Escolher manifesto</string>
     <string name="manifesto_nao_reconhecido">Este arquivo não é um manifesto de citações (citation_manifest.v1): a sessão o ignoraria.</string>
+    <string name="manifesto_em_leitura">Aguarde: o manifesto escolhido ainda está sendo lido.</string>
     <string name="erro_manifesto">O manifesto de citações escolhido não pode ser usado; troque ou remova o arquivo.</string>
     <plurals name="citacoes">
         <item quantity="one">%1$d citação</item>

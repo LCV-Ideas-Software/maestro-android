@@ -542,6 +542,25 @@ class DeliberacaoTest {
     }
 
     @Test
+    fun tetoDeTempoValeDepoisDaAuditoriaDoPortaoAntesDaChamadaDoRevisor() {
+        // A auditoria do texto reprovado vai à rede e pode gastar o resto do teto: o revisor não é pago
+        // e a sessão pausa por tempo, não por falha do revisor (achado do Codex na #78).
+        val id = criar(tetoDeMinutos = 1)
+        d.responde(Provedor.CLAUDE, DeliberacaoDeTeste.rascunho())
+        d.responde(Provedor.CODEX, DeliberacaoDeTeste.pronto())
+        d.auditar = {
+            d.deslocamento = Duration.ofMinutes(2)
+            DeliberacaoDeTeste.falha("link_integrity", "link rejeitado pelo operador")
+        }
+
+        assertEquals(Desfecho.Pausada(Estados.LIMITE_DE_TEMPO), executar(id))
+
+        assertEquals(listOf(Provedor.CLAUDE), d.chamadas.map { it.first })
+        assertEquals(Estados.LIMITE_DE_TEMPO, t.sessoes.carregar(id)!!.status)
+        assertEquals("Time guard blocked provider call before Codex.", d.mensagens(id).last())
+    }
+
+    @Test
     fun htmlCruNuncaViraTextoFinalPelaAuditoriaReal() {
         // A auditoria de produção (`AuditoriaFinal.falha`), sem rede: os textos não têm link, e o coletor recusa se for chamado.
         val registro = RegistroDeLinksRoom(t.banco, null, t.relogio)

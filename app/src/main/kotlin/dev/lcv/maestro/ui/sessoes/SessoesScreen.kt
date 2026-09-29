@@ -203,6 +203,7 @@ private fun ManifestoDoFormulario(vm: SessoesViewModel) {
             stringResource(R.string.escolher_manifesto),
             aoClicar = { escolher.launch(arrayOf("application/json", "*/*")) },
             icone = R.drawable.simbolo_description,
+            carregando = vm.lendoManifesto,
             modifier = Modifier.testTag(Marcas.ESCOLHER_MANIFESTO),
         )
         return

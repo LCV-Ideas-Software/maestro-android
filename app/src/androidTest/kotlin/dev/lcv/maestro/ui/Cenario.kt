@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.work.WorkManager
 import android.content.Context
+import dev.lcv.maestro.BuscaDaTela
 import dev.lcv.maestro.CofreDaTela
 import dev.lcv.maestro.Dependencias
 import dev.lcv.maestro.Navegador
@@ -26,6 +27,7 @@ import dev.lcv.maestro.protocolo.MetodoHttp
 import dev.lcv.maestro.protocolo.ModoDeAcesso
 import dev.lcv.maestro.protocolo.RegistroDeEvidencia
 import dev.lcv.maestro.provedores.AnalisadorDeUrlOkHttp
+import dev.lcv.maestro.provedores.ColetaCancelada
 import dev.lcv.maestro.provedores.ImportacaoDoOperador
 import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.provedores.ResolvedorPublico
@@ -62,6 +64,8 @@ import java.time.Instant
 import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 
@@ -195,6 +199,14 @@ internal class Cenario {
     val buscas: MutableList<Pair<String, String>> = CopyOnWriteArrayList()
 
     @Volatile var resultadosDaBusca: List<RegistroDeEvidencia> = emptyList()
+
+    /**
+     * Posta, a busca fica presa no "HTTP" até o cancelamento dela (ou dez
+     * segundos): é a busca real, que só para pelo `cancelarTudo`. Cancelada,
+     * ela lança `ColetaCancelada`, como a real.
+     */
+    @Volatile var buscaPresa: CountDownLatch? = null
+    val buscasCanceladas = AtomicInteger()
     val navegador = NavegadorFalso()
     val dependencias = Dependencias(
         sessoes, artefatos, retomada, configuracoes, agendador, cofre, testeDeChaves, anexos,
@@ -202,10 +214,20 @@ internal class Cenario {
         evidencias = evidencias,
         importacao = importacao,
         busca = {
-            IntegridadeDeLinks.BuscadorDeEvidencia { consulta, provedor, _ ->
-                buscas += consulta to provedor
-                resultadosDaBusca
-            }
+            BuscaDaTela(
+                IntegridadeDeLinks.BuscadorDeEvidencia { consulta, provedor, _ ->
+                    buscas += consulta to provedor
+                    buscaPresa?.let { presa ->
+                        presa.await(10, TimeUnit.SECONDS)
+                        if (buscasCanceladas.get() > 0) throw ColetaCancelada()
+                    }
+                    resultadosDaBusca
+                },
+                cancelar = {
+                    buscasCanceladas.incrementAndGet()
+                    buscaPresa?.countDown()
+                },
+            )
         },
         navegador = navegador,
         relogio = relogio,
@@ -308,6 +330,17 @@ internal class Cenario {
      */
     fun auditarLinks(sessaoId: String, texto: String) {
         IntegridadeDeLinks.auditar(texto, AnalisadorDeUrlOkHttp, { throw IntegridadeDeLinks.Falha("timeout") }, links.registro(sessaoId), relogio)
+    }
+
+    /**
+     * O texto atual da sessão trocado como o checkpoint de um turno o troca,
+     * dentro de uma transação do Room, para a tela que observa a linha ver a
+     * mudança.
+     */
+    fun mudarTextoAtual(sessaoId: String, texto: String) {
+        banco.runInTransaction {
+            banco.openHelper.writableDatabase.execSQL("UPDATE sessoes SET textoAtual = ? WHERE id = ?", arrayOf<Any>(texto, sessaoId))
+        }
     }
 
     /** Um resultado de busca do Crossref como a `BuscaDeEvidencias` o devolve. */

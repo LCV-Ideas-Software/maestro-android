@@ -5,6 +5,7 @@
 package dev.lcv.maestro.ui.textofinal
 
 import android.print.PrintAttributes
+import android.print.PrintDocumentAdapter
 import android.print.PrintManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
@@ -69,8 +70,9 @@ fun TextoFinalScreen(vm: TextoFinalViewModel) {
     val salvarTexto = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) {
         vm.exportar(TextoFinalViewModel.Formato.TEXTO, it, resolver)
     }
-    // A página em uso e se ela já terminou de carregar: o PDF só existe depois disso.
-    var pagina by remember { mutableStateOf<WebView?>(null) }
+    // O adaptador de impressão da página em uso, e se ela já terminou de carregar: o PDF só existe depois
+    // disso. A tela guarda só a função, e não o `WebView`, que nasce e é travado dentro da própria fábrica.
+    var imprimir by remember { mutableStateOf<((String) -> PrintDocumentAdapter)?>(null) }
     var carregada by remember { mutableStateOf(false) }
 
     Column(
@@ -103,15 +105,15 @@ fun TextoFinalScreen(vm: TextoFinalViewModel) {
                     BotaoPrimario(
                         stringResource(R.string.exportar_pdf),
                         aoClicar = {
-                            val atual = pagina
+                            val adaptador = imprimir
                             val impressao = atividade?.getSystemService(PrintManager::class.java)
-                            if (atual != null && impressao != null) {
+                            if (adaptador != null && impressao != null) {
                                 val nome = TextoFinalViewModel.nomeBase(estado.titulo)
-                                impressao.print(nome, atual.createPrintDocumentAdapter(nome), PrintAttributes.Builder().build())
+                                impressao.print(nome, adaptador(nome), PrintAttributes.Builder().build())
                             }
                         },
                         icone = R.drawable.simbolo_description,
-                        habilitado = carregada && pagina != null,
+                        habilitado = carregada && imprimir != null,
                         modifier = Modifier.testTag(Marcas.EXPORTAR_PDF),
                     )
                 }
@@ -120,7 +122,7 @@ fun TextoFinalScreen(vm: TextoFinalViewModel) {
                         html = remember(texto) { RenderizadorDoTextoFinal.html(texto) },
                         aoCarregar = { carregada = true },
                         aoTrocar = { nova ->
-                            pagina = nova
+                            imprimir = nova
                             carregada = false
                         },
                     )
@@ -138,23 +140,23 @@ fun TextoFinalScreen(vm: TextoFinalViewModel) {
  * perde o `WebView` no meio do trabalho.
  */
 @Composable
-private fun PaginaDoTexto(html: String, aoCarregar: () -> Unit, aoTrocar: (WebView?) -> Unit) {
+private fun PaginaDoTexto(html: String, aoCarregar: () -> Unit, aoTrocar: (((String) -> PrintDocumentAdapter)?) -> Unit) {
     var geracao by remember { mutableIntStateOf(0) }
     key(geracao, html) {
         AndroidView(
             factory = { contexto ->
-                WebView(contexto).apply {
-                    travar(this)
-                    webViewClient = ClienteDaPagina(
-                        aoTerminar = aoCarregar,
-                        aoPerderOProcesso = {
-                            aoTrocar(null)
-                            geracao += 1
-                        },
-                    )
-                    aoTrocar(this)
-                    loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
-                }
+                val pagina = WebView(contexto)
+                travar(pagina)
+                pagina.webViewClient = ClienteDaPagina(
+                    aoTerminar = aoCarregar,
+                    aoPerderOProcesso = {
+                        aoTrocar(null)
+                        geracao += 1
+                    },
+                )
+                aoTrocar { nome -> pagina.createPrintDocumentAdapter(nome) }
+                pagina.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+                pagina
             },
             onRelease = { it.destroy() },
             modifier = Modifier
@@ -167,24 +169,25 @@ private fun PaginaDoTexto(html: String, aoCarregar: () -> Unit, aoTrocar: (WebVi
 /**
  * Tudo o que a página não pode fazer (emenda A5): script, arquivo, conteúdo,
  * rede (inclusive a imagem que um modelo tivesse posto no Markdown), cache,
- * armazenamento, geolocalização e janela nova.
+ * armazenamento, geolocalização e janela nova. Cada ajuste é escrito direto
+ * sobre o `getSettings()` da página, sem bloco de escopo: é assim que a
+ * análise do CodeQL segue a página até o ajuste (alertas 9 a 12 na #78).
+ * As duas suspensões são dos dois ajustes de URL de arquivo, obsoletos.
  */
+@Suppress("DEPRECATION")
 internal fun travar(pagina: WebView) {
-    pagina.settings.apply {
-        javaScriptEnabled = false
-        allowFileAccess = false
-        allowContentAccess = false
-        blockNetworkLoads = true
-        blockNetworkImage = true
-        cacheMode = WebSettings.LOAD_NO_CACHE
-        domStorageEnabled = false
-        setGeolocationEnabled(false)
-        setSupportMultipleWindows(false)
-        @Suppress("DEPRECATION")
-        allowFileAccessFromFileURLs = false
-        @Suppress("DEPRECATION")
-        allowUniversalAccessFromFileURLs = false
-    }
+    val ajustes = pagina.settings
+    ajustes.javaScriptEnabled = false
+    ajustes.allowFileAccess = false
+    ajustes.allowContentAccess = false
+    ajustes.blockNetworkLoads = true
+    ajustes.blockNetworkImage = true
+    ajustes.cacheMode = WebSettings.LOAD_NO_CACHE
+    ajustes.domStorageEnabled = false
+    ajustes.setGeolocationEnabled(false)
+    ajustes.setSupportMultipleWindows(false)
+    ajustes.allowFileAccessFromFileURLs = false
+    ajustes.allowUniversalAccessFromFileURLs = false
 }
 
 /** Nenhuma navegação sai da página: um link do texto é inerte. */

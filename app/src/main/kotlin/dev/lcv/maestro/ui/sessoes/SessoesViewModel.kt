@@ -98,6 +98,15 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
     var manifesto by mutableStateOf<ManifestoEscolhido?>(null)
         private set
 
+    /**
+     * A leitura do manifesto escolhido está em curso. Ligada no mesmo instante
+     * em que o seletor devolve o arquivo, antes da leitura, que é assíncrona:
+     * sem ela, um toque em Iniciar nesse meio-tempo começaria a sessão sem o
+     * arquivo (achado do Codex na #78).
+     */
+    var lendoManifesto by mutableStateOf(false)
+        private set
+
     private val ajustes = MutableStateFlow(Estado())
     private val eventos = Channel<Evento>(Channel.BUFFERED)
     val avisos: Flow<Evento> = eventos.receiveAsFlow()
@@ -151,17 +160,22 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
     /** O documento que o seletor devolveu como manifesto; `null` é o seletor cancelado, e nada muda. */
     fun escolherManifesto(uri: Uri?, resolver: ContentResolver) {
         if (uri == null) return
+        lendoManifesto = true
         viewModelScope.launch {
-            when (val leitura = withContext(Dispatchers.IO) { Documentos.ler(resolver, uri, AnexosDaSessao.MAX_BYTES) }) {
-                Documentos.Leitura.AcimaDoTeto -> eventos.send(Evento.Aviso(Mensagem.Literal(AnexosDaSessao.MENSAGEM_ACIMA_DO_TETO)))
-                Documentos.Leitura.Falhou -> eventos.send(Evento.Aviso(Mensagem.DeRecurso(R.string.anexo_ilegivel)))
-                is Documentos.Leitura.Lido -> {
-                    val tipo = leitura.tipo ?: AnexosViewModel.TIPO_DESCONHECIDO
-                    val lido = withContext(Dispatchers.IO) {
-                        AnexosViewModel.lerManifesto(listOf(ManifestosDosAnexos.Anexo(leitura.nome, tipo) { leitura.bytes }))
+            try {
+                when (val leitura = withContext(Dispatchers.IO) { Documentos.ler(resolver, uri, AnexosDaSessao.MAX_BYTES) }) {
+                    Documentos.Leitura.AcimaDoTeto -> eventos.send(Evento.Aviso(Mensagem.Literal(AnexosDaSessao.MENSAGEM_ACIMA_DO_TETO)))
+                    Documentos.Leitura.Falhou -> eventos.send(Evento.Aviso(Mensagem.DeRecurso(R.string.anexo_ilegivel)))
+                    is Documentos.Leitura.Lido -> {
+                        val tipo = leitura.tipo ?: AnexosViewModel.TIPO_DESCONHECIDO
+                        val lido = withContext(Dispatchers.IO) {
+                            AnexosViewModel.lerManifesto(listOf(ManifestosDosAnexos.Anexo(leitura.nome, tipo) { leitura.bytes }))
+                        }
+                        manifesto = ManifestoEscolhido(leitura.nome, tipo, leitura.bytes, lido)
                     }
-                    manifesto = ManifestoEscolhido(leitura.nome, tipo, leitura.bytes, lido)
                 }
+            } finally {
+                lendoManifesto = false
             }
         }
     }
@@ -174,13 +188,13 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
     fun conferirInicio(): Mensagem? {
         val prontos = ajustes.value.prontos
         val validos = colegiado.filter { it in prontos }
+        val doManifesto = motivoDoManifesto(lendoManifesto, manifesto)
         return when {
             TrimJs.aparar(pedido).isEmpty() -> Mensagem.DeRecurso(R.string.erro_pedido_vazio)
             prontos.size < 2 -> Mensagem.DeRecurso(R.string.erro_dois_agentes)
             validos.size < 2 -> Mensagem.DeRecurso(R.string.erro_dois_prontos)
             redatorInicial !in validos -> Mensagem.DeRecurso(R.string.erro_redator_fora)
-            // Só do aparelho: um arquivo escolhido como manifesto que a sessão não leria como tal não segue.
-            manifesto?.let { it.leitura !is AnexosViewModel.Manifesto.Lido } == true -> Mensagem.DeRecurso(R.string.erro_manifesto)
+            doManifesto != null -> Mensagem.DeRecurso(doManifesto)
             else -> null
         }
     }
@@ -242,6 +256,16 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
     }
 
     companion object {
+        /**
+         * Só do aparelho: nada começa enquanto o manifesto escolhido é lido, nem com um arquivo que a
+         * sessão não leria como manifesto. `null` é "pode seguir".
+         */
+        fun motivoDoManifesto(lendo: Boolean, escolhido: ManifestoEscolhido?): Int? = when {
+            lendo -> R.string.manifesto_em_leitura
+            escolhido != null && escolhido.leitura !is AnexosViewModel.Manifesto.Lido -> R.string.erro_manifesto
+            else -> null
+        }
+
         /** O título inicial do formulário do web. */
         const val TITULO_PADRAO = "Artigo acadêmico sem título"
     }

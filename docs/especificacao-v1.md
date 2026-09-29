@@ -182,7 +182,8 @@ escolheu os cinco. O que a escolha pede, e como fica:
   documentos do sistema, mostra na hora o que a sessão vai ler do manifesto e
   remove. O formulário de nova sessão aceita um manifesto opcional, gravado
   depois de criar a sessão e antes de enfileirá-la, sob a mesma trava da
-  reconciliação; um manifesto que a sessão recusaria impede o início. O
+  reconciliação; um manifesto que a sessão recusaria impede o início, e
+  também o que ainda está sendo lido. O
   arquivo é lido só pelo `ContentResolver`, sem permissão de armazenamento, e
   o teto de 16 MiB vale durante a leitura.
 - **As linhas de link de uma sessão:** o registro de links é global, como no
@@ -207,20 +208,29 @@ escolheu os cinco. O que a escolha pede, e como fica:
   operador, sob o endereço do link. Nenhum dos dois registros toca a linha de
   link — no desktop também não: só a revisão explícita a libera. O tipo do
   arquivo segue o `captureMediaType` do desktop, e o `application/octet-stream`
-  com que o Android informa uma extensão desconhecida conta como sem tipo. O
-  `<queries>` do manifesto (emenda A10 do plano do `:app`) torna os
-  navegadores visíveis; o disparo em si não depende dele.
+  com que o Android informa uma extensão desconhecida conta como sem tipo.
+  Sem `<queries>` no manifesto: a documentação oficial de visibilidade de
+  pacotes diz que `startActivity` não depende dela para abrir uma URL, e o
+  aparelho sem navegador chega como `ActivityNotFoundException`, que o
+  registro anota (decisão do operador de 29/09/2026, que revogou a parte da
+  emenda A10 do plano do `:app` que pedia a declaração).
 - **Propostas de correção:** Crossref ou OpenAlex, fora da linha principal.
   Cada resultado é guardado como evidência, como o canônico faz, com o item
   JSON como corpo. As propostas só sobrevivem à auditoria seguinte numa linha
   decidida (`preservarRevisao`, igual ao canônico), e por isso a tela pede a
-  decisão depois de propor.
+  decisão depois de propor. Sair da tela cancela a busca em curso.
+- **A lista acompanha o texto:** com a tela aberta durante a execução, a
+  lista é relida quando o texto da sessão muda; se o link aberto sai dela, a
+  nota e a decisão digitadas para ele são apagadas e nunca vão para outro
+  link.
 - **Decisão 23 do operador (29/09/2026):** todo turno de revisão cujo texto
   atual reprova na auditoria final leva ao revisor o pacote do portão — as
   linhas que falharam e os candidatos de correção. Antes, o pacote só ia numa
   tentativa corretiva, que só acontece por violação de contrato: um `READY`
   sobre texto reprovado era recusado e redesenhado sem explicação, e o
-  aparelho não tem editor.
+  aparelho não tem editor. Essa auditoria pode ir à rede, link por link, e
+  por isso o teto de tempo é conferido de novo depois dela, antes da chamada
+  paga.
 - **Lacuna medida, fora desta entrega:** no canônico atual (`0e17817`,
   MAESTRO-34), a revisão confere também a URL final e a cadeia de
   redirecionamentos; o motor do Android, portado de `68528f9`, confere a URL e
@@ -1684,24 +1694,28 @@ de teste, porque compra confiança sem entregá-la.
   teste abre navegador: o texto final liberado numa página travada com as três
   exportações, o cliente da página que avisa o fim, recusa navegar e troca a
   página que morreu, a página que sai quando o texto perde a liberação, a
-  sessão que não convergiu, o Markdown tal qual e o TXT do renderizador, e o
-  seletor cancelado ou o documento que não abre, que não deixam arquivo; o
-  manifesto lido, o recusado, o acima do teto e o que não muda com a sessão em
-  execução, e o do formulário gravado antes do enfileiramento; os links do
-  texto atual, e não os
-  de uma versão anterior; a passagem ao navegador só com a URL que a regra de
-  rede aceitou, a recusada que não chega ao navegador, e o navegador que não
-  abre; o arquivo importado sob o link, sem mudá-lo, e o de tipo fora da lista;
-  a revisão com a recusa do motor para nota curta e para aceite de link que não
-  passou; as propostas com o provedor escolhido, que sobrevivem à auditoria
-  seguinte na linha decidida; e a aba Links dos autos que leva à tela. Na JVM:
-  o renderizador do texto final, o tipo da captura, os rótulos do painel do
-  desktop e o `<queries>` do manifesto. No `:core:provedores`, na JVM, a
+  sessão que não convergiu, o Markdown tal qual e o TXT do renderizador, o
+  seletor cancelado ou o documento que não abre, que não deixam arquivo, e a
+  gravação que falha, que pede a remoção do documento; o manifesto lido, o
+  recusado, o acima do teto e o que não muda com a sessão em execução, e o do
+  formulário gravado antes do enfileiramento; os links do texto atual, e não
+  os de uma versão anterior, relidos quando o texto muda com a tela aberta, e
+  a nota e a decisão de um link que saiu da lista, que não vão para outro; a
+  passagem ao navegador só com a URL que a regra de rede aceitou, a recusada
+  que não chega ao navegador, e o navegador que não abre; o arquivo importado
+  sob o link, sem mudá-lo, e o de tipo fora da lista; a revisão com a recusa
+  do motor para nota curta e para aceite de link que não passou; as propostas
+  com o provedor escolhido, que sobrevivem à auditoria seguinte na linha
+  decidida, e a busca cancelada quando a tela sai; e a aba Links dos autos que
+  leva à tela. Na JVM: o renderizador do texto final, o tipo da captura, os
+  rótulos do painel do desktop e a regra do manifesto do formulário, que não
+  deixa começar durante a leitura dele. No `:core:provedores`, na JVM, a
   captura assistida (as regras de nome, tipo, tamanho e bytes mágicos, a ordem
   das recusas, os dois registros) e a busca que guarda cada resultado; no
-  `:core:sessao`, instrumentado, as linhas de link da sessão, os registros de
-  evidência de um endereço, a decisão 23 e o HTML cru que a auditoria real
-  recusa antes de virar texto final.
+  `:core:sessao`, instrumentado, as linhas de link da sessão e a ordem delas,
+  os registros de evidência de um endereço, a decisão 23, o teto de tempo
+  conferido de novo depois da auditoria do portão e o HTML cru que a auditoria
+  real recusa antes de virar texto final.
 
 Nenhum teste embute chave de API, nem sequer inválida com forma de chave real —
 o *secret scanning* da frota não distingue chave falsa de chave vazada, e nem

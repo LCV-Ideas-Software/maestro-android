@@ -81,7 +81,8 @@ fun LinksScreen(vm: LinksViewModel) {
         vm.recarregar()
         onPauseOrDispose { }
     }
-    val aberto = estado.links.firstOrNull { it.linha.linkId == vm.escolhido } ?: estado.links.firstOrNull()
+    // O link aberto é o que o ViewModel fixou ao ler a lista; a tela não escolhe outro por conta própria.
+    val aberto = estado.links.firstOrNull { it.linha.linkId == vm.escolhido }
     val importar = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         aberto?.let { vm.importar(it.linha, uri, contexto.contentResolver) }
     }
