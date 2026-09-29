@@ -80,13 +80,18 @@ fun interface Navegador {
          * `ACTION_VIEW` com `CATEGORY_BROWSABLE`, só para a URL já validada, a
          * partir do contexto da Activity (fora dela, o Android recusa o
          * disparo sem `FLAG_ACTIVITY_NEW_TASK`). A falta de navegador chega
-         * como `ActivityNotFoundException`, anotada no registro de passagem.
+         * como `ActivityNotFoundException` e o disparo barrado como
+         * `SecurityException`; os dois ficam anotados no registro de passagem.
          */
         val DO_SISTEMA = Navegador { contexto, url ->
             try {
                 contexto.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()).addCategory(Intent.CATEGORY_BROWSABLE))
                 null
             } catch (erro: ActivityNotFoundException) {
+                "failed to open system default browser: ${erro.message}"
+            } catch (erro: SecurityException) {
+                // `startActivity` também lança isto quando uma política, um perfil de trabalho ou o próprio
+                // aplicativo de destino barra o disparo; vai para o registro como a falha acima (achado do Codex na #78).
                 "failed to open system default browser: ${erro.message}"
             }
         }

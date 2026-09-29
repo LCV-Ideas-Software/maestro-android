@@ -294,6 +294,38 @@ class LinksScreenTest {
     }
 
     @Test
+    fun oArquivoEscolhidoParaUmLinkQueSaiuDaListaNaoEImportado() {
+        // Achado do Codex na #78: o seletor do sistema demora, e o link aberto pode mudar antes da volta.
+        val id = sessaoComLinks()
+        val seletor = SeletorDeTeste(Uri.fromFile(c.arquivo("pagina-salva.html", "<html></html>".toByteArray()))).apply { adiado = true }
+        abrirOLink(id, RELATORIO, seletor)
+        regra.onNodeWithTag(Marcas.IMPORTAR_CAPTURA).performScrollTo().performClick()
+
+        c.auditarLinks(id, TEXTO_NOVO)
+        c.mudarTextoAtual(id, TEXTO_NOVO)
+        esperarTag(Marcas.link(linha(id, NOVA).linkId))
+        regra.runOnUiThread { seletor.entregar() }
+
+        regra.esperarTexto("O link aberto mudou enquanto o arquivo era escolhido; nada foi importado. Escolha o arquivo de novo.")
+        assertTrue(c.evidencias.registrosDe(setOf(RELATORIO, NOVA)).isEmpty())
+    }
+
+    @Test
+    fun comASessaoEmExecucaoARevisaoEAsPropostasEsperamEACapturaSegue() {
+        // Decisão 24 do operador (29/09/2026): a auditoria da sessão regrava as mesmas linhas durante a execução.
+        val id = c.sessao(Estados.RODANDO, textoAtual = TEXTO)
+        c.auditarLinks(id, TEXTO)
+        abrirOLink(id, RELATORIO)
+
+        regra.onNodeWithTag(Marcas.LINKS_EM_EXECUCAO).performScrollTo().assertExists()
+        regra.onNodeWithTag(Marcas.BUSCAR_PROPOSTAS).performScrollTo().assertIsNotEnabled()
+        regra.onNodeWithTag(Marcas.decisao("rejeitar")).performScrollTo().assertIsNotEnabled()
+        regra.onNodeWithTag(Marcas.REGISTRAR_DECISAO).performScrollTo().assertIsNotEnabled()
+        regra.onNodeWithTag(Marcas.ABRIR_NO_NAVEGADOR).performScrollTo().assertIsEnabled()
+        regra.onNodeWithTag(Marcas.IMPORTAR_CAPTURA).performScrollTo().assertIsEnabled()
+    }
+
+    @Test
     fun aAbaLinksDosAutosLevaAosLinksAuditadosDaSessao() {
         val id = sessaoComLinks()
         val artefato = c.artefato(id, 1, Provedor.CLAUDE, TEXTO)

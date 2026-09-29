@@ -44,6 +44,40 @@ class CitacoesDaSessaoTest {
     }
 
     @Test
+    fun `manifesto de outro protocolo recusa a sessao antes do rascunho e diz o hash ativo`() {
+        // Achado do Codex na #78: a auditoria só descobria isso na primeira revisão, com o rascunho já pago.
+        val outro = FormatoDoRegistro.sha256("outro protocolo")
+        val manifesto = """{"schema_version":"citation_manifest.v1","protocol_hash":"$outro","citations":[],"sources":[]}"""
+        val recusadas = CitacoesDaSessao.de(listOf(anexo("citation-manifest.json", manifesto)), protocolo) as Citacoes.Recusadas
+
+        assertEquals("O manifesto nao esta vinculado ao hash do protocolo ativo. Hash do protocolo ativo: $hash", recusadas.motivo)
+    }
+
+    @Test
+    fun `manifesto sem hash recusa a sessao com as duas regras da auditoria`() {
+        val manifesto = """{"schema_version":"citation_manifest.v1","protocol_hash":"","citations":[],"sources":[]}"""
+        val recusadas = CitacoesDaSessao.de(listOf(anexo("citation-manifest.json", manifesto)), protocolo) as Citacoes.Recusadas
+
+        assertEquals(
+            "O manifesto nao esta vinculado ao hash do protocolo ativo. O manifesto nao registra o hash do protocolo editorial " +
+                "ativo. Hash do protocolo ativo: $hash",
+            recusadas.motivo,
+        )
+    }
+
+    @Test
+    fun `manifesto acima da capacidade recusa a sessao sem falar de hash`() {
+        val citacao = """{"schema_version":"citation.v1","claim_id":"claim-%d","citation_type":"direct_quote","author_display":"Silva, Maria",""" +
+            """"author_key":"SILVA","year":"2026","locator":"p. 12","source_id":"source-001","source_access":"full_document_opened",""" +
+            """"verification_status":"verified","risk_if_wrong":"medium","original_text":"Trecho %d."}"""
+        val citacoes = (1..501).joinToString(",") { citacao.format(it, it) }
+        val manifesto = """{"schema_version":"citation_manifest.v1","protocol_hash":"$hash","citations":[$citacoes],"sources":[]}"""
+        val recusadas = CitacoesDaSessao.de(listOf(anexo("citation-manifest.json", manifesto)), protocolo) as Citacoes.Recusadas
+
+        assertEquals("O manifesto excede o limite seguro de citacoes ou fontes", recusadas.motivo)
+    }
+
+    @Test
     fun `manifesto ilegivel recusa a sessao antes de qualquer chamada`() {
         val recusadas = CitacoesDaSessao.de(listOf(anexo("citation-manifest.json", "{ isto nao e json")), protocolo)
 

@@ -191,6 +191,8 @@
     <string name="captura_acima_do_teto">Arquivo recusado: o limite por captura é 16 MiB.</string>
     <string name="captura_tipo_recusado">Tipo recusado. Use HTML, Markdown, PDF, PNG, JPEG, WebP ou texto puro.</string>
     <string name="captura_importada">Artefato importado, hasheado e registrado com proveniência do operador.</string>
+    <string name="captura_link_mudou">O link aberto mudou enquanto o arquivo era escolhido; nada foi importado. Escolha o arquivo de novo.</string>
+    <string name="links_em_execucao">Com a sessão na fila ou em execução, a revisão e as propostas esperam: a sessão audita estes links durante a execução.</string>
     <string name="captura_falhou">A importação falhou. O arquivo local não foi alterado. Motivo: %1$s</string>
     <string name="propostas_nao_alteracoes">Propostas, não alterações</string>
     <string name="candidatos_de_correcao">Candidatos de correção</string>

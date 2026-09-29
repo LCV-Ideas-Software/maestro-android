@@ -17,7 +17,8 @@ All material changes to Maestro Android are recorded here.
   attachments screen, which reads the citation manifest exactly as the session
   will read it at start, and an optional manifest in the new-session form,
   stored after the session is created and before it is queued; nothing
-  starts while that manifest is still being read. The link review screen, a port of the desktop's `LinkIntegrityPanel.tsx` and of the
+  starts while that manifest is still being read, nor with one that is not
+  bound to the active protocol. The link review screen, a port of the desktop's `LinkIntegrityPanel.tsx` and of the
   operator capture of `EvidenceScreen.tsx` (`maestro-app` `0e17817`) with
   their labels and messages: the links of the session's current text, the
   evidence kept for each address, "Abrir no navegador" (the handoff record is
@@ -27,7 +28,12 @@ All material changes to Maestro Android are recorded here.
   the engine's refusal reason. The list is read again when the session's
   text changes while the screen is open, a decision typed for a link that
   left the list is cleared rather than applied to another, and leaving the
-  screen cancels a running correction search. No `<queries>` element: `startActivity` does
+  screen cancels a running correction search. While the session is queued or
+  running, review and proposals wait (operator's decision 24, 29/09/2026);
+  the capture stays available. A file picked for a link that left the list
+  while the picker was open is not imported, and a browser launch that a
+  policy blocks (`SecurityException`) is recorded like a missing browser.
+  No `<queries>` element: `startActivity` does
   not need package visibility to open a URL (official documentation), and a
   missing browser arrives as `ActivityNotFoundException`, recorded on the
   handoff. Instrumented tests use the official
@@ -1027,6 +1033,12 @@ All material changes to Maestro Android are recorded here.
   reviewer, not only a corrective retry (operator's decision 23,
   29/09/2026). That audit may reach the network, so the time ceiling is
   checked again after it, before the paid call.
+- A citation manifest that is not bound to the active protocol (schema,
+  protocol hash, capacity) is now refused when the session starts, before
+  the paid draft, with the expected hash in the message; the audit keeps the
+  same four checks in the same order (`AuditoriaAbnt.bloqueiosDoVinculo`).
+  The desktop fixes the hash when the file is imported; on the device the
+  user writes it.
 - `BuscaDeEvidencias` stores each search result as evidence, with the item
   JSON as its body and an earlier record's creation date kept, as the
   canonical search does; the correction candidates cite those records.

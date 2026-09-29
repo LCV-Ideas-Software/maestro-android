@@ -3,6 +3,7 @@ package dev.lcv.maestro.sessao
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.lcv.maestro.protocolo.AuditoriaFinal
 import dev.lcv.maestro.protocolo.Custo
+import dev.lcv.maestro.protocolo.FormatoDoRegistro
 import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.protocolo.PromptsDaSessao
 import dev.lcv.maestro.provedores.AnalisadorDeUrlOkHttp
@@ -610,7 +611,7 @@ class DeliberacaoTest {
         // Um manifesto anexado que exige evidência do operador: o texto cita e o manifesto não tem a fonte.
         d.anexos.adicionar(
             id, "citation-manifest.json", "application/json",
-            """{"schema_version":"citation_manifest.v1","protocol_hash":"","citations":[],"sources":[]}""".toByteArray(),
+            """{"schema_version":"citation_manifest.v1","protocol_hash":"$HASH_DO_PROTOCOLO","citations":[],"sources":[]}""".toByteArray(),
         )
         d.responde(Provedor.CODEX, DeliberacaoDeTeste.pronto())
 
@@ -734,7 +735,7 @@ class DeliberacaoTest {
         ) is Gravacao.Gravada)
         d.anexos.adicionar(
             id, "citation-manifest.json", "application/json",
-            """{"schema_version":"citation_manifest.v1","protocol_hash":"","citations":[],"sources":[]}""".toByteArray(),
+            """{"schema_version":"citation_manifest.v1","protocol_hash":"$HASH_DO_PROTOCOLO","citations":[],"sources":[]}""".toByteArray(),
         )
         assertTrue(t.retomada.pedir(id, null, null, BancoDeTeste.TODAS_AS_CHAVES) is Resultado.Ok)
 
@@ -777,5 +778,10 @@ class DeliberacaoTest {
         assertEquals(Estados.NA_FILA, t.sessoes.carregar(id)!!.status)
         assertEquals(1, t.artefatos.daSessao(id).size)
         assertFalse(d.mensagens(id).contains("Reviewer left custody unchanged."))
+    }
+
+    private companion object {
+        /** O hash do protocolo das sessões de teste: o manifesto anexado precisa dele para a sessão o aceitar. */
+        val HASH_DO_PROTOCOLO: String = FormatoDoRegistro.sha256(RepositorioDeConfiguracoes.PROTOCOLO_PADRAO)
     }
 }

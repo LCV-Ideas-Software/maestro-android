@@ -83,9 +83,8 @@ fun LinksScreen(vm: LinksViewModel) {
     }
     // O link aberto é o que o ViewModel fixou ao ler a lista; a tela não escolhe outro por conta própria.
     val aberto = estado.links.firstOrNull { it.linha.linkId == vm.escolhido }
-    val importar = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        aberto?.let { vm.importar(it.linha, uri, contexto.contentResolver) }
-    }
+    // O link do pedido é o que o ViewModel guardou ao abrir o seletor, e não o aberto na volta.
+    val importar = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> vm.importar(uri, contexto.contentResolver) }
 
     Column(
         modifier = Modifier
@@ -140,8 +139,12 @@ fun LinksScreen(vm: LinksViewModel) {
                             link = link,
                             vm = vm,
                             trabalhando = estado.trabalhando,
+                            emExecucao = estado.emExecucao,
                             aoAbrirNoNavegador = { escopo.launch { vm.abrirNoNavegador(linha, contexto) } },
-                            aoImportar = { importar.launch(TIPOS_DO_SELETOR) },
+                            aoImportar = {
+                                vm.pedirCaptura(linha)
+                                importar.launch(TIPOS_DO_SELETOR)
+                            },
                         )
                     }
                 }
@@ -155,6 +158,7 @@ private fun Detalhe(
     link: LinksViewModel.Link,
     vm: LinksViewModel,
     trabalhando: Boolean,
+    emExecucao: Boolean,
     aoAbrirNoNavegador: () -> Unit,
     aoImportar: () -> Unit,
 ) {
@@ -164,9 +168,13 @@ private fun Detalhe(
         Legenda(Rotulos.suporte(linha))
         Ficha(linha)
         Evidencias(link)
+        // A captura não mexe nas linhas de link e segue liberada; a revisão e as propostas esperam a sessão parar.
         Captura(vm, trabalhando, aoAbrirNoNavegador, aoImportar)
-        Candidatos(linha, vm, trabalhando)
-        Julgamento(linha, vm, trabalhando)
+        if (emExecucao) {
+            Legenda(stringResource(R.string.links_em_execucao), Modifier.testTag(Marcas.LINKS_EM_EXECUCAO))
+        }
+        Candidatos(linha, vm, trabalhando || emExecucao)
+        Julgamento(linha, vm, trabalhando || emExecucao)
     }
 }
 

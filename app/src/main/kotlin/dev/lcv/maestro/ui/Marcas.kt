@@ -68,6 +68,7 @@ object Marcas {
     const val ABRIR_LINKS = "abrir-links"
     const val ABRIR_LINKS_DOS_AUTOS = "abrir-links-dos-autos"
     const val SEM_LINKS_AUDITADOS = "sem-links-auditados"
+    const val LINKS_EM_EXECUCAO = "links-em-execucao"
     const val DETALHE_DO_LINK = "detalhe-do-link"
     const val ABRIR_NO_NAVEGADOR = "abrir-no-navegador"
     const val NOTA_DA_CAPTURA = "nota-da-captura"

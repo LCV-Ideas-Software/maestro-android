@@ -101,6 +101,27 @@ class AuditoriaAbntTest {
     }
 
     @Test
+    fun `o vinculo do manifesto vale na auditoria, na ordem e com as mensagens de validate_manifest`() {
+        // As quatro regras que não dependem do texto, que a sessão também confere antes de pagar o
+        // rascunho (`bloqueiosDoVinculo`): a auditoria continua a dá-las, e na mesma ordem.
+        val texto = "Texto autoral sem citacao."
+        val vinculado = auditar(texto, "protocol-sha256", manifestoVerificado().copy(citacoes = emptyList(), fontes = emptyList()))
+        assertFalse(vinculado.bloqueios.any { it.codigo.startsWith("manifest_") || it.codigo == "protocol_hash_mismatch" })
+
+        val desvinculado = auditar(texto, "outro-hash", manifestoVerificado().copy(versaoDoEsquema = "outro", hashDoProtocolo = "", citacoes = emptyList(), fontes = emptyList()))
+        assertEquals(
+            listOf("manifest_schema_invalid", "protocol_hash_mismatch", "manifest_protocol_hash_missing"),
+            desvinculado.bloqueios.map { it.codigo }.filter { it.startsWith("manifest_") || it == "protocol_hash_mismatch" },
+        )
+        assertEquals(
+            listOf("manifest_schema_invalid", "protocol_hash_mismatch", "manifest_protocol_hash_missing"),
+            AuditoriaAbnt.bloqueiosDoVinculo("outro-hash", manifestoVerificado().copy(versaoDoEsquema = "outro", hashDoProtocolo = "")).map { it.codigo },
+        )
+        val cheio = manifestoVerificado().let { it.copy(citacoes = List(501) { _ -> it.citacoes.first() }) }
+        assertEquals(listOf("manifest_capacity_exceeded"), AuditoriaAbnt.bloqueiosDoVinculo("protocol-sha256", cheio).map { it.codigo })
+    }
+
+    @Test
     fun `o pareamento entre citacao e referencia vale nos dois sentidos`() {
         val resultado = auditar(
             "Texto indireto (Silva, 2020).\n\n## Referencias\nSOUZA, Bia. Outra obra. Rio: Editora, 2021.",

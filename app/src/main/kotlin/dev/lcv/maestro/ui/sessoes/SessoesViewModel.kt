@@ -168,8 +168,12 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
                     Documentos.Leitura.Falhou -> eventos.send(Evento.Aviso(Mensagem.DeRecurso(R.string.anexo_ilegivel)))
                     is Documentos.Leitura.Lido -> {
                         val tipo = leitura.tipo ?: AnexosViewModel.TIPO_DESCONHECIDO
+                        // O protocolo que a sessão nova vai receber é o das configurações (`resolveStartRequest`).
                         val lido = withContext(Dispatchers.IO) {
-                            AnexosViewModel.lerManifesto(listOf(ManifestosDosAnexos.Anexo(leitura.nome, tipo) { leitura.bytes }))
+                            AnexosViewModel.lerManifesto(
+                                listOf(ManifestosDosAnexos.Anexo(leitura.nome, tipo) { leitura.bytes }),
+                                d.configuracoes.carregar().protocolo,
+                            )
                         }
                         manifesto = ManifestoEscolhido(leitura.nome, tipo, leitura.bytes, lido)
                     }

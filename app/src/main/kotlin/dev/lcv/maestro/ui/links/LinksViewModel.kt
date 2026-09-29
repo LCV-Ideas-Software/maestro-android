@@ -22,6 +22,7 @@ import dev.lcv.maestro.provedores.ColetaCancelada
 import dev.lcv.maestro.provedores.ImportacaoDoOperador
 import dev.lcv.maestro.ui.Documentos
 import dev.lcv.maestro.ui.Mensagem
+import dev.lcv.maestro.ui.Rotulos
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
@@ -62,6 +63,8 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
         val titulo: String = "",
         val links: List<Link> = emptyList(),
         val trabalhando: Boolean = false,
+        /** Na fila ou em execução: a revisão e as propostas esperam (decisão 24 do operador, 29/09/2026). */
+        val emExecucao: Boolean = false,
     )
 
     /**
@@ -86,6 +89,17 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
         nota = ""
     }
 
+    /**
+     * O link para o qual o seletor de documentos foi aberto. O seletor do sistema demora, e a lista
+     * pode mudar enquanto ele está aberto: o arquivo só entra se esse link ainda é o aberto (achado
+     * do Codex na #78). Fica aqui, e não na composição, que é refeita nesse meio-tempo.
+     */
+    private var capturaPedida: String? = null
+
+    fun pedirCaptura(linha: LinhaDeLink) {
+        capturaPedida = linha.linkId
+    }
+
     /** O aviso de uma ação e, se ela gravou, o que a tela limpa depois (o desktop limpa a nota e a decisão). */
     private class Saida(val mensagem: Mensagem, val aoGravar: (() -> Unit)? = null)
 
@@ -101,6 +115,7 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
             titulo = linha?.titulo.orEmpty(),
             links = lidos.orEmpty(),
             trabalhando = emCurso,
+            emExecucao = Rotulos.emExecucao(linha?.status),
         )
     }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Estado())
 
@@ -174,8 +189,15 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
      * evidência do endereço de [linha]; `null` é o seletor cancelado, e nada
      * muda. A linha de link não muda: só a revisão explícita a libera.
      */
-    fun importar(linha: LinhaDeLink, uri: Uri?, resolver: ContentResolver) {
+    fun importar(uri: Uri?, resolver: ContentResolver) {
+        val pedida = capturaPedida
+        capturaPedida = null
         if (uri == null) return
+        val linha = conteudo.value?.firstOrNull { it.linha.linkId == pedida }?.linha
+        if (pedida == null || pedida != escolhido || linha == null) {
+            eventos.trySend(Mensagem.DeRecurso(R.string.captura_link_mudou))
+            return
+        }
         val notaDoPedido = notaDaCaptura.trim()
         agir {
             when (val leitura = Documentos.ler(resolver, uri, ImportacaoDoOperador.MAX_BYTES)) {
@@ -204,6 +226,7 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
 
     /** `review_link_integrity` pelo operador, com a decisão e a nota escolhidas, contra a URL e o hash que a tela mostrou. */
     fun revisar(linha: LinhaDeLink) {
+        if (bloqueadaPelaExecucao()) return
         val decisaoDoPedido = decisao ?: return
         val notaDoPedido = nota
         agir {
@@ -237,7 +260,7 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
      * operador): o aviso diz para decidir o link.
      */
     fun proporCorrecoes(linha: LinhaDeLink) {
-        if (!comecar()) return
+        if (bloqueadaPelaExecucao() || !comecar()) return
         val pedido = IntegridadeDeLinks.PedidoDeCorrecao(linha.linkId, provedor, consulta.trim().takeIf { it.isNotEmpty() }, LIMITE_DE_PROPOSTAS)
         viewModelScope.launch {
             try {
@@ -274,6 +297,17 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                 trabalhando.value = false
             }
         }
+    }
+
+    /**
+     * Com a sessão na fila ou em execução, a auditoria dela regrava as mesmas linhas e guarda o que
+     * leu: uma decisão ou uma proposta agora poderia se perder, ou não chegar ao revisor (achado do
+     * Codex na #78; decisão 24 do operador, 29/09/2026). A tela já desliga os botões; isto é a trava.
+     */
+    private fun bloqueadaPelaExecucao(): Boolean {
+        if (!estado.value.emExecucao) return false
+        eventos.trySend(Mensagem.DeRecurso(R.string.links_em_execucao))
+        return true
     }
 
     private fun comecar(): Boolean {

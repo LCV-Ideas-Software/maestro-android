@@ -22,6 +22,7 @@ import dev.lcv.maestro.protocolo.EstadoDeInteracao
 import dev.lcv.maestro.protocolo.EstadoDoCache
 import dev.lcv.maestro.protocolo.EstadoDoRobots
 import dev.lcv.maestro.protocolo.EstadoDosDireitos
+import dev.lcv.maestro.protocolo.FormatoDoRegistro
 import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.protocolo.MetodoHttp
 import dev.lcv.maestro.protocolo.ModoDeAcesso
@@ -381,10 +382,14 @@ internal class Cenario {
     }
 }
 
-/** O exemplo oficial do canônico (`docs/examples/citation-manifest.example.json`): uma citação, uma fonte. */
+/**
+ * O exemplo oficial do canônico (`docs/examples/citation-manifest.example.json`): uma citação, uma fonte.
+ * O `protocol_hash` é o do protocolo que as sessões de teste usam: sem ele, a sessão recusa o manifesto
+ * antes de começar (`CitacoesDaSessao.recusaDoVinculo`).
+ */
 internal val MANIFESTO_DE_EXEMPLO: String = """
     {"schema_version": "citation_manifest.v1",
-     "protocol_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+     "protocol_hash": "${FormatoDoRegistro.sha256(RepositorioDeConfiguracoes.PROTOCOLO_PADRAO)}",
      "citations": [{"schema_version": "citation.v1", "claim_id": "claim-001", "citation_type": "direct_quote",
        "author_display": "Silva, Maria", "author_key": "SILVA", "year": "2026", "locator": "p. 12",
        "source_id": "source-001", "source_access": "full_document_opened", "verification_status": "verified",
@@ -408,9 +413,19 @@ internal fun Cenario.arquivo(nome: String, conteudo: ByteArray): File =
 internal class SeletorDeTeste(var resposta: Uri? = null) : ActivityResultRegistry() {
     val pedidos: MutableList<Any?> = CopyOnWriteArrayList()
 
+    /** Posto, o resultado espera [entregar], como o seletor do sistema, que demora: a tela pode mudar nesse meio-tempo. */
+    @Volatile var adiado: Boolean = false
+    private var pendente: Int? = null
+
     override fun <I, O> onLaunch(requestCode: Int, contract: ActivityResultContract<I, O>, input: I, options: ActivityOptionsCompat?) {
         pedidos += input
-        dispatchResult(requestCode, resposta)
+        if (adiado) pendente = requestCode else dispatchResult(requestCode, resposta)
+    }
+
+    /** Entrega o resultado adiado; na linha principal (`runOnUiThread`). */
+    fun entregar() {
+        dispatchResult(checkNotNull(pendente) { "nenhum pedido adiado" }, resposta)
+        pendente = null
     }
 }
 

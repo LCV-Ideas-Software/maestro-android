@@ -13,6 +13,7 @@ import dev.lcv.maestro.R
 import dev.lcv.maestro.protocolo.ManifestosDosAnexos
 import dev.lcv.maestro.sessao.AnexoEntidade
 import dev.lcv.maestro.sessao.AnexosDaSessao
+import dev.lcv.maestro.sessao.CitacoesDaSessao
 import dev.lcv.maestro.sessao.Resultado
 import dev.lcv.maestro.ui.Documentos
 import dev.lcv.maestro.ui.Mensagem
@@ -86,7 +87,10 @@ class AnexosViewModel(private val d: Dependencias, private val id: String) : Vie
         viewModelScope.launch { conteudo.value = withContext(Dispatchers.IO) { ler() } }
     }
 
-    private fun ler(): Conteudo = Conteudo(d.anexos.daSessao(id), lerManifesto(d.anexos.listar(id)))
+    private fun ler(): Conteudo {
+        val protocolo = d.sessoes.carregar(id)?.protocolo.orEmpty()
+        return Conteudo(d.anexos.daSessao(id), lerManifesto(d.anexos.listar(id), protocolo))
+    }
 
     /** O documento que o seletor devolveu; `null` é o seletor cancelado, e nada muda. */
     fun anexar(uri: Uri?, resolver: ContentResolver) {
@@ -139,11 +143,16 @@ class AnexosViewModel(private val d: Dependencias, private val id: String) : Vie
     companion object {
         const val TIPO_DESCONHECIDO = "application/octet-stream"
 
-        /** A leitura que a sessão faz dos seus anexos ao começar (`ManifestosDosAnexos.extrair`), no que ela diz do manifesto. */
-        fun lerManifesto(anexos: List<ManifestosDosAnexos.Anexo>): Manifesto = when (val saida = ManifestosDosAnexos.extrair(anexos)) {
+        /**
+         * A leitura que a sessão faz dos seus anexos ao começar, no que ela diz do manifesto: a
+         * extração (`ManifestosDosAnexos.extrair`) e o vínculo com [protocolo], o texto do protocolo
+         * da sessão (`CitacoesDaSessao.recusaDoVinculo`).
+         */
+        fun lerManifesto(anexos: List<ManifestosDosAnexos.Anexo>, protocolo: String): Manifesto = when (val saida = ManifestosDosAnexos.extrair(anexos)) {
             is ManifestosDosAnexos.Saida.Recusados -> Manifesto.Recusado(saida.motivo)
             is ManifestosDosAnexos.Saida.Lidos -> saida.manifestos.atual?.let {
-                Manifesto.Lido(it.citacoes.size, it.fontes.size, saida.manifestos.anterior != null)
+                CitacoesDaSessao.recusaDoVinculo(it, protocolo)?.let(Manifesto::Recusado)
+                    ?: Manifesto.Lido(it.citacoes.size, it.fontes.size, saida.manifestos.anterior != null)
             } ?: Manifesto.Ausente
         }
     }

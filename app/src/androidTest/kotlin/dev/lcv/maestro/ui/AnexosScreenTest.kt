@@ -10,8 +10,10 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.lcv.maestro.protocolo.FormatoDoRegistro
 import dev.lcv.maestro.sessao.AnexosDaSessao
 import dev.lcv.maestro.sessao.Estados
+import dev.lcv.maestro.sessao.RepositorioDeConfiguracoes
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -79,6 +81,22 @@ class AnexosScreenTest {
         assertTrue(c.anexos.daSessao(id).isEmpty())
         assertFalse(File(anexo.caminho).exists())
         regra.onNodeWithTag(Marcas.MANIFESTO_RESULTADO).assertTextEquals("Nenhum manifesto de citações anexado.")
+    }
+
+    @Test
+    fun umManifestoDeOutroProtocoloERecusadoComOHashAtivo() {
+        // Achado do Codex na #78: a sessão recusaria esse manifesto na primeira revisão, depois de pagar o rascunho.
+        val id = c.sessao(Estados.ERRO, erro = "Falha qualquer.")
+        val ativo = FormatoDoRegistro.sha256(RepositorioDeConfiguracoes.PROTOCOLO_PADRAO)
+        val deOutro = MANIFESTO_DE_EXEMPLO.replace(ativo, FormatoDoRegistro.sha256("outro protocolo"))
+        abrirNosAnexos(id, SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", deOutro.toByteArray()))))
+
+        regra.onNodeWithTag(Marcas.ANEXAR_MANIFESTO).performClick()
+        regra.esperarTexto("Anexo adicionado.")
+        regra.onNodeWithTag(Marcas.MANIFESTO_RESULTADO).assertTextEquals(
+            "Manifesto recusado: O manifesto nao esta vinculado ao hash do protocolo ativo. Hash do protocolo ativo: $ativo. " +
+                "Com ele, a sessão pausaria na auditoria final antes de qualquer chamada paga; remova ou troque o arquivo.",
+        )
     }
 
     @Test

@@ -182,8 +182,8 @@ escolheu os cinco. O que a escolha pede, e como fica:
   documentos do sistema, mostra na hora o que a sessão vai ler do manifesto e
   remove. O formulário de nova sessão aceita um manifesto opcional, gravado
   depois de criar a sessão e antes de enfileirá-la, sob a mesma trava da
-  reconciliação; um manifesto que a sessão recusaria impede o início, e
-  também o que ainda está sendo lido. O
+  reconciliação; um manifesto que a sessão recusaria impede o início — o
+  ilegível, o desvinculado do protocolo ativo e o que ainda está sendo lido. O
   arquivo é lido só pelo `ContentResolver`, sem permissão de armazenamento, e
   o teto de 16 MiB vale durante a leitura.
 - **As linhas de link de uma sessão:** o registro de links é global, como no
@@ -196,16 +196,22 @@ escolheu os cinco. O que a escolha pede, e como fica:
   e os avisos dele palavra por palavra. A recusa do motor vai no aviso, depois
   da frase do desktop, que a engole. O revisor é `operator`, a nota tem pelo
   menos dez pontos de código, e a decisão vale contra a URL e o hash que a
-  tela mostrou.
+  tela mostrou. Com a sessão na fila ou em execução, a revisão e as propostas
+  esperam (decisão 24 do operador, 29/09/2026): a auditoria da sessão regrava
+  as mesmas linhas e guarda o que leu, e uma decisão feita nesse meio-tempo
+  podia se perder ou não chegar ao revisor. A captura segue liberada, porque
+  não mexe nas linhas de link.
 - **Captura assistida pelo operador:** `ImportacaoDoOperador`, no
   `:core:provedores`, porta `handoff_record`,
   `open_web_evidence_in_default_browser` e `import_operator_evidence`, com as
   regras de nome, tipo, tamanho e bytes mágicos. **Abrir no navegador** valida
   a URL pela mesma regra de rede pública da coleta, monta o registro de
   passagem e só então entrega a URL validada ao navegador do sistema
-  (`ACTION_VIEW`); o navegador que não abre fica anotado no registro. O arquivo
-  salvo volta pelo seletor de documentos e vira evidência fornecida pelo
-  operador, sob o endereço do link. Nenhum dos dois registros toca a linha de
+  (`ACTION_VIEW`); o navegador que não abre, ou cujo disparo uma política
+  barra (`SecurityException`), fica anotado no registro. O arquivo salvo volta
+  pelo seletor de documentos e vira evidência fornecida pelo operador, sob o
+  endereço do link para o qual o seletor foi aberto; se esse link saiu da
+  lista enquanto o seletor estava aberto, nada é importado. Nenhum dos dois registros toca a linha de
   link — no desktop também não: só a revisão explícita a libera. O tipo do
   arquivo segue o `captureMediaType` do desktop, e o `application/octet-stream`
   com que o Android informa uma extensão desconhecida conta como sem tipo.
@@ -316,7 +322,16 @@ no Rust em `68528f9`:
   apêndice depois dela é corpo;
 - **manifesto com chave JSON repetida é recusado** (decisão do operador de
   24/09/2026). O Rust o lê primeiro como `Value` e fica com o último valor:
-  dois leitores do mesmo arquivo veriam manifestos diferentes.
+  dois leitores do mesmo arquivo veriam manifestos diferentes;
+- **o manifesto desvinculado do protocolo é recusado antes do primeiro turno
+  pago** (achado do Codex na #78). No desktop, a interface fixa o hash do
+  protocolo ao importar o arquivo; aqui é o usuário quem escreve o
+  `protocol_hash`, e a auditoria só descobria o erro na primeira revisão, com
+  o rascunho já pago. As quatro regras de `validate_manifest` que não
+  dependem do texto — esquema, vínculo com o hash do protocolo ativo,
+  capacidade e hash ausente — são conferidas pela sessão antes de começar e
+  pelas telas de anexos e de nova sessão, com o hash esperado na mensagem; a
+  auditoria continua a dá-las, na mesma ordem.
 
 ### 2.3 O cliente web
 
@@ -1701,18 +1716,23 @@ de teste, porque compra confiança sem entregá-la.
   formulário gravado antes do enfileiramento; os links do texto atual, e não
   os de uma versão anterior, relidos quando o texto muda com a tela aberta, e
   a nota e a decisão de um link que saiu da lista, que não vão para outro; a
-  passagem ao navegador só com a URL que a regra de rede aceitou, a recusada
-  que não chega ao navegador, e o navegador que não abre; o arquivo importado
-  sob o link, sem mudá-lo, e o de tipo fora da lista; a revisão com a recusa
+  revisão e as propostas desligadas com a sessão em execução, com a captura
+  liberada; a passagem ao navegador só com a URL que a regra de rede aceitou,
+  a recusada que não chega ao navegador, o navegador que não abre e o disparo
+  barrado por política; o arquivo importado sob o link, sem mudá-lo, o de
+  tipo fora da lista e o escolhido para um link que saiu da lista; a revisão com a recusa
   do motor para nota curta e para aceite de link que não passou; as propostas
   com o provedor escolhido, que sobrevivem à auditoria seguinte na linha
   decidida, e a busca cancelada quando a tela sai; e a aba Links dos autos que
   leva à tela. Na JVM: o renderizador do texto final, o tipo da captura, os
   rótulos do painel do desktop e a regra do manifesto do formulário, que não
-  deixa começar durante a leitura dele. No `:core:provedores`, na JVM, a
+  deixa começar durante a leitura dele; na tela de anexos, o manifesto de
+  outro protocolo recusado com o hash ativo. No `:core:provedores`, na JVM, a
   captura assistida (as regras de nome, tipo, tamanho e bytes mágicos, a ordem
   das recusas, os dois registros) e a busca que guarda cada resultado; no
-  `:core:sessao`, instrumentado, as linhas de link da sessão e a ordem delas,
+  `:core:protocolo`, as quatro regras de vínculo do manifesto na auditoria e
+  fora dela; no `:core:sessao`, na JVM, o manifesto desvinculado recusado
+  antes do rascunho, e, instrumentado, as linhas de link da sessão e a ordem delas,
   os registros de evidência de um endereço, a decisão 23, o teto de tempo
   conferido de novo depois da auditoria do portão e o HTML cru que a auditoria
   real recusa antes de virar texto final.
