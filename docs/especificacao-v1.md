@@ -617,8 +617,12 @@ incluí-los", diz a documentação do Auto Backup —, com o temporário que o
 DataStore grava ao lado do arquivo junto; a exclusão não depende de regra de
 caminho. **O banco do Room**, quando existir, é excluído por
 `android:dataExtractionRules` (API 31+), nos dois domínios que a regra separa —
-`cloud-backup` e `device-transfer`. A exclusão é do conteúdo, não do
-aplicativo: preferência de interface pode ser restaurada sem problema.
+`cloud-backup` e `device-transfer`. **E o aplicativo não entra no backup na
+nuvem:** `android:allowBackup="false"` (alerta 8 do CodeQL, 29/09/2026), porque
+nada do que ele grava é preferência a restaurar. No Android 12 ou superior esse
+atributo desliga o backup no Google Drive, mas não a transferência entre
+aparelhos (página de mudanças de comportamento do Android 12), e por isso as
+regras do domínio `device-transfer` continuam valendo.
 
 **E o cifrado restaurado não decifra.** A chave do Keystore não é exportável e
 não viaja com o backup, então texto cifrado que chegasse a outro aparelho seria
@@ -1605,8 +1609,8 @@ Decisões de produto vigentes, no mesmo espírito das da calculadora:
 - a chave nunca é exibida depois de gravada — a tela mostra "configurada" ou
   "não configurada", nunca o valor;
 - o texto do usuário vai aos provedores que ele mesmo escolheu ativar, e a nada
-  mais; o banco local e o segredo cifrado ficam **fora do backup do Android**
-  (seção 4.2);
+  mais; o aplicativo não entra no backup na nuvem, e o banco local e o segredo
+  cifrado ficam **fora também da transferência entre aparelhos** (seção 4.2);
 - as consultas de nome da auditoria de links vão ao **DNS sobre HTTPS do
   Google** (`dns.google`), não ao DNS da rede em que o aparelho está — decisão
   do operador de 25/09/2026 (seção 5.4). É a única parte do aplicativo que fala
