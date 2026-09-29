@@ -1,6 +1,7 @@
 package dev.lcv.maestro.ui
 
 import dev.lcv.maestro.protocolo.ClassificacaoDoLink
+import dev.lcv.maestro.protocolo.DecisaoDeRevisao
 import dev.lcv.maestro.protocolo.LinhaDeLink
 import dev.lcv.maestro.protocolo.StatusDaRevisao
 import dev.lcv.maestro.sessao.Estados
@@ -69,7 +70,7 @@ class RotulosTest {
         assertFalse(Rotulos.retomavel("running", null))
     }
 
-    private fun link(tom: String, statusHttp: Int?, invalidade: String) = LinhaDeLink(
+    private fun link() = LinhaDeLink(
         versaoDoEsquema = "1",
         linkId = "link-1",
         artefatoDeOrigem = "artifact-1",
@@ -81,7 +82,7 @@ class RotulosTest {
         mudancasDaNormalizacao = emptyList(),
         urlFinal = null,
         cadeiaDeRedirecionamento = emptyList(),
-        statusHttp = statusHttp,
+        statusHttp = 200,
         tipoDeConteudo = null,
         sha256 = null,
         verificadoEm = "2026-09-28T10:00:00.000Z",
@@ -97,16 +98,21 @@ class RotulosTest {
         evidenciaWebId = null,
         url = "https://exemplo.org/a",
         status = "",
-        invalidade = invalidade,
-        tom = tom,
+        invalidade = "",
+        tom = "warn",
     )
 
     @Test
-    fun `a pilula do link segue a regra dos invalidos do motor`() {
-        assertEquals("válido", Rotulos.link(link("ok", 200, "")))
-        assertEquals("válido", Rotulos.link(link("warn", 200, "fraco")))
-        assertEquals("inválido 404", Rotulos.link(link("error", 404, "nao encontrado")))
-        assertEquals("captcha pendente", Rotulos.link(link("blocked", null, "captcha pendente")))
-        assertEquals("inválido", Rotulos.link(link("error", null, "")))
+    fun `o suporte a afirmacao segue o claimSupportLabel do desktop`() {
+        assertEquals("Ainda não julgado editorialmente", Rotulos.suporte(link()))
+        assertEquals(
+            "Suporte à afirmação aceito explicitamente",
+            Rotulos.suporte(link().copy(sustentaAfirmacao = true, decisaoDeRevisao = DecisaoDeRevisao.ACEITAR)),
+        )
+        assertEquals("Sinal armazenado sem aceite editorial concluído", Rotulos.suporte(link().copy(sustentaAfirmacao = true)))
+        assertEquals(
+            "Não sustenta a afirmação",
+            Rotulos.suporte(link().copy(sustentaAfirmacao = false, decisaoDeRevisao = DecisaoDeRevisao.ACEITAR)),
+        )
     }
 }

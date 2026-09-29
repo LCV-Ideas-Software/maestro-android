@@ -176,8 +176,10 @@ public const val CONFIGURACOES_ID: String = "default"
 
 /**
  * Uma linha de link do motor do `:core:protocolo`, gravada como o canônico a
- * grava: um JSON por `link_id`, global — o id já leva a impressão da origem,
- * e a listagem filtra por ela. `sessaoId` é só informativa.
+ * grava: um JSON por `link_id`, global — o id já leva a impressão da origem.
+ * A listagem do motor não filtra por ela; quem acha as linhas de uma sessão é
+ * [LinksDaSessao], pela impressão do texto da sessão. `sessaoId` é só quem
+ * gravou por último.
  */
 @Entity(tableName = "links", indices = [Index(value = ["sessaoId"])])
 public data class LinhaDeLinkEntidade(

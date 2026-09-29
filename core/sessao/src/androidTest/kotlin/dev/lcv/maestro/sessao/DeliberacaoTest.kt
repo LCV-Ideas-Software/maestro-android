@@ -1,8 +1,11 @@
 package dev.lcv.maestro.sessao
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.lcv.maestro.protocolo.AuditoriaFinal
 import dev.lcv.maestro.protocolo.Custo
+import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.protocolo.PromptsDaSessao
+import dev.lcv.maestro.provedores.AnalisadorDeUrlOkHttp
 import dev.lcv.maestro.provedores.MAX_TOKENS_DE_SAIDA
 import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.provedores.Resultado as RespostaDoProvedor
@@ -301,6 +304,8 @@ class DeliberacaoTest {
         withTimeout(10_000) { while (d.chamadas.size < 2) kotlinx.coroutines.delay(20) }
         assertTrue(t.sessoes.cancelar(id) is Resultado.Ok)
         val antes = d.mensagens(id)
+        // O texto do turno foi auditado antes da chamada, com a sessão ativa, para o pacote do portão (decisão 23).
+        val auditoriasAntes = d.auditorias
         portao.complete(Unit)
 
         assertEquals(Desfecho.Interrompida, execucao.await())
@@ -308,7 +313,7 @@ class DeliberacaoTest {
         assertEquals(1, t.artefatos.daSessao(id).size)
         assertEquals(Estados.CANCELADA, t.sessoes.carregar(id)!!.status)
         // A releitura pós-chamada para antes da auditoria do turno: nenhuma requisição do motor para uma sessão cancelada.
-        assertEquals(0, d.auditorias)
+        assertEquals(auditoriasAntes, d.auditorias)
     }
 
     // ── rodada 1 do Codex na #70 ─────────────────────────────────────────
@@ -508,6 +513,57 @@ class DeliberacaoTest {
         assertTrue(d.chamadas[2].second.prompt.contains("No prior revision reports are recorded for this serial cycle."))
         // Plano D: o texto A foi auditado uma vez; o B, no turno sem revisão do Gemini (o do Claude veio da memória) e, fresco, na finalização.
         assertEquals(listOf(DeliberacaoDeTeste.TEXTO_A, DeliberacaoDeTeste.TEXTO_B, DeliberacaoDeTeste.TEXTO_B), d.textosAuditados)
+    }
+
+    @Test
+    fun oRevisorDeUmTextoReprovadoRecebeOPacoteDoPortaoSemTentativaCorretiva() {
+        // Decisão 23 do operador (29/09/2026): sem editor no aparelho, o revisor é quem corrige o link
+        // reprovado, e só corrige o que lhe mostram — o pacote vai em todo turno sobre texto reprovado.
+        val id = criar()
+        d.auditar = { texto ->
+            if (texto == DeliberacaoDeTeste.TEXTO_A) DeliberacaoDeTeste.falha("link_integrity", "link rejeitado pelo operador") else null
+        }
+        d.responde(Provedor.CLAUDE, DeliberacaoDeTeste.rascunho(), DeliberacaoDeTeste.pronto(Provedor.CLAUDE))
+        d.responde(Provedor.CODEX, DeliberacaoDeTeste.revisado(Provedor.CODEX))
+
+        assertEquals(Desfecho.Convergida, executar(id))
+
+        val primeiraRevisao = d.chamadas[1]
+        assertEquals(Provedor.CODEX, primeiraRevisao.first)
+        assertTrue(primeiraRevisao.second.prompt.contains("## Current Deterministic Editorial Gate Packet"))
+        assertTrue(primeiraRevisao.second.prompt.contains("Reason: link rejeitado pelo operador"))
+        assertEquals(0, d.mensagens(id).count { it.startsWith("Corrective retry") })
+        // Sobre o texto aprovado pela auditoria, o turno seguinte vai sem pacote.
+        assertFalse(d.chamadas[2].second.prompt.contains("## Current Deterministic Editorial Gate Packet"))
+        val linha = t.sessoes.carregar(id)!!
+        assertEquals(DeliberacaoDeTeste.TEXTO_B, linha.textoFinal)
+        // O texto auditado é, byte a byte, o texto que a linha grava: é por ele que as linhas de link da sessão são achadas.
+        assertEquals(d.textosAuditados.last(), linha.textoAtual)
+    }
+
+    @Test
+    fun htmlCruNuncaViraTextoFinalPelaAuditoriaReal() {
+        // A auditoria de produção (`AuditoriaFinal.falha`), sem rede: os textos não têm link, e o coletor recusa se for chamado.
+        val registro = RegistroDeLinksRoom(t.banco, null, t.relogio)
+        val motor = AuditoriaFinal.MotorDeLinks { candidato ->
+            IntegridadeDeLinks.auditar(candidato, AnalisadorDeUrlOkHttp, { error("o texto não tem link") }, registro, t.relogio)
+        }
+        d.auditar = { texto -> AuditoriaFinal.falha(texto, motor, t.relogio()) }
+        // Dois blocos, como o TEXTO_A: a reescrita do Codex troca só o segundo, o do HTML, e o declara.
+        val comHtml = "Alpha aprovado.\n\nBeta <script>alert(1)</script> aprovado."
+        val id = criar()
+        // O Claude redige com HTML cru; o READY do Codex sobre ele é recusado pelo portão; o Codex reescreve
+        // limpo e o Claude fecha sobre o texto limpo (critério de aceite da MAEANDR-21, seção 4.4).
+        d.responde(Provedor.CLAUDE, DeliberacaoDeTeste.rascunho(comHtml), DeliberacaoDeTeste.pronto(Provedor.CLAUDE))
+        d.responde(Provedor.CODEX, DeliberacaoDeTeste.pronto(Provedor.CODEX), DeliberacaoDeTeste.revisado(Provedor.CODEX))
+
+        val desfecho = executar(id)
+        val linha = t.sessoes.carregar(id)!!
+        assertEquals("erro da sessão: ${linha.erro}; jornal: ${d.mensagens(id)}", Desfecho.Convergida, desfecho)
+        assertEquals(DeliberacaoDeTeste.TEXTO_B, linha.textoFinal)
+        assertTrue(d.mensagens(id).any { it.startsWith("READY rejected by release gate") })
+        val recusa = t.banco.eventos().daSessao(id).first { it.mensagem.startsWith("READY rejected") }
+        assertTrue(recusa.auditoriaFinalJson!!.contains("raw_html_in_final_text"))
     }
 
     @Test

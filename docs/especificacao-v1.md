@@ -176,6 +176,58 @@ escolheu os cinco. O que a escolha pede, e como fica:
 - **Onde mora cada parte:** regras puras no `:core:protocolo`; rede (parser de
   URL, DNS, coleta, busca) no `:core:provedores`.
 
+**O que a PR 4b implementa disto (29/09/2026).**
+
+- **Manifesto de citações:** a tela de anexos da sessão anexa pelo seletor de
+  documentos do sistema, mostra na hora o que a sessão vai ler do manifesto e
+  remove. O formulário de nova sessão aceita um manifesto opcional, gravado
+  depois de criar a sessão e antes de enfileirá-la, sob a mesma trava da
+  reconciliação; um manifesto que a sessão recusaria impede o início. O
+  arquivo é lido só pelo `ContentResolver`, sem permissão de armazenamento, e
+  o teto de 16 MiB vale durante a leitura.
+- **As linhas de link de uma sessão:** o registro de links é global, como no
+  canônico, porque o id de cada linha já leva a impressão da origem.
+  `LinksDaSessao` acha as da sessão pela impressão do texto que ela tem agora
+  — o final, se convergiu, senão o atual —, que é o SHA-256 que a auditoria
+  grava.
+- **Revisão:** a tela de links auditados porta o painel de integridade do
+  desktop (`LinkIntegrityPanel.tsx`, `maestro-app` `0e17817`), com os rótulos
+  e os avisos dele palavra por palavra. A recusa do motor vai no aviso, depois
+  da frase do desktop, que a engole. O revisor é `operator`, a nota tem pelo
+  menos dez pontos de código, e a decisão vale contra a URL e o hash que a
+  tela mostrou.
+- **Captura assistida pelo operador:** `ImportacaoDoOperador`, no
+  `:core:provedores`, porta `handoff_record`,
+  `open_web_evidence_in_default_browser` e `import_operator_evidence`, com as
+  regras de nome, tipo, tamanho e bytes mágicos. **Abrir no navegador** valida
+  a URL pela mesma regra de rede pública da coleta, monta o registro de
+  passagem e só então entrega a URL validada ao navegador do sistema
+  (`ACTION_VIEW`); o navegador que não abre fica anotado no registro. O arquivo
+  salvo volta pelo seletor de documentos e vira evidência fornecida pelo
+  operador, sob o endereço do link. Nenhum dos dois registros toca a linha de
+  link — no desktop também não: só a revisão explícita a libera. O tipo do
+  arquivo segue o `captureMediaType` do desktop, e o `application/octet-stream`
+  com que o Android informa uma extensão desconhecida conta como sem tipo. O
+  `<queries>` do manifesto (emenda A10 do plano do `:app`) torna os
+  navegadores visíveis; o disparo em si não depende dele.
+- **Propostas de correção:** Crossref ou OpenAlex, fora da linha principal.
+  Cada resultado é guardado como evidência, como o canônico faz, com o item
+  JSON como corpo. As propostas só sobrevivem à auditoria seguinte numa linha
+  decidida (`preservarRevisao`, igual ao canônico), e por isso a tela pede a
+  decisão depois de propor.
+- **Decisão 23 do operador (29/09/2026):** todo turno de revisão cujo texto
+  atual reprova na auditoria final leva ao revisor o pacote do portão — as
+  linhas que falharam e os candidatos de correção. Antes, o pacote só ia numa
+  tentativa corretiva, que só acontece por violação de contrato: um `READY`
+  sobre texto reprovado era recusado e redesenhado sem explicação, e o
+  aparelho não tem editor.
+- **Lacuna medida, fora desta entrega:** no canônico atual (`0e17817`,
+  MAESTRO-34), a revisão confere também a URL final e a cadeia de
+  redirecionamentos; o motor do Android, portado de `68528f9`, confere a URL e
+  o hash. O porte está na
+  [#77](https://github.com/LCV-Ideas-Software/maestro-android/issues/77)
+  (MAEANDR-26).
+
 Onde o porte é **mais estrito que o canônico**, de propósito. Salvo os dois
 últimos, que são decisões do operador, os pontos corrigem defeitos que a
 revisão do Codex achou na PR #57 e depois do merge dela, e que também estão
@@ -290,7 +342,7 @@ plataforma. Cada unidade do cliente web tem destino:
 | **Sessões recentes** | tela inicial, observada, na ordem e no corte do `GET /sessions` do web (a tocada por último primeiro, 30) |
 | **Cancelar** / **Retomar** | tela da sessão; retomar abre o diálogo com líder e colegiado (as duas validações do web) e, numa pausa por custo, o teto novo |
 | **Rastreamento** (últimos 8 eventos) | tela da sessão, com "Mostrar todos os eventos" |
-| **Autos / Evidências** e as cinco abas | tela da sessão: Texto, Diff, Relatório, Links (a pílula segue a regra dos inválidos do motor) e Metadados (os onze campos do web, no formato de `JSON.stringify(…, null, 2)`) |
+| **Autos / Evidências** e as cinco abas | tela da sessão: Texto, Diff, Relatório, Links e Metadados (os onze campos do web, no formato de `JSON.stringify(…, null, 2)`); a aba Links da 4a listava a auditoria por artefato, que a deliberação do aparelho nunca grava, e a 4b a troca pela tela de links da sessão |
 | **Texto atual / Texto final** | tela da sessão, monoespaçado como o `<pre>` do web |
 | **Criar Post** e o editor do MainSite | **substituído** pela tela do texto final com exportação (seção 4.4), que é da PR 4b |
 | **Chaves dos agentes** | configurações: cada chave vai ao cofre do aparelho pelo botão da própria linha, nunca volta à tela nem fica com o serviço de preenchimento automático (o `autoComplete="off"` do web, pelo `AutofillManager.cancel` que a documentação do Compose indica), e a pílula tem o terceiro estado "não verificável" (seção 6.2) |
@@ -311,6 +363,23 @@ viram uma coluna; os ícones são os Material Symbols oficiais do Google no
 lugar dos do Lucide, com o mesmo sentido; a linha escolhida de uma lista ganha
 a borda de foco do web, porque o fundo que o web troca (8 % contra 10 %) não se
 distingue num telefone; os textos com "(s)" do web viram plurais da plataforma.
+
+#### O que a PR 4b implementa disto (29/09/2026)
+
+| Unidade | Destino na 4b |
+| --- | --- |
+| **Criar Post** e o editor do MainSite | a tela do texto final, formatado e exportável em Markdown, TXT e PDF (seção 4.4) |
+| Aba **Links** dos autos | explica que a auditoria de links do aparelho é da sessão, no portão da auditoria final, e leva à tela de links auditados (seção 2.2) — a lista por artefato da 4a ficava sempre vazia |
+| O painel de integridade de links do desktop (`LinkIntegrityPanel.tsx`) e a captura do operador da tela de evidências (`EvidenceScreen.tsx`), `maestro-app` `0e17817` | a tela de links auditados da sessão: a lista, o link aberto com a ficha, as evidências do endereço, a captura do operador, os candidatos de correção e o julgamento (seção 2.2) |
+| Os anexos de sessão do desktop (`citation_manifests_from_attachments`) | a tela de anexos, com o manifesto de citações, e o campo opcional do formulário de nova sessão (seção 2.2) |
+
+O que o web e o desktop não têm e fica de fora: os filtros e a paginação do
+inventário global de links do desktop — a tela é de uma sessão só, e mostra
+todas as linhas do texto dela. Desvio de aparência declarado: a linha da
+lista mostra a âncora, a classificação e a revisão numa linha cada, como as
+outras listas do aplicativo; o contexto, que o desktop também põe na linha,
+fica na ficha do link aberto, porque na pílula de largura de telefone ele
+tomaria várias linhas e a borda arredondada cortaria o começo delas.
 
 ### 2.4 O que sai, e por quê
 
@@ -953,11 +1022,31 @@ layout próprio:
   caixa de diálogo e o "Salvar como PDF" são do sistema.
 - **Markdown.** O artefato, tal qual.
 - **TXT.** Texto puro, pelo `TextContentRenderer` da `commonmark-java`:
-  títulos, listas e ênfases viram texto plano legível, sem marcas.
+  títulos e ênfases viram texto plano legível, sem marcas, e as listas mantêm
+  o hífen (`-`) que o renderizador oficial escreve como marcador.
 
 Nenhuma biblioteca de Markdown de terceiro (Markwon ou similar) nem gerador
 de PDF próprio. Os três exportáveis saem do mesmo artefato que a auditoria
 aprovou, e a exportação só é oferecida para texto liberado.
+
+#### O que a PR 4b implementa disto (29/09/2026)
+
+- **Liberado** é a sessão convergida com texto final não vazio; fora disso a
+  tela diz que o texto ainda não foi liberado, e a tela da sessão nem oferece o
+  botão.
+- **O `WebView`**, além do que está acima: sem acesso a rede nem a imagens
+  (`blockNetworkLoads`, `blockNetworkImage`), sem cache (`LOAD_NO_CACHE`), sem
+  armazenamento DOM, sem nenhuma navegação (`shouldOverrideUrlLoading` recusa
+  tudo), e com `onRenderProcessGone` tratado, para a morte do processo de
+  renderização não derrubar o aplicativo; é destruído quando sai da tela. O
+  HTML sai do `HtmlRenderer` com `escapeHtml(true)` e `sanitizeUrls(true)`, e a
+  página leva uma política de conteúdo (`default-src 'none'`) que não deixa
+  carregar nada de fora nem rodar script.
+- **PDF** só depois de a página terminar de carregar (`onPageFinished`),
+  pedido pela `Activity` na linha principal.
+- **Markdown e TXT** pelo `CreateDocument` do seletor de documentos, gravados
+  pelo `ContentResolver` fora da linha principal; o seletor cancelado não grava
+  nada, e o documento de uma gravação que falhou é apagado.
 
 ## 5. Os seis provedores
 
@@ -1590,6 +1679,29 @@ de teste, porque compra confiança sem entregá-la.
   configuração do WorkManager que é a do `Application`, e a sessão "rodando"
   sem trabalho vivo reconciliada na entrada em primeiro plano. Na JVM: os
   rótulos, os formatos, o diff, o limiar do aviso e o manifesto.
+  Na PR 4b, na mesma montagem, com o seletor de documentos pela API oficial
+  (`ActivityResultRegistry`) e um navegador dublê que só anota a URL — nenhum
+  teste abre navegador: o texto final liberado numa página travada com as três
+  exportações, o cliente da página que avisa o fim, recusa navegar e troca a
+  página que morreu, a página que sai quando o texto perde a liberação, a
+  sessão que não convergiu, o Markdown tal qual e o TXT do renderizador, e o
+  seletor cancelado ou o documento que não abre, que não deixam arquivo; o
+  manifesto lido, o recusado, o acima do teto e o que não muda com a sessão em
+  execução, e o do formulário gravado antes do enfileiramento; os links do
+  texto atual, e não os
+  de uma versão anterior; a passagem ao navegador só com a URL que a regra de
+  rede aceitou, a recusada que não chega ao navegador, e o navegador que não
+  abre; o arquivo importado sob o link, sem mudá-lo, e o de tipo fora da lista;
+  a revisão com a recusa do motor para nota curta e para aceite de link que não
+  passou; as propostas com o provedor escolhido, que sobrevivem à auditoria
+  seguinte na linha decidida; e a aba Links dos autos que leva à tela. Na JVM:
+  o renderizador do texto final, o tipo da captura, os rótulos do painel do
+  desktop e o `<queries>` do manifesto. No `:core:provedores`, na JVM, a
+  captura assistida (as regras de nome, tipo, tamanho e bytes mágicos, a ordem
+  das recusas, os dois registros) e a busca que guarda cada resultado; no
+  `:core:sessao`, instrumentado, as linhas de link da sessão, os registros de
+  evidência de um endereço, a decisão 23 e o HTML cru que a auditoria real
+  recusa antes de virar texto final.
 
 Nenhum teste embute chave de API, nem sequer inválida com forma de chave real —
 o *secret scanning* da frota não distingue chave falsa de chave vazada, e nem
@@ -1711,6 +1823,18 @@ medida**: o teto do `dataSync`. Uma versão anterior afirmava que a documentaç�
 não o declarava e mandava medir em aparelho. Declara, na página de mudanças de
 comportamento do Android 15, e agora está na seção 4.1. Ausência de um fato em
 duas páginas não é ausência do fato.
+
+### Aberta, porte do canônico
+
+- **A revisão de link confere também a URL final e a cadeia de
+  redirecionamentos.** No canônico atual (`maestro-app` `0e17817`,
+  MAESTRO-34), a revisão só vale se a linha ainda tiver a URL normalizada, o
+  hash, a URL final e a cadeia de redirecionamentos lidos; o motor do Android,
+  portado de `68528f9`, confere os dois primeiros. Medido ao portar a tela de
+  links (seção 2.2) e registrado na
+  [#77](https://github.com/LCV-Ideas-Software/maestro-android/issues/77)
+  (MAEANDR-26); o porte mede tudo o que o MAESTRO-34 mudou no motor, não só a
+  revisão.
 
 ### Aberta, por decisão do operador
 

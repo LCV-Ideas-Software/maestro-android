@@ -6,6 +6,7 @@ import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.protocolo.ModoDeAcesso
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
@@ -23,11 +24,20 @@ class BuscaDeEvidenciasTest {
     @AfterTest
     fun descer() = servidor.close()
 
-    private fun busca(agente: AgenteDeColeta = RedeDeTeste.agentePolido) = BuscaDeEvidencias(
+    private class ArmazemEmMemoria : ColetorHttp.ArmazemDeEvidencias {
+        val guardadas = LinkedHashMap<String, ColetorHttp.Coleta>()
+        override fun existente(id: String) = guardadas[id]
+        override fun guardar(coleta: ColetorHttp.Coleta) {
+            guardadas[coleta.registro.id] = coleta
+        }
+    }
+
+    private fun busca(agente: AgenteDeColeta = RedeDeTeste.agentePolido, armazem: ColetorHttp.ArmazemDeEvidencias? = null) = BuscaDeEvidencias(
         RedeDeTeste.cliente(),
         Dns.SYSTEM,
         RedeDeTeste.politica(RedeDeTeste.resolvedor("10.0.0.1.example.com" to listOf("10.0.0.1"))),
         agente,
+        armazem,
         { RedeDeTeste.agora },
     ) { servidor.url("/${it.id}/works").toString() }
 
@@ -115,6 +125,23 @@ class BuscaDeEvidenciasTest {
         val semEmail = servidor.takeRequest()
         assertNull(semEmail.url.queryParameter("mailto"))
         assertEquals(RedeDeTeste.agente.userAgent, semEmail.headers["User-Agent"])
+    }
+
+    @Test
+    fun `com armazem cada resultado e guardado com o item como corpo e a data de criacao anterior`() {
+        val armazem = ArmazemEmMemoria()
+        servidor.enqueue(RedeDeTeste.resposta(200, crossref, "Content-Type" to "application/json"))
+        val primeiro = busca(armazem = armazem).buscar("q", "crossref", 1).single()
+        val guardado = armazem.guardadas.getValue(primeiro.id)
+        assertEquals(primeiro, guardado.registro)
+        val item = Json.LEITOR.writeValueAsBytes(Json.LEITOR.readTree(crossref).at("/message/items/0"))
+        assertContentEquals(item, guardado.corpo)
+        assertEquals("application/json", guardado.cabecalhos["content-type"])
+        // Um registro anterior do mesmo id mantém a data de criação, como no canônico.
+        armazem.guardar(ColetorHttp.Coleta(primeiro.copy(criadaEm = "2026-09-01T00:00:00+00:00"), emptyMap(), item))
+        servidor.enqueue(RedeDeTeste.resposta(200, crossref, "Content-Type" to "application/json"))
+        assertEquals("2026-09-01T00:00:00+00:00", busca(armazem = armazem).buscar("q", "crossref", 1).single().criadaEm)
+        assertEquals(1, armazem.guardadas.size)
     }
 
     @Test

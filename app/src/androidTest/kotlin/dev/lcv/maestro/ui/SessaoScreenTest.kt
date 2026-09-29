@@ -88,7 +88,9 @@ class SessaoScreenTest {
         regra.onNodeWithTag(Marcas.aba("relatorio")).performScrollTo().performClick()
         naAba("{\"decision\":\"READY\"}").assertExists()
         regra.onNodeWithTag(Marcas.aba("links")).performScrollTo().performClick()
-        naAba("Nenhum link encontrado neste artefato.").assertExists()
+        // A auditoria de links é da sessão, no portão: a aba leva à tela dela em vez de uma lista sempre vazia.
+        naAba("No aparelho, os links são auditados por sessão").assertExists()
+        regra.onNodeWithTag(Marcas.ABRIR_LINKS_DOS_AUTOS).assertExists()
         regra.onNodeWithTag(Marcas.aba("metadados")).performScrollTo().performClick()
         naAba("\"turn\": 2").assertExists()
         naAba("\"cost_usd\": 0.0123").assertExists()

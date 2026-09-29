@@ -245,6 +245,9 @@ public interface EvidenciaDao {
 
     @Query("SELECT caminhoDoCorpo FROM evidencias WHERE caminhoDoCorpo IS NOT NULL")
     public fun caminhosDosCorpos(): List<String>
+
+    @Query("SELECT * FROM evidencias")
+    public fun todas(): List<EvidenciaEntidade>
 }
 
 @Dao

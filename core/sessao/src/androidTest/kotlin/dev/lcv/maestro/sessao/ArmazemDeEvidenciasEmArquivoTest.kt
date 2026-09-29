@@ -94,6 +94,21 @@ class ArmazemDeEvidenciasEmArquivoTest {
     }
 
     @Test
+    fun osRegistrosDeUmEnderecoSaoOsDaUrlOuDaUrlFinalDoMaisRecenteAoMaisAntigo() {
+        val alvo = "https://example.com/alvo"
+        armazem.guardar(ColetorHttp.Coleta(registro("ev-1").copy(url = alvo, atualizadaEm = "2026-09-25T12:00:00+00:00"), emptyMap(), null))
+        armazem.guardar(ColetorHttp.Coleta(registro("ev-2").copy(urlFinal = alvo, atualizadaEm = "2026-09-26T12:00:00+00:00"), emptyMap(), null))
+        armazem.guardar(ColetorHttp.Coleta(registro("ev-3"), emptyMap(), null))
+        // Registro de outra versão de esquema não volta, como em `existente`.
+        armazem.guardar(ColetorHttp.Coleta(registro("ev-4").copy(url = alvo), emptyMap(), null))
+        val linha = t.banco.evidencias().carregar("ev-4")!!
+        t.banco.evidencias().gravar(linha.copy(registroJson = linha.registroJson.replace("web_evidence.v1", "web_evidence.v2")))
+
+        assertEquals(listOf("ev-2", "ev-1"), armazem.registrosDe(setOf(alvo)).map { it.id })
+        assertTrue(armazem.registrosDe(emptySet()).isEmpty())
+    }
+
+    @Test
     fun guardarDentroDeUmaTransacaoERecusadoAntesDeTocarEmArquivo() {
         armazem.guardar(ColetorHttp.Coleta(registro("ev-1"), emptyMap(), corpo(10, 8)))
         val antes = File(t.banco.evidencias().carregar("ev-1")!!.caminhoDoCorpo!!)

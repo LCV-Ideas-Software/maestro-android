@@ -5,12 +5,20 @@
 package dev.lcv.maestro
 
 import android.app.KeyguardManager
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
+import androidx.core.net.toUri
+import dev.lcv.maestro.protocolo.IntegridadeDeLinks
+import dev.lcv.maestro.provedores.ImportacaoDoOperador
 import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.seguranca.CofreDeChaves
 import dev.lcv.maestro.seguranca.Guarda
 import dev.lcv.maestro.seguranca.NivelDoCofre
 import dev.lcv.maestro.sessao.Agendador
+import dev.lcv.maestro.sessao.AnexosDaSessao
+import dev.lcv.maestro.sessao.ArmazemDeEvidenciasEmArquivo
+import dev.lcv.maestro.sessao.LinksDaSessao
 import dev.lcv.maestro.sessao.RepositorioDeArtefatos
 import dev.lcv.maestro.sessao.RepositorioDeConfiguracoes
 import dev.lcv.maestro.sessao.RepositorioDeSessoes
@@ -59,8 +67,36 @@ class CofreReal(
 }
 
 /**
+ * O navegador do sistema, que abre o link na captura assistida pelo operador
+ * (especificação, seção 2.2): devolve o erro do disparo, com o texto do
+ * canônico, ou `null` quando abriu. Os testes das telas o trocam por um dublê
+ * que só anota a URL — nenhum teste abre navegador.
+ */
+fun interface Navegador {
+    fun abrir(contexto: Context, url: String): String?
+
+    companion object {
+        /**
+         * `ACTION_VIEW` com `CATEGORY_BROWSABLE`, só para a URL já validada, a
+         * partir do contexto da Activity (fora dela, o Android recusa o
+         * disparo sem `FLAG_ACTIVITY_NEW_TASK`). A falta de navegador chega
+         * como `ActivityNotFoundException`, anotada no registro de passagem.
+         */
+        val DO_SISTEMA = Navegador { contexto, url ->
+            try {
+                contexto.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()).addCategory(Intent.CATEGORY_BROWSABLE))
+                null
+            } catch (erro: ActivityNotFoundException) {
+                "failed to open system default browser: ${erro.message}"
+            }
+        }
+    }
+}
+
+/**
  * O que as telas usam do grafo: os repositórios sobre o Room, o agendador, o
- * cofre visto pela tela e o teste de chaves. Em produção vem da `Fabrica` do
+ * cofre visto pela tela, o teste de chaves, os anexos e a revisão dos links
+ * (linhas, evidências, captura assistida, busca e navegador). Em produção vem da `Fabrica` do
  * processo ([de]); os testes das telas montam a mesma classe sobre um banco
  * de teste e dublês, sem Hilt (decisão 18 do operador, 28/09/2026).
  */
@@ -72,6 +108,13 @@ class Dependencias(
     val agendador: Agendador,
     val cofre: CofreDaTela,
     val testeDeChaves: TesteDeChaves,
+    val anexos: AnexosDaSessao,
+    val links: LinksDaSessao,
+    val evidencias: ArmazemDeEvidenciasEmArquivo,
+    val importacao: ImportacaoDoOperador,
+    /** A busca de evidências (Crossref e OpenAlex) com o e-mail de contato atual; lê o Room, então fora da linha principal. */
+    val busca: () -> IntegridadeDeLinks.BuscadorDeEvidencia,
+    val navegador: Navegador,
     val relogio: () -> Instant = Instant::now,
 ) {
     companion object {
@@ -84,6 +127,12 @@ class Dependencias(
                 agendador = grafo.agendador,
                 cofre = CofreReal(aplicativo, aplicativo.cofre, grafo.configuracoes),
                 testeDeChaves = grafo.testeDeChaves,
+                anexos = grafo.anexos,
+                links = grafo.links,
+                evidencias = grafo.evidencias,
+                importacao = grafo.importacao,
+                busca = grafo::buscaDeEvidencias,
+                navegador = Navegador.DO_SISTEMA,
             )
         }
     }

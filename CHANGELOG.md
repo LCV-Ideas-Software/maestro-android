@@ -6,6 +6,38 @@ All material changes to Maestro Android are recorded here.
 
 ### Added
 
+- Add the rest of `:app` (MAEANDR-21, second of two pull requests; MAEANDR-18):
+  the final-text screen for a converged session — the Markdown rendered by
+  `commonmark-java`, the same parser the release audit uses, with
+  `escapeHtml` and `sanitizeUrls`, in a `WebView` with JavaScript, file and
+  content access, network and image loads, cache, DOM storage and navigation
+  off, a content security policy that loads nothing, and the render-process
+  death handled; Markdown and TXT export through `CreateDocument` and the
+  `ContentResolver`, PDF through `PrintManager` once the page has loaded. The
+  attachments screen, which reads the citation manifest exactly as the session
+  will read it at start, and an optional manifest in the new-session form,
+  stored after the session is created and before it is queued. The link
+  review screen, a port of the desktop's `LinkIntegrityPanel.tsx` and of the
+  operator capture of `EvidenceScreen.tsx` (`maestro-app` `0e17817`) with
+  their labels and messages: the links of the session's current text, the
+  evidence kept for each address, "Abrir no navegador" (the handoff record is
+  validated and built first; the system browser gets only the validated URL
+  through `ACTION_VIEW`), the import of the saved page, Crossref and OpenAlex
+  correction proposals, and the accept, reject or quarantine decision with
+  the engine's refusal reason. `<queries>` for `https` browsers, per
+  amendment A10 of the `:app` plan. Instrumented tests use the official
+  `ActivityResultRegistry` for the document picker and a browser double that
+  only records the URL; no test opens a browser.
+- Add `ImportacaoDoOperador` to `:core:provedores`: the operator-assisted
+  capture of the desktop (`handoff_record`,
+  `open_web_evidence_in_default_browser` and `import_operator_evidence` with
+  their name, media-type, size and magic-byte rules, `web_evidence.rs` at
+  `0e17817`), under the same public-network rule as the collector.
+- Add `LinksDaSessao` to `:core:sessao` (the link rows of a session, found by
+  the fingerprint of its current or final text), the evidence records of an
+  address (`ArmazemDeEvidenciasEmArquivo.registrosDe`), and the capture on
+  `Fabrica`.
+
 - Add the screens in `:app` (MAEANDR-21, first of two pull requests): Jetpack
   Compose with Material 3 and Navigation 3 over the four `:core:*` modules,
   ported from the web's `MaestroAiModule.tsx` (`admin-app` `c5f5d73c`) in the
@@ -985,6 +1017,17 @@ All material changes to Maestro Android are recorded here.
 
 ### Changed
 
+- Every revision turn whose current text fails the release audit now carries
+  the gate packet — the failing rows and the correction candidates — to the
+  reviewer, not only a corrective retry (operator's decision 23,
+  29/09/2026).
+- `BuscaDeEvidencias` stores each search result as evidence, with the item
+  JSON as its body and an earlier record's creation date kept, as the
+  canonical search does; the correction candidates cite those records.
+- The artifacts' links tab in `:app` no longer lists per-artifact link audits,
+  which the device never writes (the list was always empty); it explains that
+  links are audited per session, at the release gate, and leads to the link
+  review screen.
 - Align the approved-content lock with the canonical lock's v00.05.65 contract
   (MAEANDR-17). The desktop rewrote its lock in `maestro-app#395` and `#396`
   without adopting this repository's `revised_block_origins` ledger. The 33 test

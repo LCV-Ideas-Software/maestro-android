@@ -40,10 +40,47 @@ object Marcas {
     const val PARADA_PELO_SISTEMA = "parada-pelo-sistema"
     const val NOVO_TETO = "novo-teto"
     const val CONFIRMAR_RETOMADA = "confirmar-retomada"
+    const val ABRIR_TEXTO_FINAL = "abrir-texto-final"
     fun artefato(id: String) = "artefato-$id"
     fun aba(nome: String) = "aba-$nome"
     fun lider(provedor: Provedor) = "lider-${provedor.agente}"
     fun painel(provedor: Provedor) = "painel-${provedor.agente}"
+
+    // Texto final
+    const val TEXTO_NAO_LIBERADO = "texto-nao-liberado"
+    const val TEXTO_FINAL_PAGINA = "texto-final-pagina"
+    const val EXPORTAR_MARKDOWN = "exportar-markdown"
+    const val EXPORTAR_TXT = "exportar-txt"
+    const val EXPORTAR_PDF = "exportar-pdf"
+
+    // Anexos
+    const val ABRIR_ANEXOS = "abrir-anexos"
+    const val ANEXAR_MANIFESTO = "anexar-manifesto"
+    const val MANIFESTO_RESULTADO = "manifesto-resultado"
+    const val ANEXOS_EM_EXECUCAO = "anexos-em-execucao"
+    fun anexo(id: String) = "anexo-$id"
+    fun removerAnexo(id: String) = "remover-anexo-$id"
+    const val ESCOLHER_MANIFESTO = "escolher-manifesto"
+    const val MANIFESTO_DO_FORMULARIO = "manifesto-do-formulario"
+    const val TIRAR_MANIFESTO = "tirar-manifesto"
+
+    // Links
+    const val ABRIR_LINKS = "abrir-links"
+    const val ABRIR_LINKS_DOS_AUTOS = "abrir-links-dos-autos"
+    const val SEM_LINKS_AUDITADOS = "sem-links-auditados"
+    const val DETALHE_DO_LINK = "detalhe-do-link"
+    const val ABRIR_NO_NAVEGADOR = "abrir-no-navegador"
+    const val NOTA_DA_CAPTURA = "nota-da-captura"
+    const val IMPORTAR_CAPTURA = "importar-captura"
+    const val CONSULTA_DE_CORRECAO = "consulta-de-correcao"
+    const val BUSCAR_PROPOSTAS = "buscar-propostas"
+    const val NOTA_DA_REVISAO = "nota-da-revisao"
+    const val REGISTRAR_DECISAO = "registrar-decisao"
+    fun link(id: String) = "link-$id"
+    fun evidencia(id: String) = "evidencia-$id"
+    fun candidato(id: String) = "candidato-$id"
+    fun provedorDeBusca(id: String) = "provedor-de-busca-$id"
+    fun decisao(nome: String) = "decisao-$nome"
 
     // Configurações
     const val TESTAR_CHAVES = "testar-chaves"

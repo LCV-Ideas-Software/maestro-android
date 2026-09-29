@@ -42,13 +42,19 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import dev.lcv.maestro.Dependencias
 import dev.lcv.maestro.R
+import dev.lcv.maestro.ui.anexos.AnexosScreen
+import dev.lcv.maestro.ui.anexos.AnexosViewModel
 import dev.lcv.maestro.ui.configuracoes.ConfiguracoesScreen
 import dev.lcv.maestro.ui.configuracoes.ConfiguracoesViewModel
 import dev.lcv.maestro.ui.licencas.LicencasScreen
+import dev.lcv.maestro.ui.links.LinksScreen
+import dev.lcv.maestro.ui.links.LinksViewModel
 import dev.lcv.maestro.ui.sessao.SessaoScreen
 import dev.lcv.maestro.ui.sessao.SessaoViewModel
 import dev.lcv.maestro.ui.sessoes.SessoesScreen
 import dev.lcv.maestro.ui.sessoes.SessoesViewModel
+import dev.lcv.maestro.ui.textofinal.TextoFinalScreen
+import dev.lcv.maestro.ui.textofinal.TextoFinalViewModel
 import kotlinx.serialization.Serializable
 
 /** A tela inicial: métricas, nova sessão e sessões recentes. */
@@ -58,6 +64,18 @@ data object TelaSessoes : NavKey
 /** A tela de uma sessão, que é a superfície canônica de acompanhamento (especificação, seção 4.1). */
 @Serializable
 data class TelaSessao(val id: String) : NavKey
+
+/** O texto final liberado de uma sessão, formatado e exportável (especificação, seção 4.4). */
+@Serializable
+data class TelaTextoFinal(val id: String) : NavKey
+
+/** Os anexos de uma sessão e o manifesto de citações (especificação, seção 2.2). */
+@Serializable
+data class TelaAnexos(val id: String) : NavKey
+
+/** Os links auditados do texto de uma sessão e a revisão de cada um (especificação, seção 2.2). */
+@Serializable
+data class TelaLinks(val id: String) : NavKey
 
 @Serializable
 data object TelaConfiguracoes : NavKey
@@ -118,7 +136,21 @@ fun MaestroApp(
                         )
                     }
                     entry<TelaSessao> { tela ->
-                        SessaoScreen(vm = viewModel { SessaoViewModel(dependencias, tela.id) })
+                        SessaoScreen(
+                            vm = viewModel { SessaoViewModel(dependencias, tela.id) },
+                            aoAbrirTextoFinal = { pilha.add(TelaTextoFinal(tela.id)) },
+                            aoAbrirAnexos = { pilha.add(TelaAnexos(tela.id)) },
+                            aoAbrirLinks = { pilha.add(TelaLinks(tela.id)) },
+                        )
+                    }
+                    entry<TelaAnexos> { tela ->
+                        AnexosScreen(vm = viewModel { AnexosViewModel(dependencias, tela.id) })
+                    }
+                    entry<TelaLinks> { tela ->
+                        LinksScreen(vm = viewModel { LinksViewModel(dependencias, tela.id) })
+                    }
+                    entry<TelaTextoFinal> { tela ->
+                        TextoFinalScreen(vm = viewModel { TextoFinalViewModel(dependencias, tela.id) })
                     }
                     entry<TelaConfiguracoes> {
                         ConfiguracoesScreen(
@@ -160,6 +192,9 @@ private fun BarraSuperior(pilha: NavBackStack<NavKey>) {
                         text = stringResource(
                             when (atual) {
                                 is TelaSessao -> R.string.secao_sessao
+                                is TelaTextoFinal -> R.string.texto_final
+                                is TelaAnexos -> R.string.anexos
+                                is TelaLinks -> R.string.links_auditados
                                 TelaConfiguracoes -> R.string.configuracoes
                                 TelaLicencas -> R.string.acao_licencas
                                 else -> R.string.subtitulo

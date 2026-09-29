@@ -2,6 +2,7 @@ package dev.lcv.maestro.sessao
 
 import com.fasterxml.jackson.core.JacksonException
 import dev.lcv.maestro.protocolo.FormatoDeLinks
+import dev.lcv.maestro.protocolo.RegistroDeEvidencia
 import dev.lcv.maestro.provedores.ColetorHttp
 import java.io.File
 import java.time.Instant
@@ -56,6 +57,20 @@ public class ArmazemDeEvidenciasEmArquivo(
         if (geracaoNova != null && anterior != null && anterior != geracaoNova && anterior !in banco.evidencias().caminhosDosCorpos()) {
             File(anterior).delete()
         }
+    }
+
+    /**
+     * Os registros válidos cujo endereço, pedido ou final, está em [urls], do
+     * atualizado por último ao mais antigo: o que a tela de links mostra sob
+     * cada link — a coleta do motor, a passagem ao navegador e os arquivos que
+     * o operador importou. Varre a tabela: o endereço só existe dentro do JSON.
+     */
+    public fun registrosDe(urls: Set<String>): List<RegistroDeEvidencia> = synchronized(this) {
+        if (urls.isEmpty()) return emptyList()
+        banco.evidencias().todas()
+            .mapNotNull { linha -> FormatoDeLinks.lerEvidencia(linha.registroJson)?.takeIf { it.versaoDoEsquema == ColetorHttp.VERSAO_DO_ESQUEMA } }
+            .filter { it.url in urls || it.urlFinal in urls }
+            .sortedByDescending { it.atualizadaEm }
     }
 
     /** Apaga os arquivos da pasta que nenhuma linha referencia (a reconciliação chama na abertura). */

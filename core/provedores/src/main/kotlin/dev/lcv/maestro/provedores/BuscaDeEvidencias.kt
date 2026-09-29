@@ -30,22 +30,31 @@ import okhttp3.OkHttpClient
  * documenta como "polite pool" — e como cabeçalho da origem: um
  * redirecionamento para outra origem é recusado, e o e-mail não a
  * atravessa. O OpenAlex recebe o agente base, sem e-mail.
+ *
+ * Com [armazem], cada resultado é guardado como evidência, com o item JSON
+ * como corpo e a data de criação de um registro anterior do mesmo id, como o
+ * canônico faz (`save_stored` por item, `web_evidence.rs` 2175–2241 em
+ * `0e17817`): é o registro que o `web_evidence_id` de cada candidato de
+ * correção cita. A resposta inteira (`persist_search_response`) não é
+ * guardada: no canônico, nada a lê depois de gravada.
  */
 public class BuscaDeEvidencias internal constructor(
     clienteBase: OkHttpClient,
     dns: Dns,
     politica: UrlPublica.PoliticaDeRede,
     private val agente: AgenteDeColeta,
+    private val armazem: ColetorHttp.ArmazemDeEvidencias?,
     private val relogio: () -> Instant,
     /** O endpoint de cada conector; os testes o apontam para o servidor falso. */
     private val endpointDe: (Conector) -> String = { it.endpoint },
 ) : IntegridadeDeLinks.BuscadorDeEvidencia {
 
-    public constructor(resolvedor: ResolvedorPublico, agente: AgenteDeColeta) : this(
+    public constructor(resolvedor: ResolvedorPublico, agente: AgenteDeColeta, armazem: ColetorHttp.ArmazemDeEvidencias? = null) : this(
         TransportePublico.clienteLimpo(),
         resolvedor,
         { RedePublica.motivoDeRecusa(it, AnalisadorDeUrlOkHttp, resolvedor) },
         agente,
+        armazem,
         Instant::now,
     )
 
@@ -131,7 +140,7 @@ public class BuscaDeEvidencias internal constructor(
                     "target page was not fetched",
             )
             textoDoCampo(item, conector.campoDoTrecho)?.let { notas += Erros.sanear(it, 500) }
-            registros += RegistroDeEvidencia(
+            val registro = RegistroDeEvidencia(
                 id = id,
                 versaoDoEsquema = ColetorHttp.VERSAO_DO_ESQUEMA,
                 estado = EstadoDaEvidencia.PRONTA,
@@ -159,9 +168,11 @@ public class BuscaDeEvidencias internal constructor(
                 consulta = consultaSaneada,
                 nomeDoArtefato = null,
                 notas = notas,
-                criadaEm = agoraTexto,
+                criadaEm = armazem?.existente(id)?.registro?.criadaEm ?: agoraTexto,
                 atualizadaEm = agoraTexto,
             )
+            armazem?.guardar(ColetorHttp.Coleta(registro, bruta.cabecalhos, bytesDoItem))
+            registros += registro
         }
         return registros
     }

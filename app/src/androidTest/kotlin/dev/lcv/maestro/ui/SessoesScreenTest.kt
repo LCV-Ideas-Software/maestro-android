@@ -2,6 +2,7 @@ package dev.lcv.maestro.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -133,6 +134,42 @@ class SessoesScreenTest {
         // A tela da sessão abriu, e o aviso do web aparece nela.
         regra.esperarTexto("Sessão Maestro AI iniciada.")
         regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.METRICA_CUSTO).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test
+    fun oManifestoDoFormularioEGravadoAntesDoEnfileiramento() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        val seletor = SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", MANIFESTO_DE_EXEMPLO.toByteArray())))
+        regra.abrir(c, seletor = seletor)
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).performScrollTo().performClick()
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.MANIFESTO_DO_FORMULARIO).fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.MANIFESTO_DO_FORMULARIO).assertTextEquals("Manifesto lido: 1 citação e 1 fonte.")
+        iniciar()
+        regra.onNodeWithText("Seguir sem notificações").performClick()
+        regra.waitUntil(5_000) { c.agendador.enfileiradas.isNotEmpty() }
+        val linha = c.sessoes.listar().single()
+        assertEquals(listOf("citation-manifest.json"), c.anexos.daSessao(linha.id).map { it.nomeOriginal })
+        // No instante do enfileiramento o anexo já estava gravado: o worker o encontra ao começar.
+        assertEquals(listOf(1), c.agendador.anexosAoEnfileirar.toList())
+    }
+
+    @Test
+    fun umManifestoQueASessaoNaoLeriaImpedeOInicio() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        regra.abrir(c, seletor = SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", "{}".toByteArray()))))
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).performScrollTo().performClick()
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.MANIFESTO_DO_FORMULARIO).fetchSemanticsNodes().isNotEmpty() }
+        iniciar()
+        regra.esperarTexto("O manifesto de citações escolhido não pode ser usado; troque ou remova o arquivo.")
+        assertEquals(0, c.autenticacoes.get())
+        assertTrue(c.sessoes.listar().isEmpty())
+        // Tirar o arquivo devolve o seletor.
+        regra.onNodeWithTag(Marcas.TIRAR_MANIFESTO).performScrollTo().performClick()
+        regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).assertExists()
     }
 
     @Test

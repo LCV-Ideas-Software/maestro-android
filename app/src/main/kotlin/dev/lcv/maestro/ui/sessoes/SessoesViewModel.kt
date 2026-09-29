@@ -4,6 +4,8 @@
  */
 package dev.lcv.maestro.ui.sessoes
 
+import android.content.ContentResolver
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -12,7 +14,9 @@ import androidx.lifecycle.viewModelScope
 import dev.lcv.maestro.Dependencias
 import dev.lcv.maestro.R
 import dev.lcv.maestro.Sincronia
+import dev.lcv.maestro.protocolo.ManifestosDosAnexos
 import dev.lcv.maestro.provedores.Provedor
+import dev.lcv.maestro.sessao.AnexosDaSessao
 import dev.lcv.maestro.sessao.Configuracoes
 import dev.lcv.maestro.sessao.Elegibilidade
 import dev.lcv.maestro.sessao.Orcamento
@@ -21,7 +25,9 @@ import dev.lcv.maestro.sessao.RepositorioDeConfiguracoes
 import dev.lcv.maestro.sessao.Resultado
 import dev.lcv.maestro.sessao.SessaoEntidade
 import dev.lcv.maestro.sessao.TrimJs
+import dev.lcv.maestro.ui.Documentos
 import dev.lcv.maestro.ui.Mensagem
+import dev.lcv.maestro.ui.anexos.AnexosViewModel
 import java.time.Duration
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -81,6 +87,17 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
     var colegiado by mutableStateOf(Provedor.entries.toList())
         private set
 
+    /**
+     * O manifesto de citações escolhido no formulário (especificação, seção
+     * 2.2), já lido com o teto dos anexos e com a leitura que a sessão fará
+     * ao começar. Ele é gravado entre a criação da sessão e o enfileiramento:
+     * a sessão só começa a ler anexos depois do enfileiramento.
+     */
+    data class ManifestoEscolhido(val nome: String, val tipo: String, val bytes: ByteArray, val leitura: AnexosViewModel.Manifesto)
+
+    var manifesto by mutableStateOf<ManifestoEscolhido?>(null)
+        private set
+
     private val ajustes = MutableStateFlow(Estado())
     private val eventos = Channel<Evento>(Channel.BUFFERED)
     val avisos: Flow<Evento> = eventos.receiveAsFlow()
@@ -131,6 +148,28 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
         colegiado = if (redatorInicial in proximo) proximo else listOf(redatorInicial) + proximo
     }
 
+    /** O documento que o seletor devolveu como manifesto; `null` é o seletor cancelado, e nada muda. */
+    fun escolherManifesto(uri: Uri?, resolver: ContentResolver) {
+        if (uri == null) return
+        viewModelScope.launch {
+            when (val leitura = withContext(Dispatchers.IO) { Documentos.ler(resolver, uri, AnexosDaSessao.MAX_BYTES) }) {
+                Documentos.Leitura.AcimaDoTeto -> eventos.send(Evento.Aviso(Mensagem.Literal(AnexosDaSessao.MENSAGEM_ACIMA_DO_TETO)))
+                Documentos.Leitura.Falhou -> eventos.send(Evento.Aviso(Mensagem.DeRecurso(R.string.anexo_ilegivel)))
+                is Documentos.Leitura.Lido -> {
+                    val tipo = leitura.tipo ?: AnexosViewModel.TIPO_DESCONHECIDO
+                    val lido = withContext(Dispatchers.IO) {
+                        AnexosViewModel.lerManifesto(listOf(ManifestosDosAnexos.Anexo(leitura.nome, tipo) { leitura.bytes }))
+                    }
+                    manifesto = ManifestoEscolhido(leitura.nome, tipo, leitura.bytes, lido)
+                }
+            }
+        }
+    }
+
+    fun tirarManifesto() {
+        manifesto = null
+    }
+
     /** As validações do `startSession` do web, antes de pedir permissão ou autenticação; `null` é "pode seguir". */
     fun conferirInicio(): Mensagem? {
         val prontos = ajustes.value.prontos
@@ -140,6 +179,8 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
             prontos.size < 2 -> Mensagem.DeRecurso(R.string.erro_dois_agentes)
             validos.size < 2 -> Mensagem.DeRecurso(R.string.erro_dois_prontos)
             redatorInicial !in validos -> Mensagem.DeRecurso(R.string.erro_redator_fora)
+            // Só do aparelho: um arquivo escolhido como manifesto que a sessão não leria como tal não segue.
+            manifesto?.let { it.leitura !is AnexosViewModel.Manifesto.Lido } == true -> Mensagem.DeRecurso(R.string.erro_manifesto)
             else -> null
         }
     }
@@ -164,6 +205,7 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
             agentesAtivos = colegiado.filter { it in prontos }.map { it.agente },
             conteudoInicial = textoInicial,
         )
+        val anexo = manifesto
         ajustes.update { it.copy(iniciando = true) }
         viewModelScope.launch {
             try {
@@ -173,6 +215,8 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
                         is Resultado.Recusado -> entrada
                         is Resultado.Ok -> Sincronia.reconciliacao.withLock {
                             val linha = d.sessoes.criar(entrada.valor)
+                            // O manifesto entra antes do enfileiramento: a sessão só lê anexos depois dele.
+                            anexo?.let { d.anexos.adicionar(linha.id, it.nome, it.tipo, it.bytes) }
                             d.agendador.enfileirar(linha.id)
                             Resultado.Ok(linha.id)
                         }
@@ -181,6 +225,7 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
                 when (resultado) {
                     is Resultado.Recusado -> eventos.send(Evento.Aviso(Mensagem.Literal(resultado.mensagem)))
                     is Resultado.Ok -> {
+                        manifesto = null
                         eventos.send(Evento.Aviso(Mensagem.DeRecurso(R.string.iniciada)))
                         eventos.send(Evento.Aberta(resultado.valor))
                     }
