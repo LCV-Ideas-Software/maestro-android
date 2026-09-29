@@ -5,8 +5,10 @@
   transferência entre aparelhos, nos dois domínios que a regra separa
   (especificação, seção 4.2). O segredo cifrado e os corpos de evidência e
   anexos vivem em `noBackupFilesDir`, que o Android exclui sempre, sem regra.
-  A exclusão é do conteúdo do usuário, não do aplicativo: preferência de
-  interface continua restaurável.
+  O backup na nuvem já está desligado no manifesto (`allowBackup="false"`);
+  no Android 12 ou superior o atributo não desliga a transferência entre
+  aparelhos, e é por ela que estas regras valem. A parte da nuvem fica também,
+  para o caso de o atributo um dia mudar.
 -->
 <data-extraction-rules>
     <cloud-backup>

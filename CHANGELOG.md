@@ -1094,6 +1094,11 @@ All material changes to Maestro Android are recorded here.
 
 ### Fixed
 
+- Opt the app out of Android cloud backup (`android:allowBackup="false"`,
+  CodeQL alert 8, `java/android/backup-enabled`): nothing the app stores is a
+  preference worth restoring. The database stays out of device-to-device
+  transfer through `data_extraction_rules.xml`, which the attribute does not
+  cover on Android 12 and later.
 - Removed the obsolete Actions dependency lock and its workflow onboarding
   markers to restore workflow startup after Dependabot updates. Direct SHA
   pins, workflow behavior and repository security settings are unchanged.

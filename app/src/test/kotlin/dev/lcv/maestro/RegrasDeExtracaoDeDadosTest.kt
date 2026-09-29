@@ -9,8 +9,9 @@ import org.w3c.dom.Element
 
 /**
  * A regra de backup do `:app` (especificação, seção 4.2): o banco do Room e os
- * arquivos do SQLite ao lado dele ficam fora dos dois domínios, e o manifesto
- * aponta para a regra. Lê os arquivos do repositório, não o APK.
+ * arquivos do SQLite ao lado dele ficam fora dos dois domínios, o manifesto
+ * aponta para a regra e o aplicativo não entra no backup na nuvem. Lê os
+ * arquivos do repositório, não o APK.
  */
 class RegrasDeExtracaoDeDadosTest {
 
@@ -44,5 +45,12 @@ class RegrasDeExtracaoDeDadosTest {
     @Test
     fun `o manifesto aponta para a regra`() {
         assertTrue(manifesto.readText().contains("android:dataExtractionRules=\"@xml/data_extraction_rules\""))
+    }
+
+    @Test
+    fun `o aplicativo nao entra no backup na nuvem`() {
+        // Alerta 8 do CodeQL (29/09/2026). No Android 12+ o atributo não desliga a transferência
+        // entre aparelhos: quem tira o banco dela é a regra do domínio `device-transfer`, acima.
+        assertTrue(manifesto.readText().contains("android:allowBackup=\"false\""))
     }
 }

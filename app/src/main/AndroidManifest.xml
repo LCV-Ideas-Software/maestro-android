@@ -8,9 +8,11 @@
   chave do Keystore (seção 6.2). FOREGROUND_SERVICE e o tipo `dataSync` vêm do
   manifesto do `:core:sessao`, pela fusão.
 
-  O banco do Room fica fora do backup e da transferência entre aparelhos
-  (`dataExtractionRules`, seção 4.2); o segredo cifrado vive em
-  `noBackupFilesDir`, que o Android exclui sempre.
+  O aplicativo não entra no backup na nuvem (`allowBackup="false"`, seção
+  4.2): nada do que ele grava é preferência a restaurar. No Android 12 ou
+  superior o atributo não desliga a transferência entre aparelhos, e por isso
+  o banco do Room fica fora dela pelas `dataExtractionRules`; o segredo
+  cifrado vive em `noBackupFilesDir`, que o Android exclui sempre.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
@@ -21,6 +23,7 @@
 
     <application
         android:name=".MaestroApplication"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"

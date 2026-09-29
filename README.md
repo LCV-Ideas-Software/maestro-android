@@ -154,8 +154,9 @@ generations, because Android cannot read a database row above 2 MiB. Two
 product decisions of 25/09/2026 depart from the web: the cost ceiling applies
 to the whole session's accumulated cost, not to each execution, and the
 optional time limit accepts at most 300 minutes. The
-app excludes the database from cloud backup and device transfer through
-`data_extraction_rules.xml`.
+app opts out of cloud backup (`android:allowBackup="false"`) and keeps the
+database out of device-to-device transfer, which that attribute does not stop
+on Android 12 and later, through `data_extraction_rules.xml`.
 
 The second pull request of the module is the orchestration on the device:
 `Deliberacao` is the web's `runSession` over those transactions — the draft
