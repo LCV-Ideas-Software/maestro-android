@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Silhueta do monograma para os ícones temáticos do Android 13 e posteriores: o
+  sistema aplica a própria cor sobre esta camada, então ela é desenhada numa cor
+  só. Mesma geometria de `ic_launcher_foreground.xml`.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <group
+        android:pivotX="303"
+        android:pivotY="256"
+        android:scaleX="0.81"
+        android:scaleY="0.81"
+        android:translateX="-47">
+        <path
+            android:pathData="M134,74h246"
+            android:strokeColor="#000000"
+            android:strokeWidth="18"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M132,136v240h154"
+            android:strokeColor="#000000"
+            android:strokeWidth="44"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M366,136c-88,0 -150,60 -150,120s62,120 150,120"
+            android:strokeColor="#000000"
+            android:strokeWidth="44"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M310,144l82,232l82,-232"
+            android:strokeColor="#000000"
+            android:strokeWidth="44"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:pathData="M134,438h246"
+            android:strokeColor="#000000"
+            android:strokeWidth="18"
+            android:strokeLineCap="round" />
+    </group>
+</vector>

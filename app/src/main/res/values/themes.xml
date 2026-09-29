@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      A interface inteira é Compose: este tema só decide o que a janela mostra
+      entre o toque no ícone e o primeiro quadro desenhado. O tema de
+      plataforma evita trazer a biblioteca de componentes de visualização só
+      para isso. Não há variante `values-night`: o produto web é claro, e o
+      porte acompanha (desvio declarado na especificação, seção 2.3).
+    -->
+    <style name="Theme.Maestro" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/janela</item>
+    </style>
+</resources>

@@ -28,12 +28,15 @@ import java.io.File
         AnexoEntidade::class,
         ExecucaoEntidade::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
     // v2 (PR 3b): `execucoes.chamadaEmVoo` e `chamadaIniciadaEm`, o marcador da
     // chamada paga sem resultado (decisão 16 do operador, 27/09/2026). Colunas
     // novas e anuláveis: a migração automática do Room basta.
-    autoMigrations = [AutoMigration(from = 1, to = 2)],
+    // v3 (PR 4a): `configuracoes.emailDeContato`, o e-mail opcional do usuário
+    // para o Crossref (especificação, seção 5.4, item 7). Coluna nova e
+    // anulável: migração automática.
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
 )
 public abstract class BancoDaSessao : RoomDatabase() {
     public abstract fun sessoes(): SessaoDao

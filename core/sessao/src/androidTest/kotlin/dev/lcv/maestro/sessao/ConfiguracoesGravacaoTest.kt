@@ -74,4 +74,23 @@ class ConfiguracoesGravacaoTest {
         assertEquals(Taxas.PADRAO.getValue(Provedor.GROK), salvas.taxas.getValue(Provedor.GROK))
         assertEquals(salvas.taxas, repositorio.carregar().taxas)
     }
+
+    @Test
+    fun emailDeContatoObedeceARegraDoAgenteDeColeta() {
+        assertNull(ok(PedidoDeConfiguracoes(tetoDeCustoUsd = BigDecimal.ONE)).emailDeContato)
+        assertEquals("leitor@example.com", ok(PedidoDeConfiguracoes(emailDeContato = Campo.Presente(" leitor@example.com "))).emailDeContato)
+        assertEquals("leitor@example.com", repositorio.carregar().emailDeContato)
+        for (invalido in listOf("sem-arroba", "a b@example.com", "leitorç@example.com", "x@y\rz", "a".repeat(250) + "@x.io")) {
+            assertEquals(RepositorioDeConfiguracoes.MENSAGEM_EMAIL_INVALIDO, recusa(PedidoDeConfiguracoes(emailDeContato = Campo.Presente(invalido))))
+        }
+        // A recusa não apaga o que estava; ausente mantém; vazio e nulo limpam.
+        assertEquals("leitor@example.com", repositorio.carregar().emailDeContato)
+        assertEquals("leitor@example.com", ok(PedidoDeConfiguracoes(maxCiclos = 3)).emailDeContato)
+        assertNull(ok(PedidoDeConfiguracoes(emailDeContato = Campo.Presente(""))).emailDeContato)
+        assertEquals("leitor@example.com", ok(PedidoDeConfiguracoes(emailDeContato = Campo.Presente("leitor@example.com"))).emailDeContato)
+        assertNull(ok(PedidoDeConfiguracoes(emailDeContato = Campo.Presente(null))).emailDeContato)
+        // Um valor adulterado no arquivo nunca chega ao agente de coleta.
+        t.adulterar("UPDATE configuracoes SET emailDeContato = 'a b@x'")
+        assertNull(repositorio.carregar().emailDeContato)
+    }
 }

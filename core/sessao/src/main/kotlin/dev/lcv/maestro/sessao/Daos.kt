@@ -31,6 +31,17 @@ public interface SessaoDao {
     @Query("SELECT * FROM sessoes ORDER BY criadaEm DESC")
     public fun listar(): List<SessaoEntidade>
 
+    /**
+     * A lista da tela (`Sessões recentes`), observada: `listar()` é uma
+     * fotografia (emenda A4 do plano do `:app`). A ordem e o corte são os do
+     * `GET /sessions` do web (`sessions.ts:4372-4380`, `ORDER BY updated_at
+     * DESC LIMIT 30`): a sessão tocada por último vem primeiro, e é dela que a
+     * tela inicial tira os cartões "Sessão" e "Com o trabalho agora". A data
+     * tem largura fixa (`FormatoDeInstante.iso`), e por isso ordena como texto.
+     */
+    @Query("SELECT * FROM sessoes ORDER BY atualizadaEm DESC, criadaEm DESC LIMIT 30")
+    public fun observarTodas(): Flow<List<SessaoEntidade>>
+
     /** `runnerStopRequested` visto do outro lado: o que ainda está na fila ou rodando. */
     @Query("SELECT * FROM sessoes WHERE status IN ('queued', 'running')")
     public fun emExecucao(): List<SessaoEntidade>
@@ -95,6 +106,20 @@ public interface SessaoDao {
             "ELSE custoObservadoE8 + :deltaE8 END, atualizadaEm = :em WHERE id = :id",
     )
     public fun somarCusto(id: String, deltaE8: Long, em: String): Int
+
+    /**
+     * O teto financeiro elevado pelo operador para retomar uma sessão pausada
+     * por custo (plano do `:app`, emenda A9): só numa sessão retomável sem
+     * texto final, e só para um valor **acima** do teto atual e do custo já
+     * observado — igual a qualquer dos dois é recusado, porque a retomada
+     * pausaria de novo na primeira chamada. O portão está no SQL, como em toda
+     * transição.
+     */
+    @Query(
+        "UPDATE sessoes SET tetoDeCustoE8 = :tetoE8, atualizadaEm = :em " +
+            "WHERE id = :id AND status IN (:retomaveis) AND textoFinal IS NULL AND :tetoE8 > tetoDeCustoE8 AND :tetoE8 > custoObservadoE8",
+    )
+    public fun subirTeto(id: String, retomaveis: List<String>, tetoE8: Long, em: String): Int
 
     /** O carimbo de um evento (`appendEvent` do web também mexe em `updated_at`), sob o portão e a cerca opcional. */
     @Query(
@@ -162,6 +187,17 @@ public interface ArtefatoDao {
     /** `loadSessionArtifacts` (`sessions.ts:3079-3087`): por turno e, no empate, por criação. */
     @Query("SELECT * FROM artefatos WHERE sessaoId = :sessaoId ORDER BY turno ASC, criadoEm ASC")
     public fun daSessao(sessaoId: String): List<ArtefatoEntidade>
+
+    /**
+     * A lista dos autos, na ordem de [daSessao], sem os corpos. Só a tabela de
+     * artefatos a faz reemitir: o custo e o jornal, que mudam a cada passo da
+     * sessão, não a relêem (achado do Codex na #72).
+     */
+    @Query(
+        "SELECT id, sessaoId, ciclo, turno, agente, papel, status, titulo, custoE8, modelo, artefatoAnteriorId, " +
+            "bytesDoConteudo, auditoriaDeLinksJson, criadoEm FROM artefatos WHERE sessaoId = :sessaoId ORDER BY turno ASC, criadoEm ASC",
+    )
+    public fun observarResumos(sessaoId: String): Flow<List<LinhaDoResumoDoArtefato>>
 
     /** `loadSessionArtifact` (`sessions.ts:3089-3098`). */
     @Query("SELECT * FROM artefatos WHERE sessaoId = :sessaoId AND id = :id LIMIT 1")

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Fundo do quadrado da marca, como no SVG de origem. -->
+    <color name="ic_launcher_background">#101827</color>
+    <!-- Fundo da janela antes do primeiro quadro do Compose: o `background` de
+         `index.css` do painel web (`#e8eaed`). -->
+    <color name="janela">#E8EAED</color>
+</resources>

@@ -10,6 +10,8 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Instant
 import java.util.UUID
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 /** `ArtifactInput` (`sessions.ts:220-234`), com as linhas do motor de links do porte (emenda A6). */
 public data class EntradaDeArtefato(
@@ -187,6 +189,10 @@ public class RepositorioDeArtefatos(
     }
 
     public fun daSessao(sessaoId: String): List<ArtefatoEntidade> = banco.artefatos().daSessao(sessaoId)
+
+    /** A lista dos autos, observada: reemite quando um artefato entra, não a cada custo ou evento da sessão. */
+    public fun observarResumos(sessaoId: String): Flow<List<ResumoDoArtefato>> =
+        banco.artefatos().observarResumos(sessaoId).map { linhas -> linhas.map(ResumoDoArtefato::de) }
 
     public fun um(sessaoId: String, id: String): ArtefatoEntidade? = banco.artefatos().um(sessaoId, id)
 

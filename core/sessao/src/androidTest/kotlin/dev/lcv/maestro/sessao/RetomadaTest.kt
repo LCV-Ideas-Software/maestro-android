@@ -526,6 +526,117 @@ class RetomadaTest {
         assertEquals(listOf(Provedor.GEMINI, Provedor.CODEX), escalaNova)
     }
 
+    private fun recusada(resultado: Resultado<*>): String = (resultado as Resultado.Recusado).mensagem
+
+    /** Uma sessão pausada por custo com [custo] observado; o teto é o da entrada, US$ 5. */
+    private fun pausadaPorCusto(custo: String = "0"): String {
+        val id = t.sessoes.criar(t.entrada()).id
+        t.sessoes.somarCusto(id, BigDecimal(custo))
+        assertTrue(t.sessoes.transicionar(id, Estados.LIMITE_DE_CUSTO, "teto", t.evento(EventoDaSessao.BLOQUEADO, "teto")))
+        return id
+    }
+
+    /** Uma [Retomada] cujo relógio roda [corrida] na primeira leitura: entre a leitura da linha e a transação. */
+    private fun retomadaComCorrida(corrida: () -> Unit): Retomada {
+        var pendente: (() -> Unit)? = corrida
+        return Retomada(t.banco, t.sessoes, t.artefatos) {
+            pendente?.invoke()
+            pendente = null
+            t.relogio()
+        }
+    }
+
+    @Test
+    fun pedirComTetoNovoSoAcimaDoTetoEDoObservado() {
+        val id = pausadaPorCusto("5.5")
+        fun recusa(teto: String) = recusada(t.retomada.pedir(id, null, null, BancoDeTeste.TODAS_AS_CHAVES, BigDecimal(teto)))
+        assertEquals("Teto financeiro em USD deve ser positivo.", recusa("0"))
+        assertEquals(RepositorioDeConfiguracoes.MENSAGEM_TETO_ACIMA_DO_MAXIMO, recusa("92233720368.54775808"))
+        // Igual ao teto atual, igual ao observado, e entre os dois: os três recusados.
+        assertEquals(RepositorioDeSessoes.MENSAGEM_TETO_NAO_SOBE, recusa("5"))
+        assertEquals(RepositorioDeSessoes.MENSAGEM_TETO_NAO_SOBE, recusa("5.5"))
+        assertEquals(RepositorioDeSessoes.MENSAGEM_TETO_NAO_SOBE, recusa("5.2"))
+        assertEquals(500_000_000L, t.sessoes.carregar(id)!!.tetoDeCustoE8)
+        assertEquals(Estados.LIMITE_DE_CUSTO, t.sessoes.carregar(id)!!.status)
+        // O mesmo portão no SQL, sem a conferência na frente: igual ao observado não sobe.
+        assertEquals(0, t.banco.sessoes().subirTeto(id, Estados.RETOMAVEIS.toList(), 550_000_000L, "2026-09-28T00:00:00Z"))
+
+        val retomada = (t.retomada.pedir(id, null, null, BancoDeTeste.TODAS_AS_CHAVES, BigDecimal("6")) as Resultado.Ok).valor
+        assertEquals(600_000_000L, retomada.tetoDeCustoE8)
+        assertEquals(Estados.NA_FILA, retomada.status)
+        assertEquals(
+            listOf("Teto financeiro da sessao elevado para US$ 6.00 pelo operador.", "Sessao retomada pelo operador com Claude como lider do ciclo."),
+            t.mensagens(id).takeLast(2),
+        )
+        // Fora dos retomáveis, o portão do SQL também não sobe.
+        assertEquals(0, t.banco.sessoes().subirTeto(id, Estados.RETOMAVEIS.toList(), 700_000_000L, "2026-09-28T00:00:00Z"))
+    }
+
+    @Test
+    fun pedirComTetoQueReduzERecusadoMesmoAcimaDoObservado() {
+        val id = pausadaPorCusto("2")
+        assertEquals(RepositorioDeSessoes.MENSAGEM_TETO_NAO_SOBE, recusada(t.retomada.pedir(id, null, null, BancoDeTeste.TODAS_AS_CHAVES, BigDecimal("4"))))
+        // No SQL: reduzir e repetir o teto atual, ambos acima do observado, não sobem.
+        assertEquals(0, t.banco.sessoes().subirTeto(id, Estados.RETOMAVEIS.toList(), 400_000_000L, "2026-09-28T00:00:00Z"))
+        assertEquals(0, t.banco.sessoes().subirTeto(id, Estados.RETOMAVEIS.toList(), 500_000_000L, "2026-09-28T00:00:00Z"))
+        assertEquals(500_000_000L, t.sessoes.carregar(id)!!.tetoDeCustoE8)
+    }
+
+    @Test
+    fun pedirComTetoEAgenteIndisponivelNaoSobeOTeto() {
+        val id = pausadaPorCusto("5")
+        val jornal = t.mensagens(id)
+        assertEquals(
+            "Agentes indisponiveis para retomada: Codex.",
+            recusada(t.retomada.pedir(id, null, null, BancoDeTeste.TODAS_AS_CHAVES + (Provedor.CODEX to false), BigDecimal("7"))),
+        )
+        assertEquals(500_000_000L, t.sessoes.carregar(id)!!.tetoDeCustoE8)
+        assertEquals(jornal, t.mensagens(id))
+    }
+
+    @Test
+    fun pedirComTetoQuePerdeACorridaNoSqlNaoMudaNadaNemAnota() {
+        val id = pausadaPorCusto()
+        val jornal = t.mensagens(id)
+        // A sessão volta a rodar entre a leitura e a escrita: o portão do teto recusa.
+        val retomada = retomadaComCorrida {
+            assertEquals(1, t.banco.sessoes().mudarStatus(id, listOf(Estados.LIMITE_DE_CUSTO), Estados.RODANDO, null, "2026-09-28T00:00:00.000Z", null))
+        }
+        assertEquals(Retomada.MENSAGEM_MUDOU_DE_ESTADO, recusada(retomada.pedir(id, null, null, BancoDeTeste.TODAS_AS_CHAVES, BigDecimal("7"))))
+        assertEquals(500_000_000L, t.sessoes.carregar(id)!!.tetoDeCustoE8)
+        assertEquals(jornal, t.mensagens(id))
+    }
+
+    @Test
+    fun custoQueSobeNaCorridaAcimaDoTetoNovoRecusaARetomada() {
+        val id = pausadaPorCusto()
+        val jornal = t.mensagens(id)
+        // O observado passa do teto novo entre a leitura e a escrita, com o status igual: só o
+        // portão do teto no SQL recusa, e a sessão não volta à fila abaixo do que já gastou.
+        val retomada = retomadaComCorrida { t.sessoes.somarCusto(id, BigDecimal("10")) }
+        assertEquals(Retomada.MENSAGEM_MUDOU_DE_ESTADO, recusada(retomada.pedir(id, null, null, BancoDeTeste.TODAS_AS_CHAVES, BigDecimal("7"))))
+        val linha = t.sessoes.carregar(id)!!
+        assertEquals(Estados.LIMITE_DE_CUSTO, linha.status)
+        assertEquals(500_000_000L, linha.tetoDeCustoE8)
+        assertEquals(jornal, t.mensagens(id))
+    }
+
+    @Test
+    fun retomadaQuePerdeACorridaDesfazOTetoQueJaSubiuNaTransacao() {
+        val id = pausadaPorCusto()
+        val jornal = t.mensagens(id)
+        // A sessão passa a outro status retomável entre a leitura e a escrita: o portão do teto
+        // (retomável) passa, o da retomada (o status lido) não, e a transação desfaz o teto.
+        val retomada = retomadaComCorrida {
+            assertEquals(1, t.banco.sessoes().mudarStatus(id, listOf(Estados.LIMITE_DE_CUSTO), Estados.ERRO, "outro", "2026-09-28T00:00:00.000Z", null))
+        }
+        assertEquals(Retomada.MENSAGEM_MUDOU_DE_ESTADO, recusada(retomada.pedir(id, null, null, BancoDeTeste.TODAS_AS_CHAVES, BigDecimal("7"))))
+        val linha = t.sessoes.carregar(id)!!
+        assertEquals(Estados.ERRO, linha.status)
+        assertEquals(500_000_000L, linha.tetoDeCustoE8)
+        assertEquals(jornal, t.mensagens(id))
+    }
+
     @Test
     fun segundoPedidoDeRetomadaNaoEnfileiraDuasVezes() {
         val id = t.sessoes.criar(t.entrada()).id

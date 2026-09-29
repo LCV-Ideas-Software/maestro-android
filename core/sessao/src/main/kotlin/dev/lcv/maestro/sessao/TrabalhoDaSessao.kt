@@ -20,10 +20,17 @@ public interface GrafoDaSessao {
  * localizador global (`Configuration.Builder().setWorkerFactory`). O `:app`
  * a instala na sua `Configuration.Provider`; os testes, no
  * `TestListenableWorkerBuilder`.
+ *
+ * O grafo é resolvido **quando um worker nasce**, não quando a fábrica é
+ * criada: a configuração do WorkManager — que carrega esta fábrica — é lida
+ * na primeira chamada a `WorkManager.getInstance`, e uma fábrica que
+ * capturasse o grafo pronto amarraria essa configuração à construção da
+ * [Fabrica] (revisão cruzada de 28/09/2026 sobre o plano do `:app`, emenda
+ * A1). A [Fabrica], por sua vez, só toca o WorkManager depois de instalada.
  */
-public class FabricaDeTrabalhos(private val grafo: GrafoDaSessao) : WorkerFactory() {
+public class FabricaDeTrabalhos(private val grafo: () -> GrafoDaSessao) : WorkerFactory() {
     override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker? =
-        if (workerClassName == TrabalhoDaSessao::class.java.name) TrabalhoDaSessao(appContext, workerParameters, grafo) else null
+        if (workerClassName == TrabalhoDaSessao::class.java.name) TrabalhoDaSessao(appContext, workerParameters, grafo()) else null
 }
 
 /**

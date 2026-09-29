@@ -76,13 +76,17 @@ refuse it (the final text carries no HTML, by the operator's decision of
 kept disagreeing with the specification, so the operator decided on 24/09/2026
 to use the Java implementation of CommonMark instead.
 
-No binary this repository distributes contains them yet: `:app` does not depend
-on `:core:protocolo`. The first APK that includes the module has to carry what
-the licences require of a distributed work — a copy of the Apache-2.0 text and
-the attribution in the three Jackson `NOTICE` files, the MIT notices of
-FastDoubleParser and Schubfach, and the BSD-2-Clause copyright notice,
-conditions and disclaimer of `commonmark` — and the repository `NOTICE` does
-not carry them today.
+Since the first pull request of `:app` (MAEANDR-21, 28/09/2026) the APK
+includes the module, and it carries what the licences require of a distributed
+work: a copy of the Apache-2.0 text (`LICENSES/Apache-2.0.txt`, taken from
+`jackson-core-2.22.2.jar` and byte-identical to the one at apache.org), and,
+in the repository `NOTICE`, the attribution in the Jackson `NOTICE` files, the
+MIT notices of FastDoubleParser (with the third-party licences it bundles) and
+Schubfach, and the BSD-2-Clause copyright notice, conditions and disclaimer of
+`commonmark` — each reproduced from the file inside the artifact. The build
+copies both files into the APK's assets, and the licences screen shows them.
+The APK packaging drops the `META-INF` licence files of the jars, so the
+notices have to travel this way.
 
 ### `:core:provedores`
 
@@ -94,8 +98,8 @@ not carry them today.
 | `com.squareup.okhttp3:okhttp-dnsoverhttps` | 5.5.0 | [Apache-2.0](https://github.com/square/okhttp/blob/parent-5.5.0/LICENSE.txt) | OkHttp's official DNS-over-HTTPS resolver. Every name the link audit resolves goes to Google Public DNS (`dns.google`) over HTTPS, and every answer is checked against the blocked ranges before any connection (operator's decision of 25/09/2026) |
 | `com.github.crawler-commons:crawler-commons` | 1.6 | [Apache-2.0](https://github.com/crawler-commons/crawler-commons/blob/crawler-commons-1.6/LICENSE) | The reference `robots.txt` parser for RFC 9309 (`SimpleRobotRulesParser`), used by the link audit in place of a parser of our own (operator's decision of 25/09/2026) |
 | `commons-io:commons-io` | 2.21.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of `crawler-commons`; its jar carries the `META-INF/NOTICE.txt` reproduced below |
-| `org.slf4j:slf4j-api` | 2.0.17 | [MIT](https://www.slf4j.org/license.html), © 2004-2022 QOS.ch Sarl (Switzerland) | Transitive of `crawler-commons`, which logs through it |
-| `org.slf4j:slf4j-nop` | 2.0.17 | [MIT](https://www.slf4j.org/license.html), © 2004-2022 QOS.ch Sarl (Switzerland) | The official no-operation binding, on the runtime and test runtime classpaths, so SLF4J neither logs nor warns on stderr |
+| `org.slf4j:slf4j-api` | 2.0.19 | [MIT](https://www.slf4j.org/license.html), © 2004-2023 QOS.ch | Transitive of `crawler-commons`, which logs through it |
+| `org.slf4j:slf4j-nop` | 2.0.19 | [MIT](https://www.slf4j.org/license.html), © 2004-2023 QOS.ch | The official no-operation binding, on the runtime and test runtime classpaths, so SLF4J neither logs nor warns on stderr |
 | `com.squareup.okio:okio` (`okio-jvm`) | 3.18.1 | [Apache-2.0](https://github.com/square/okio/blob/parent-3.18.1/LICENSE.txt) | Transitive of OkHttp |
 | `org.jetbrains.kotlinx:kotlinx-coroutines-core` (`-jvm`) | 1.11.0 | [Apache-2.0](https://github.com/Kotlin/kotlinx.coroutines/blob/1.11.0/LICENSE.txt) | Suspending provider calls and cancellable waits |
 | `org.jetbrains.kotlin:kotlin-stdlib` | 2.4.20 | [Apache-2.0](https://github.com/JetBrains/kotlin/blob/v2.4.20/license/LICENSE.txt) | The Kotlin standard library, needed by every Kotlin module, `:core:protocolo` included; it was missing from this inventory |
@@ -135,8 +139,12 @@ operator decided on 23/09/2026 to use OkHttp alone. The Public Suffix List row
 was found by listing the contents of `okhttp-jvm-5.5.0.jar`, not in the
 dependency graph. MPL-2.0 is a file-level copyleft: distributing it unmodified,
 as OkHttp ships it, requires telling recipients where its source form is
-available, which the row's link does. The first APK that includes the module
-has to carry that notice along with the Apache-2.0 text.
+available, which the row's link does. The APK carries that notice, the
+`commons-io` notice and the SLF4J licence in the repository `NOTICE`, with the
+Apache-2.0 text in `LICENSES/Apache-2.0.txt`, since the first pull request of
+`:app`. The SLF4J rows were 2.0.17 in this inventory until 28/09/2026; the
+version catalog resolves both artifacts to 2.0.19, and the copyright line is
+the one in each 2.0.19 jar.
 
 Test-only dependencies (`mockwebserver3`, `okhttp-tls`, `kotlinx-coroutines-test`,
 JUnit and `kotlin-test`) never reach a distributed binary and are not listed.
@@ -165,10 +173,12 @@ does not show is that the code is Protocol Buffers, which the jar's package,
 and 264 KB for `kotlinx-serialization`; 924 KB for `okhttp-android`; 60 KB,
 23 KB, 4 KB and 28 KB for the last four rows.
 
-The first APK that includes the module has to carry, besides what the sections
-above already list, the BSD-3-Clause notice of the repackaged Protocol
-Buffers: its licence requires reproducing the copyright notice and conditions
-in the documentation or other materials distributed with the binary.
+The APK carries, besides what the sections above list, the BSD-3-Clause
+notice of the repackaged Protocol Buffers in the repository `NOTICE`: its
+licence requires reproducing the copyright notice and conditions in the
+documentation or other materials distributed with the binary. The licence file
+inside the artifact omits the copyright line, so the `NOTICE` adds the first
+line of the upstream repository's `LICENSE` and says where it came from.
 
 Test-only dependencies (`androidx.test:runner`, `androidx.test.ext:junit`)
 never reach a distributed binary and are not listed.
@@ -212,6 +222,47 @@ KSP, `androidx.room:room-testing`, `androidx.work:work-testing`,
 `mockwebserver3`, `kotlinx-coroutines-test`, `androidx.test:runner`,
 `androidx.test.ext:junit`, JUnit and `kotlin-test`) never reach a distributed
 binary and are not listed.
+
+### `:app`
+
+| Component | Version | License | Purpose |
+| --- | --- | --- | --- |
+| `androidx.compose:compose-bom` | 2026.09.00 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | The official bill of materials that fixes each Compose artifact's version; metadata only |
+| `androidx.compose.runtime:runtime`, `-saveable`, `-retain` and `-annotation`; `androidx.compose.ui:ui`, `-graphics`, `-text`, `-unit`, `-geometry`, `-util` and `-tooling-preview`; `androidx.compose.foundation:foundation` and `-layout`; `androidx.compose.animation:animation` and `-core`; `androidx.compose.material:material-ripple` (each with its `-android` variant) | 1.12.1 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Jetpack Compose, the toolkit of every screen (specification, section 2.3) |
+| `androidx.compose.material3:material3` (`-android`) | 1.4.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Material 3 components: buttons, fields, dialogs, the snackbar |
+| `androidx.activity:activity`, `-ktx` and `-compose` | 1.13.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | The single `ComponentActivity`, edge-to-edge, and the activity-result registry of the notification permission request |
+| `androidx.lifecycle:lifecycle-viewmodel`, `-viewmodel-ktx`, `-viewmodel-compose`, `-viewmodel-savedstate`, `-viewmodel-navigation3`, `-runtime`, `-runtime-ktx`, `-runtime-compose`, `-process`, `-common`, `-common-java8`, `-livedata`, `-livedata-core`, `-livedata-core-ktx` and `-service` (with their `-android`/`-jvm` variants) | 2.11.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | The screens' `ViewModel`s, the lifecycle-aware collection of Room flows, and `ProcessLifecycleOwner`, which runs the reconciliation on every entry into the foreground; in the app they raise the 2.6.2 that WorkManager brings |
+| `androidx.navigation3:navigation3-runtime` and `-ui` (`-android`) | 1.2.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Navigation between the screens (the plan's rule C1: Navigation 3 when a stable 1.x exists) |
+| `androidx.navigationevent:navigationevent` and `-compose` (`-android`) | 1.1.1 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of Navigation 3: the back gesture |
+| `androidx.savedstate:savedstate`, `-ktx` and `-compose` (`-android`) | 1.4.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of Activity, Lifecycle and Navigation 3: the saved back stack |
+| `org.jetbrains.kotlinx:kotlinx-serialization-core` and `-json` (`-jvm`) | 1.11.0 | [Apache-2.0](https://github.com/Kotlin/kotlinx.serialization/blob/v1.11.0/LICENSE.txt) | The saved back stack of Navigation 3 (`@Serializable` keys); declared at the current stable version, which raises the 1.7.3 that DataStore brings |
+| `org.commonmark:commonmark-ext-gfm-tables` | 0.30.0 | [BSD-2-Clause](https://github.com/commonmark/commonmark-java/blob/commonmark-parent-0.30.0/LICENSE.txt), © 2015 Atlassian Pty Ltd | The licences screen reads `THIRDPARTY.md`, which is Markdown with tables, with the reference implementation instead of a reader of our own |
+| `androidx.core:core` and `-ktx` | 1.18.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of Activity and Compose; raises the 1.12.0 that WorkManager brings |
+| `androidx.core:core-viewtree`, `androidx.customview:customview-poolingcontainer`, `androidx.autofill:autofill`, `androidx.collection:collection-ktx`, `androidx.emoji2:emoji2`, `androidx.graphics:graphics-path`, `androidx.window:window` and `window-core` (`-android`), `androidx.profileinstaller:profileinstaller` | 1.0.0, 1.0.0, 1.0.0, 1.5.0, 1.4.0, 1.0.1, 1.5.0, 1.5.0, 1.4.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of Compose and Activity |
+| Material Symbols (19 vector drawables, `app/src/main/res/drawable/simbolo_*.xml`) | commit `bd8cb85bd4bad964fe6918f79665bb40c3a8efef` | [Apache-2.0](https://github.com/google/material-design-icons/blob/bd8cb85bd4bad964fe6918f79665bb40c3a8efef/LICENSE) | The screen icons, from Google's official repository; not a Maven artifact. Each file carries a notice of the one change made to it: the tint refers to the platform's theme attribute, because the app does not use AppCompat |
+
+The app also uses the four `:core:*` modules, recorded above; with them the
+APK carries Jackson, `commonmark`, OkHttp, crawler-commons, commons-io, SLF4J
+and the repackaged Protocol Buffers, whose notices travel in the repository
+`NOTICE` (see the sections above). The rows come from the resolved
+`releaseRuntimeClasspath` of `:app`, measured on 28/09/2026 against the
+classpath of `:core:sessao`, and the licences from each artifact's POM; every
+AndroidX artifact carries its Apache-2.0 text in `META-INF/androidx/…` and none
+carries a `NOTICE` file. Measured size before shrinking: 4 338 KB for
+`foundation`, 671 KB for `foundation-layout`, 3 953 KB for `ui`, 807 KB for
+`ui-text`, 738 KB for `ui-graphics`, 1 950 KB for `runtime`, 5 047 KB for
+`material3`, 671 KB and 418 KB for the animation artifacts, 1 333 KB and
+180 KB for `androidx.core`, 474 KB for `window`, 395 KB and 287 KB for
+`kotlinx-serialization`, 249 KB for Navigation 3, 24 KB for
+`commonmark-ext-gfm-tables`, and the rest under 220 KB each —
+23 533 KB in all for the artifacts `:core:sessao` does not already bring or
+brings at a lower version.
+
+Build-time, debug-only and test-only dependencies (the Compose compiler and
+the kotlinx.serialization compiler plugins, `ui-tooling`, `ui-test-manifest`,
+`ui-test-junit4`, `espresso-core`, `work-testing`, `androidx.test:runner`,
+`androidx.test.ext:junit`, `kotlinx-coroutines-test`, JUnit and `kotlin-test`)
+never reach a release binary and are not listed.
 
 ## Accepted upstream constraints
 

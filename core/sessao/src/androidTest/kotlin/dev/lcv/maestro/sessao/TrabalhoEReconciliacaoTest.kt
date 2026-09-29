@@ -69,7 +69,7 @@ class TrabalhoEReconciliacaoTest {
     fun iniciar() {
         WorkManagerTestInitHelper.initializeTestWorkManager(
             contexto,
-            Configuration.Builder().setWorkerFactory(FabricaDeTrabalhos(grafo)).setExecutor(SynchronousExecutor()).build(),
+            Configuration.Builder().setWorkerFactory(FabricaDeTrabalhos { grafo }).setExecutor(SynchronousExecutor()).build(),
         )
     }
 
@@ -78,7 +78,7 @@ class TrabalhoEReconciliacaoTest {
 
     private fun worker(id: String): TrabalhoDaSessao = TestListenableWorkerBuilder<TrabalhoDaSessao>(contexto)
         .setInputData(workDataOf(TrabalhoDaSessao.CHAVE_DA_SESSAO to id))
-        .setWorkerFactory(FabricaDeTrabalhos(grafo))
+        .setWorkerFactory(FabricaDeTrabalhos { grafo })
         .setForegroundUpdater(atualizador)
         .build()
 

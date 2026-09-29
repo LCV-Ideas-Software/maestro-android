@@ -128,6 +128,28 @@ public data class ArtefatoEntidade(
 )
 
 /**
+ * O resumo de um artefato como o banco o devolve: as colunas de [ArtefatoEntidade]
+ * sem o texto aceito e o relatório de revisão, que chegam a 1 MiB cada. É o que a
+ * lista dos autos observa; o corpo só é lido para o artefato escolhido.
+ */
+public data class LinhaDoResumoDoArtefato(
+    val id: String,
+    val sessaoId: String,
+    val ciclo: Int,
+    val turno: Int,
+    val agente: String,
+    val papel: String,
+    val status: String,
+    val titulo: String,
+    val custoE8: Long,
+    val modelo: String?,
+    val artefatoAnteriorId: String?,
+    val bytesDoConteudo: Long,
+    val auditoriaDeLinksJson: String,
+    val criadoEm: String,
+)
+
+/**
  * `maestro_ai_settings` (`sessions.ts:482-494`), sem `configured_secrets_json`
  * (a chave é do cofre, seção 6), sem `models_json` (o modelo de cada provedor
  * é fixo em `Provedor.modelo`) e sem as colunas de migração do D1 legado.
@@ -141,6 +163,13 @@ public data class ConfiguracoesEntidade(
     @ColumnInfo(defaultValue = "2") val maxCiclos: Int = 2,
     val taxasJson: String,
     val atualizadaEm: String,
+    /**
+     * O e-mail de contato opcional, do usuário, que vai só ao Crossref
+     * (especificação, seção 5.4, item 7); esquema v3 (plano do `:app`). Já
+     * validado pela regra do `AgenteDeColeta` ao gravar: só ASCII visível e um
+     * `@`, para nunca lançar ao montar o agente de coleta.
+     */
+    val emailDeContato: String? = null,
 )
 
 public const val CONFIGURACOES_ID: String = "default"

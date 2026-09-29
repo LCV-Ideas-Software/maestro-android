@@ -22,6 +22,12 @@ work = "2.12.0"
 ksp = "2.3.12"
 androidx-test-runner = "1.7.0"
 androidx-test-ext-junit = "1.3.0"
+androidx-test-espresso = "3.7.0"
+compose-bom = "2026.09.00"
+androidx-activity-compose = "1.13.0"
+androidx-lifecycle = "2.11.0"
+androidx-navigation3 = "1.2.0"
+kotlinx-serialization = "1.11.0"
 
 [libraries]
 # Leitura do `maestro_revision_report`. O relatório é JSON por contrato
@@ -38,6 +44,10 @@ jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", ver
 # origem de cada nó; o reconhecimento escrito à mão levou seis rodadas de
 # revisão (decisão do operador de 24/09/2026).
 commonmark = { module = "org.commonmark:commonmark", version.ref = "commonmark" }
+# A extensão oficial de tabelas GFM da commonmark-java: a tela de licenças do
+# `:app` lê o `THIRDPARTY.md`, que é Markdown com tabelas, pela implementação de
+# referência, e não por um leitor escrito à mão.
+commonmark-ext-gfm-tables = { module = "org.commonmark:commonmark-ext-gfm-tables", version.ref = "commonmark" }
 # Transporte dos seis provedores em `:core:provedores` (especificação, seção
 # 5.3). Só o OkHttp, sem Retrofit: cada provedor é um POST num endpoint só, com
 # corpo JSON montado pelo Jackson, e o Retrofit só embrulharia o mesmo OkHttp
@@ -74,9 +84,44 @@ androidx-room-testing = { module = "androidx.room:room-testing", version.ref = "
 # 4.1 exige. `work-testing` só em teste instrumentado.
 androidx-work-runtime = { module = "androidx.work:work-runtime", version.ref = "work" }
 androidx-work-testing = { module = "androidx.work:work-testing", version.ref = "work" }
+# A interface do `:app` (quarta entrega, especificação, seção 2.3): Jetpack
+# Compose com Material 3, pelo BOM oficial, que fixa a versão de cada artefato
+# do Compose; `activity-compose` liga a Activity ao Compose e traz o registro
+# de resultados (permissão de notificações, seletor de documentos); os
+# artefatos do Lifecycle dão o `ViewModel`, a coleta de `Flow` presa ao ciclo de
+# vida e o `ProcessLifecycleOwner`, que dispara a reconciliação na abertura do
+# aplicativo (seção 4.3). Versões conferidas no repositório Maven do Google em
+# 28/09/2026.
+androidx-compose-bom = { module = "androidx.compose:compose-bom", version.ref = "compose-bom" }
+androidx-compose-ui = { module = "androidx.compose.ui:ui" }
+androidx-compose-ui-graphics = { module = "androidx.compose.ui:ui-graphics" }
+androidx-compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
+androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
+androidx-compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
+androidx-compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
+androidx-compose-material3 = { module = "androidx.compose.material3:material3" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity-compose" }
+androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "androidx-lifecycle" }
+androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "androidx-lifecycle" }
+androidx-lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "androidx-lifecycle" }
+# A navegação entre as telas é a Navigation 3: o plano do `:app` (ponto C1,
+# aprovado na revisão cruzada de 28/09/2026) a manda usar se houver versão 1.x
+# estável na página oficial de lançamentos no dia, e havia — 1.2.0, de
+# 23/09/2026 (https://developer.android.com/jetpack/androidx/releases/navigation3).
+# A pilha de volta é uma lista de chaves do próprio aplicativo;
+# `lifecycle-viewmodel-navigation3` dá a cada tela da pilha o seu `ViewModel`,
+# descartado quando ela sai da pilha.
+androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "androidx-navigation3" }
+androidx-navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "androidx-navigation3" }
+androidx-lifecycle-viewmodel-navigation3 = { module = "androidx.lifecycle:lifecycle-viewmodel-navigation3", version.ref = "androidx-lifecycle" }
+# `rememberNavBackStack` guarda as chaves da pilha pelo kotlinx.serialization
+# (cada chave é `@Serializable`); declarado na versão estável corrente, e não
+# na que a Navigation 3 traz de carona.
+kotlinx-serialization-core = { module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "kotlinx-serialization" }
 # Só em teste instrumentado: o Keystore só existe em aparelho ou emulador.
 androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidx-test-runner" }
 androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidx-test-ext-junit" }
+androidx-test-espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "androidx-test-espresso" }
 # Só em teste: servidor HTTP falso, para nenhum teste falar com provedor real.
 okhttp-mockwebserver = { module = "com.squareup.okhttp3:mockwebserver3", version.ref = "okhttp" }
 # Só em teste: certificados de mentira, para o servidor falso falar HTTPS.
@@ -93,3 +138,8 @@ kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 # Kotlin 2.x) e o plugin oficial do Room, que exporta o esquema para `schemas/`.
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 room = { id = "androidx.room", version.ref = "room" }
+# O compilador do Compose, que desde o Kotlin 2.0 é plugin do próprio Kotlin.
+compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+# O plugin oficial do kotlinx.serialization, também do próprio Kotlin: gera o
+# serializador das chaves da navegação.
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

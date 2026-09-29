@@ -3,9 +3,12 @@ package dev.lcv.maestro.sessao
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.lcv.maestro.provedores.Provedor
 import java.math.BigDecimal
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -176,5 +179,51 @@ class RepositorioDeSessoesTest {
         val projecao = ProjecaoDaSessao.de(lidas.last()!!, t.banco.eventos().daSessao(id))
         assertEquals(BigDecimal("0.10000000"), projecao.custoObservadoUsd)
         assertEquals(listOf("Maestro AI Android session queued.", "vai"), projecao.eventos.map { it.mensagem })
+    }
+
+    @Test
+    fun resumosDosArtefatosSoReemitemQuandoUmArtefatoEntra() = runBlocking {
+        val id = criar().id
+        t.artefatos.inserir(t.artefato(id, 1, Provedor.CLAUDE, papel = "draft", texto = "Rascunho."))
+        val emissoes = CopyOnWriteArrayList<List<ResumoDoArtefato>>()
+        val coleta = launch(Dispatchers.IO) { t.artefatos.observarResumos(id).collect { emissoes += it } }
+        withTimeout(10_000) { while (emissoes.isEmpty()) delay(20) }
+        // O custo e o jornal mudam a cada passo da sessão: a lista dos autos não é relida (achado do Codex na #72).
+        t.sessoes.somarCusto(id, BigDecimal("0.1"))
+        assertTrue(t.sessoes.anotar(id, t.evento(EventoDaSessao.RODANDO, "passo")))
+        delay(1_000)
+        assertEquals(1, emissoes.size)
+        // Um artefato novo, sim.
+        t.artefatos.inserir(t.artefato(id, 2, Provedor.CODEX, texto = "Revisão."))
+        withTimeout(10_000) { while (emissoes.size < 2) delay(20) }
+        coleta.cancel()
+        assertEquals(listOf(1, 2), emissoes.last().map { it.turno })
+    }
+
+    @Test
+    fun observarTodasTrazPrimeiroATocadaPorUltimoEAsTrintaMaisRecentes() = runBlocking {
+        val antiga = criar().id
+        val nova = criar().id
+        assertEquals(listOf(nova, antiga), t.sessoes.observarTodas().first().map { it.id })
+        // Um evento na mais antiga a leva ao topo, como o `ORDER BY updated_at DESC` do web.
+        assertTrue(t.sessoes.anotar(antiga, t.evento(EventoDaSessao.RODANDO, "tocada")))
+        assertEquals(listOf(antiga, nova), t.sessoes.observarTodas().first().map { it.id })
+        // O corte do web: trinta.
+        repeat(29) { criar() }
+        val lista = t.sessoes.observarTodas().first()
+        assertEquals(30, lista.size)
+        assertFalse(lista.any { it.id == nova })
+    }
+
+    @Test
+    fun observarTodasEmiteAListaAoCriarOutraSessao() = runBlocking {
+        val primeira = criar().id
+        val listas = async(Dispatchers.IO) { withTimeout(10_000) { t.sessoes.observarTodas().take(2).toList() } }
+        delay(500)
+        val segunda = criar().id
+        val lidas = listas.await()
+        assertEquals(listOf(primeira), lidas[0].map { it.id })
+        // A tocada por último primeiro (`atualizadaEm DESC`; o relógio de teste avança a cada leitura).
+        assertEquals(listOf(segunda, primeira), lidas[1].map { it.id })
     }
 }

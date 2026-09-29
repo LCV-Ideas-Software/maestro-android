@@ -31,11 +31,19 @@ public class AgenteDeColeta(versao: String, emailDeContato: String?) {
     /** O nome pelo qual o `robots.txt` se dirige a este crawler. */
     public val nomeDoRobo: String = NOME_DO_ROBO
 
-    private fun cabeNumCabecalho(valor: String): Boolean = valor.isNotEmpty() && valor.all { it.code in 0x21..0x7E }
-
     public companion object {
         public const val PRODUTO: String = "MaestroEditorialAI"
         public const val NOME_DO_ROBO: String = "maestroeditorialai"
         public const val REPOSITORIO: String = "https://github.com/LCV-Ideas-Software/maestro-android"
+
+        private fun cabeNumCabecalho(valor: String): Boolean = valor.isNotEmpty() && valor.all { it.code in 0x21..0x7E }
+
+        /**
+         * A regra do [emailDeContato], para quem grava o valor antes de ele
+         * chegar aqui: só ASCII visível (`0x21..0x7E`) e um `@`. O
+         * `:core:sessao` a aplica ao salvar as configurações, e por isso um
+         * valor gravado nunca faz este construtor lançar.
+         */
+        public fun emailDeContatoValido(valor: String): Boolean = cabeNumCabecalho(valor) && '@' in valor
     }
 }

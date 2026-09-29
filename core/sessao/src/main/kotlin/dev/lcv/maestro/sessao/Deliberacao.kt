@@ -25,6 +25,23 @@ import kotlin.random.Random
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
+/**
+ * O que o web trata como `operationalError` ou erro lançado pelo `callProvider`:
+ * a mensagem de uma chamada que não trouxe texto. Também é a do "Testar
+ * chaves" ([TesteDeChaves]), que é a mesma chamada com outro pedido.
+ */
+internal fun mensagemOperacional(agente: Provedor, resposta: RespostaDoProvedor): String = when (resposta) {
+    is RespostaDoProvedor.FalhaHttp -> resposta.mensagem
+    is RespostaDoProvedor.FalhaDeRede -> resposta.mensagem
+    is RespostaDoProvedor.RespostaInvalida -> resposta.mensagem
+    is RespostaDoProvedor.Incompleta -> resposta.motivo
+    RespostaDoProvedor.SemChave -> "${agente.rotulo} sem chave configurada neste aparelho."
+    RespostaDoProvedor.ChaveInvalida -> "${agente.rotulo}: a chave configurada tem caractere invalido; cole a chave de novo."
+    RespostaDoProvedor.SegredoIrrecuperavel -> "${agente.rotulo}: a chave guardada foi invalidada pelo aparelho; informe a chave de novo."
+    RespostaDoProvedor.ChaveIndisponivel -> "${agente.rotulo}: a chave nao pode ser lida agora; tente de novo."
+    RespostaDoProvedor.ExigeAutenticacao, is RespostaDoProvedor.Concluida -> error("not an operational failure")
+}
+
 /** Quem faz a chamada paga: em produção, `ClienteDeProvedores::chamar`; em teste, respostas combinadas. */
 public fun interface Chamador {
     public suspend fun chamar(provedor: Provedor, pedido: Pedido, tempoRestante: Duration?): RespostaDoProvedor
@@ -418,19 +435,6 @@ public class Deliberacao(
             indiceDoTurno = 0
             aoAvancar(Progresso(rodada, autorAtual, observado))
             return null
-        }
-
-        /** O que o web trata como `operationalError` ou erro lançado pelo `callProvider`. */
-        fun mensagemOperacional(agente: Provedor, resposta: RespostaDoProvedor): String = when (resposta) {
-            is RespostaDoProvedor.FalhaHttp -> resposta.mensagem
-            is RespostaDoProvedor.FalhaDeRede -> resposta.mensagem
-            is RespostaDoProvedor.RespostaInvalida -> resposta.mensagem
-            is RespostaDoProvedor.Incompleta -> resposta.motivo
-            RespostaDoProvedor.SemChave -> "${agente.rotulo} sem chave configurada neste aparelho."
-            RespostaDoProvedor.ChaveInvalida -> "${agente.rotulo}: a chave configurada tem caractere invalido; cole a chave de novo."
-            RespostaDoProvedor.SegredoIrrecuperavel -> "${agente.rotulo}: a chave guardada foi invalidada pelo aparelho; informe a chave de novo."
-            RespostaDoProvedor.ChaveIndisponivel -> "${agente.rotulo}: a chave nao pode ser lida agora; tente de novo."
-            RespostaDoProvedor.ExigeAutenticacao, is RespostaDoProvedor.Concluida -> error("not an operational failure")
         }
 
         /** `consumeSerialTurnBudget`: `null` é "há orçamento"; um desfecho já gravou a pausa (ou a perdeu). */

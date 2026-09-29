@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A marca completa, com o quadrado arredondado, como em
+  `Outros Trabalhos/brand/lcv-ideas-software-mark.svg` (o mesmo ativo da
+  calculadora-android). Usada no cabeçalho, no lugar do logotipo que o produto
+  web carrega ali. O ícone do lançador é outro arquivo,
+  porque lá o fundo é camada separada.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="40dp"
+    android:height="40dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <path
+        android:pathData="M116,0h280a116,116 0 0 1 116,116v280a116,116 0 0 1 -116,116h-280a116,116 0 0 1 -116,-116v-280a116,116 0 0 1 116,-116z"
+        android:fillColor="#101827" />
+    <path
+        android:pathData="M134,74h246"
+        android:strokeColor="#334155"
+        android:strokeWidth="18"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M132,136v240h154"
+        android:strokeColor="#7DD3FC"
+        android:strokeWidth="44"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M366,136c-88,0 -150,60 -150,120s62,120 150,120"
+        android:strokeColor="#34D399"
+        android:strokeWidth="44"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M310,144l82,232l82,-232"
+        android:strokeColor="#F59E0B"
+        android:strokeWidth="44"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M134,438h246"
+        android:strokeColor="#334155"
+        android:strokeWidth="18"
+        android:strokeLineCap="round" />
+</vector>

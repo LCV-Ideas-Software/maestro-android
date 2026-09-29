@@ -1,8 +1,62 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<!--
+  As permissões do produto, cada uma com o seu motivo (especificação):
+  INTERNET — os seis provedores e a auditoria de links (o `:core:provedores` é
+  Kotlin puro e não declara nada); POST_NOTIFICATIONS — pedida na tela, antes
+  da primeira sessão, com a razão dita em texto (seção 4.1); USE_BIOMETRIC —
+  o `BiometricPrompt` da plataforma que renova a janela de autenticação da
+  chave do Keystore (seção 6.2). FOREGROUND_SERVICE e o tipo `dataSync` vêm do
+  manifesto do `:core:sessao`, pela fusão.
+
+  O banco do Room fica fora do backup e da transferência entre aparelhos
+  (`dataExtractionRules`, seção 4.2); o segredo cifrado vive em
+  `noBackupFilesDir`, que o Android exclui sempre.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <application
+        android:name=".MaestroApplication"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:dataExtractionRules="@xml/data_extraction_rules" />
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Maestro">
+
+        <!-- Uma Activity só, `singleTask`: o toque na notificação da sessão
+             chega por `onNewIntent` quando o aplicativo já está aberto, e por
+             `onCreate` quando não está; nos dois casos a tela da sessão abre. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.Maestro">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Inicialização sob demanda do WorkManager: só o inicializador
+             automático dele sai do provedor do App Startup (o provedor fica,
+             para o que mais o usar); a configuração vem de
+             `MaestroApplication`, que é `Configuration.Provider` e instala a
+             `FabricaDeTrabalhos` do `:core:sessao`. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+    </application>
 
 </manifest>

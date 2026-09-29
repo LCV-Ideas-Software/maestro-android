@@ -6,6 +6,48 @@ All material changes to Maestro Android are recorded here.
 
 ### Added
 
+- Add the screens in `:app` (MAEANDR-21, first of two pull requests): Jetpack
+  Compose with Material 3 and Navigation 3 over the four `:core:*` modules,
+  ported from the web's `MaestroAiModule.tsx` (`admin-app` `c5f5d73c`) in the
+  Proton model — the start screen (metric cards, the new-session form with
+  the web's four validations, the observed list of sessions, the six-hour
+  budget warning), the session screen (cancel written to Room before the job
+  is cancelled, resume with the web's two validations and, for a session
+  paused by cost, a raised ceiling; the live accumulated cost; the last eight
+  events; the artifacts with the text, diff, report, links and metadata
+  tabs; the current or final text; the operational error with the stop
+  reason and the decision-16 notice), the settings screen (each API key to
+  the device vault with authentication when the window has expired, the
+  vault level, the missing screen lock, costs, the 1–300-minute limit,
+  read-only models, the Crossref contact e-mail, the protocol, the
+  notification permission state, "Testar chaves" behind a confirmation and
+  authentication) and the licences screen, which reads `THIRDPARTY.md` with
+  `commonmark-java` and its GFM tables extension. `MaestroApplication` is the
+  WorkManager `Configuration.Provider` (on-demand initialization, the
+  automatic initializer removed) and runs the reconciliation on every entry
+  of the process into the foreground, under the same lock the screens take
+  between creating or resuming a session and enqueuing it. The platform
+  `BiometricPrompt` runs before every start, resume and key test. The
+  launcher icon and the top bar carry the LCV Ideas & Software mark; the
+  screen icons are Google's Material Symbols. Instrumented tests run the
+  screens over the real Room database with the vault, the scheduler and the
+  authentication replaced by fakes, plus the process start-up; JVM tests
+  cover the labels, formats, diff, the budget threshold and the manifest.
+- Add to `:core:sessao` what the screens need: a new cost ceiling on the
+  resume request (above both the current ceiling and the observed cost,
+  raised in the resume's own transaction, so a refused resume leaves the
+  ceiling where it was), `observarTodas`, `observarResumos` (the artifact
+  list of the session screen without the accepted text and the review
+  report, observed on the artifact table only, so cost and journal updates
+  do not reload the bodies),
+  the optional contact e-mail in the settings (Room schema v3, automatic
+  migration, validated by `AgenteDeColeta`'s rule and read fresh by every
+  audit and evidence search), `TesteDeChaves` (the web's key test), the
+  artifact metadata JSON of the web's metadata tab, and the content intent
+  of the session notification. `Fabrica` now touches WorkManager only on the
+  first use of the scheduler, after it is installed, so a pending job started
+  by WorkManager's initialization always finds the process graph.
+
 - Add the orchestration on the device to `:core:sessao` (MAEANDR-22, second
   of two pull requests): `Deliberacao` ports the web's `runSession`
   (`sessions.ts@22f1c05f`, 3320–4300) over the Room transactions of the

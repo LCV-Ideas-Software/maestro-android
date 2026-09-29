@@ -282,7 +282,7 @@ private fun invalida(provedor: String, campos: String): Resultado =
 
 /** Resposta que o provedor deu por concluída sem texto nenhum não é resposta. */
 private fun concluida(texto: String, uso: Uso): Resultado =
-    if (texto.isBlank()) incompleta("completed without text", uso) else Resultado.Concluida(texto.trim(), uso)
+    if (texto.isBlank()) incompleta(Resultado.Incompleta.SEM_TEXTO, uso) else Resultado.Concluida(texto.trim(), uso)
 
 /**
  * O motivo carrega texto do provedor — `status`, `stop_reason`, a recusa — e

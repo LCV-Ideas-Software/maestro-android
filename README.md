@@ -176,6 +176,27 @@ recorded (the process died during or right after it) is marked on the
 execution row, and such a session is not resumed automatically — the operator
 resumes it from the screen, as the web requires after a crash.
 
+The fifth module is `:app`, the screens (MAEANDR-21, first of two pull
+requests), in Jetpack Compose with Material 3, one activity and Navigation 3.
+It is a native port of the web's Maestro AI panel in the model the operator
+chose, Proton's: the same product, labels and validations, in the platform's
+frame. The start screen has the web's metric cards, the new-session form and
+the recent sessions; the session screen has cancel and resume, the live
+accumulated cost against the session's ceiling, the event tracking, the
+artifacts with their five tabs and the current or final text; the settings
+screen stores each API key in the device vault, never shows it back, and says
+where the Keystore key lives; the licences screen shows this repository's
+`NOTICE`, `THIRDPARTY.md` and `LICENSE`. Nothing starts, resumes or tests the
+keys before the user authenticates (a 300-minute window, the operator's
+decision of 28/09/2026); the notification permission is asked with its reason
+before the first session; the form warns when this app's own count of
+background time in the last 24 hours is close to the six-hour limit; a
+session paused by cost resumes only with a ceiling above what it already spent;
+and tapping the notification opens the session. `Fabrica` is the composition
+root, with no Hilt (operator's decision of 28/09/2026). The second pull
+request adds the final-text screen with export, the link review and the
+citation-manifest attachment.
+
 The native port is specified in
 [`docs/especificacao-v1.md`](docs/especificacao-v1.md) (in Portuguese), written
 before any Kotlin, as `calculadora-android` did. It fixes the scope unit by
