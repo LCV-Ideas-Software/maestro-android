@@ -3,6 +3,7 @@ package dev.lcv.maestro.sessao
 import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.sessao.Agentes.rotulo
+import java.math.BigDecimal
 import java.time.Instant
 
 /** O que [Retomada.preparar] devolve ao worker antes do primeiro turno. */
@@ -69,12 +70,19 @@ public class Retomada(
      * `POST /sessions/{id}/resume`. [liderPedido] e [painelPedido] são o corpo
      * cru (ausentes = os da linha); [chaves] é o que o cofre respondeu por
      * provedor. Mensagens do web.
+     *
+     * [novoTeto] é o teto financeiro que o operador informou para retomar uma
+     * pausa por custo ([RepositorioDeSessoes.conferirTeto]). Ele sobe na mesma
+     * transação da retomada: uma retomada recusada, ou que perde a corrida no
+     * SQL, não deixa a sessão pausada com o teto já elevado (achado do Codex
+     * na #72).
      */
     public fun pedir(
         id: String,
         liderPedido: String?,
         painelPedido: List<String>?,
         chaves: Map<Provedor, Boolean?>,
+        novoTeto: BigDecimal? = null,
     ): Resultado<SessaoEntidade> {
         val linha = sessoes.carregar(id) ?: return Resultado.Recusado(RepositorioDeSessoes.MENSAGEM_NAO_ENCONTRADA)
         if (linha.status in Estados.ATIVOS) return Resultado.Recusado("Sessao ainda ativa; nada a retomar.")
@@ -96,6 +104,13 @@ public class Retomada(
         if (indisponiveis.isNotEmpty()) {
             return Resultado.Recusado("Agentes indisponiveis para retomada: ${indisponiveis.joinToString(", ") { it.rotulo }}.")
         }
+        val subida = novoTeto?.let { teto ->
+            val tetoE8 = when (val conferido = RepositorioDeSessoes.conferirTeto(linha, teto)) {
+                is Resultado.Recusado -> return conferido
+                is Resultado.Ok -> conferido.valor
+            }
+            tetoE8 to EventoDaSessao(em = agora(), status = EventoDaSessao.BLOQUEADO, mensagem = RepositorioDeSessoes.mensagemDoTeto(teto))
+        }
         val evento = EventoDaSessao(
             em = agora(),
             status = EventoDaSessao.RODANDO,
@@ -103,6 +118,11 @@ public class Retomada(
         )
         val aplicado = try {
             banco.runInTransaction<Boolean> {
+                subida?.let { (tetoE8, eventoDoTeto) ->
+                    // O portão do teto também está no SQL: retomável, sem texto final, acima do teto e do observado.
+                    if (banco.sessoes().subirTeto(id, Estados.RETOMAVEIS.toList(), tetoE8, agora()) == 0) throw CasPerdido()
+                    banco.eventos().inserir(eventoDoTeto.paraEntidade(id))
+                }
                 if (banco.sessoes().retomar(id, linha.status, lider.agente, RepositorioDeSessoes.agentesJson(painel), agora()) == 0) throw CasPerdido()
                 banco.eventos().inserir(evento.paraEntidade(id))
                 true

@@ -881,15 +881,22 @@ O esquema vai à versão 3, por `AutoMigration(2, 3)`: `configuracoes` ganha
 se obedecer à regra do `AgenteDeColeta` — ASCII visível, sem espaço, com um
 `@`, até 254 caracteres —, porque um valor que o agente recusasse quebraria
 toda auditoria dali em diante; e o agente de coleta é montado a cada auditoria
-e a cada busca com o valor gravado naquele momento. `subirTeto` eleva o teto
-financeiro de uma sessão retomável sem texto final: o teto vale sobre o
+e a cada busca com o valor gravado naquele momento. O pedido de retomada
+(`Retomada.pedir`) aceita um teto financeiro novo: o teto vale sobre o
 acumulado da sessão inteira, e uma sessão pausada por custo pausaria de novo
 na primeira chamada se fosse retomada com o mesmo teto. O teto novo tem de
-passar do atual **e** do custo já observado, e a escrita e o evento no jornal
-são uma transação só, com o portão no SQL. `observarTodas` dá à tela inicial
+passar do atual **e** do custo já observado, com o portão também no SQL, e
+sobe na mesma transação da retomada, com o evento de cada uma: uma retomada
+recusada, ou que perde a corrida no banco, deixa o teto onde estava.
+`observarTodas` dá à tela inicial
 a lista observada, no lugar da fotografia de `listar`, na ordem e no corte
 do `GET /sessions` do web (`ORDER BY updated_at DESC LIMIT 30`): a sessão
 tocada por último vem primeiro, e é dela que saem os cartões da tela inicial.
+`observarResumos` dá aos autos da tela da sessão a lista dos artefatos sem o
+texto aceito e o relatório, que chegam a 1 MiB cada, observada pela tabela de
+artefatos: o custo e o jornal, que mudam a cada passo da sessão, não relêem a
+lista, e o corpo só é lido para o artefato escolhido quando um artefato entra
+ou a escolha muda.
 
 ### 4.3 Morte de processo é o novo timeout de Worker
 
@@ -1567,10 +1574,12 @@ de teste, porque compra confiança sem entregá-la.
   enfileiramento, e nada gravado nem enfileirado quando a autenticação falha;
   a lista observada e as chaves relidas na volta à tela; o aviso do orçamento
   com cinco horas e meia gastas, e a ausência dele com uma; as métricas, a
-  janela dos últimos oito eventos, os autos e as cinco abas; o custo
+  janela dos últimos oito eventos, os autos e as cinco abas; o artefato novo
+  que entra nos autos sem mudança na sessão; o custo
   acumulado que acompanha o banco sem evento novo; o cancelamento gravado
   **antes** de o trabalho ser cancelado; o teto novo recusado abaixo do gasto
-  e aceito acima, com a autenticação antes; a chave guardada na segunda
+  e aceito acima, com a autenticação antes, e o teto que fica onde estava
+  quando a retomada é recusada; a chave guardada na segunda
   tentativa depois da autenticação; o aparelho sem trava; o terceiro estado do
   cofre; o limite de 301 minutos recusado sem gravar; o teste de chaves que só
   chama quem tem chave. E o arranque do processo: a fábrica instalada, a

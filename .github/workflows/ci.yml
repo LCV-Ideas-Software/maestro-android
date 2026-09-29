@@ -146,8 +146,12 @@ jobs:
         # o relatório do Gradle Managed Devices contaria o pulo dele como
         # falha, e o resultado precisa mostrar só o que rodou de fato. Os dois
         # argumentos são inertes para o `:core:sessao` e o `:app`, que não os leem.
+        # `--max-workers=1`: cada módulo sobe o seu emulador, e três ao mesmo
+        # tempo derrubaram o runner hospedado duas vezes na #72 (sinal de
+        # desligamento, nenhum teste reprovado), onde dois rodavam sem queda.
+        # Um emulador de cada vez.
         run: >-
-          ./gradlew :core:seguranca:api37DebugAndroidTest :core:sessao:api37DebugAndroidTest :app:api37DebugAndroidTest --no-daemon --stacktrace
+          ./gradlew :core:seguranca:api37DebugAndroidTest :core:sessao:api37DebugAndroidTest :app:api37DebugAndroidTest --no-daemon --stacktrace --max-workers=1
           -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect
           -Pandroid.testInstrumentationRunnerArguments.emuladorDaCi=true
           -Pandroid.testInstrumentationRunnerArguments.notClass=dev.lcv.maestro.seguranca.CofreDeChavesStrongBoxTest

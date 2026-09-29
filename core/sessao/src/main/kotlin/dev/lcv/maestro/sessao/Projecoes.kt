@@ -105,7 +105,26 @@ public data class ResumoDoArtefato(
             DefaultPrettyPrinter(Separators.createDefaultInstance().withObjectFieldValueSpacing(Separators.Spacing.AFTER))
                 .withObjectIndenter(DefaultIndenter("  ", "\n"))
 
-        public fun de(linha: ArtefatoEntidade): ResumoDoArtefato = ResumoDoArtefato(
+        public fun de(linha: ArtefatoEntidade): ResumoDoArtefato = de(
+            LinhaDoResumoDoArtefato(
+                id = linha.id,
+                sessaoId = linha.sessaoId,
+                ciclo = linha.ciclo,
+                turno = linha.turno,
+                agente = linha.agente,
+                papel = linha.papel,
+                status = linha.status,
+                titulo = linha.titulo,
+                custoE8 = linha.custoE8,
+                modelo = linha.modelo,
+                artefatoAnteriorId = linha.artefatoAnteriorId,
+                bytesDoConteudo = linha.bytesDoConteudo,
+                auditoriaDeLinksJson = linha.auditoriaDeLinksJson,
+                criadoEm = linha.criadoEm,
+            ),
+        )
+
+        public fun de(linha: LinhaDoResumoDoArtefato): ResumoDoArtefato = ResumoDoArtefato(
             id = linha.id,
             sessaoId = linha.sessaoId,
             ciclo = linha.ciclo,

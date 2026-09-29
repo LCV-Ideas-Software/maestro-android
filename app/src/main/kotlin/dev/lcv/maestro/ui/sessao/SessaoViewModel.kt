@@ -35,7 +35,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.shareIn
@@ -85,13 +84,21 @@ class SessaoViewModel(private val d: Dependencias, private val id: String) : Vie
         private set
     var novoTeto by mutableStateOf("")
 
-    private val lido: Flow<Lido> = combine(d.sessoes.observar(id), d.sessoes.observarEventos(id)) { linha, eventosDaSessao ->
+    /**
+     * Os autos, observados pela tabela de artefatos: o custo e o jornal, que mudam a
+     * cada passo da sessão, não relêem a lista nem o artefato escolhido (achado do
+     * Codex na #72).
+     */
+    private val resumos: Flow<List<ResumoDoArtefato>> = d.artefatos.observarResumos(id)
+        .flowOn(Dispatchers.IO).shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    private val lido: Flow<Lido> = combine(d.sessoes.observar(id), d.sessoes.observarEventos(id), resumos) { linha, eventosDaSessao, artefatos ->
         if (linha == null) {
             Lido(null, emptyList(), null)
         } else {
             Lido(
                 sessao = ProjecaoDaSessao.de(linha, eventosDaSessao),
-                artefatos = d.artefatos.daSessao(id).map(ResumoDoArtefato::de),
+                artefatos = artefatos,
                 ultimaParada = if (linha.status == Estados.ERRO) d.agendador.ultimaParada(id)?.let(Agendador::rotuloDaParada) else null,
             )
         }
@@ -99,7 +106,7 @@ class SessaoViewModel(private val d: Dependencias, private val id: String) : Vie
 
     /** `selectedArtifactSummary`: o escolhido, se ainda está na lista; senão o último. */
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val detalhe: Flow<DetalheDoArtefato?> = combine(lido.map { it.artefatos }, escolha) { artefatos, escolhido ->
+    private val detalhe: Flow<DetalheDoArtefato?> = combine(resumos, escolha) { artefatos, escolhido ->
         (artefatos.firstOrNull { it.id == escolhido } ?: artefatos.lastOrNull())?.id
     }.mapLatest { artefatoId ->
         artefatoId?.let { d.artefatos.um(id, it) }?.let { linha ->
@@ -203,10 +210,11 @@ class SessaoViewModel(private val d: Dependencias, private val id: String) : Vie
     private fun tetoInformado(): BigDecimal? = novoTeto.trim().toBigDecimalOrNull()
 
     /**
-     * Chamado pela tela **depois** da autenticação (emenda A6): numa pausa por
-     * custo, sobe o teto primeiro (a sessão só pode ser retomada com teto acima
-     * do que ela já gastou); depois `POST /resume` e o enfileiramento, sob a
-     * mesma trava da reconciliação da abertura (emenda A11).
+     * Chamado pela tela **depois** da autenticação (emenda A6): `POST /resume`
+     * e o enfileiramento, sob a mesma trava da reconciliação da abertura
+     * (emenda A11). Numa pausa por custo, o teto novo vai no próprio pedido e
+     * sobe na transação da retomada: recusada a retomada, o teto fica onde
+     * estava (achado do Codex na #72).
      */
     fun retomar() {
         if (ajustes.value.trabalhando) return
@@ -224,9 +232,7 @@ class SessaoViewModel(private val d: Dependencias, private val id: String) : Vie
             try {
                 val resultado = withContext(Dispatchers.IO) {
                     Sincronia.reconciliacao.withLock {
-                        val subiu = teto?.let { d.sessoes.subirTeto(id, it) }
-                        if (subiu is Resultado.Recusado) return@withLock subiu
-                        d.retomada.pedir(id, liderEscolhido.agente, validos.map { it.agente }, d.cofre.chaves()).also {
+                        d.retomada.pedir(id, liderEscolhido.agente, validos.map { it.agente }, d.cofre.chaves(), teto).also {
                             if (it is Resultado.Ok) d.agendador.enfileirar(id)
                         }
                     }

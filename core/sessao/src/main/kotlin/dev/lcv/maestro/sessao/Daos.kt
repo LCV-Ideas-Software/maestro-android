@@ -188,6 +188,17 @@ public interface ArtefatoDao {
     @Query("SELECT * FROM artefatos WHERE sessaoId = :sessaoId ORDER BY turno ASC, criadoEm ASC")
     public fun daSessao(sessaoId: String): List<ArtefatoEntidade>
 
+    /**
+     * A lista dos autos, na ordem de [daSessao], sem os corpos. Só a tabela de
+     * artefatos a faz reemitir: o custo e o jornal, que mudam a cada passo da
+     * sessão, não a relêem (achado do Codex na #72).
+     */
+    @Query(
+        "SELECT id, sessaoId, ciclo, turno, agente, papel, status, titulo, custoE8, modelo, artefatoAnteriorId, " +
+            "bytesDoConteudo, auditoriaDeLinksJson, criadoEm FROM artefatos WHERE sessaoId = :sessaoId ORDER BY turno ASC, criadoEm ASC",
+    )
+    public fun observarResumos(sessaoId: String): Flow<List<LinhaDoResumoDoArtefato>>
+
     /** `loadSessionArtifact` (`sessions.ts:3089-3098`). */
     @Query("SELECT * FROM artefatos WHERE sessaoId = :sessaoId AND id = :id LIMIT 1")
     public fun um(sessaoId: String, id: String): ArtefatoEntidade?

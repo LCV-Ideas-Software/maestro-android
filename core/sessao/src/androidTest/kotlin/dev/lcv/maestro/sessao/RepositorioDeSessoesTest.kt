@@ -3,9 +3,11 @@ package dev.lcv.maestro.sessao
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.lcv.maestro.provedores.Provedor
 import java.math.BigDecimal
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
@@ -179,37 +181,23 @@ class RepositorioDeSessoesTest {
         assertEquals(listOf("Maestro AI Android session queued.", "vai"), projecao.eventos.map { it.mensagem })
     }
 
-    private fun recusa(resultado: Resultado<*>): String = (resultado as Resultado.Recusado).mensagem
-
     @Test
-    fun subirTetoSoAcimaDoTetoEDoObservadoNumaSessaoRetomavel() {
+    fun resumosDosArtefatosSoReemitemQuandoUmArtefatoEntra() = runBlocking {
         val id = criar().id
-        assertEquals(RepositorioDeSessoes.MENSAGEM_TETO_SO_RETOMAVEL, recusa(t.sessoes.subirTeto(id, BigDecimal("6"))))
-        t.sessoes.somarCusto(id, BigDecimal("5.5"))
-        assertTrue(t.sessoes.transicionar(id, Estados.LIMITE_DE_CUSTO, "teto", t.evento(EventoDaSessao.BLOQUEADO, "teto")))
-
-        assertEquals("Teto financeiro em USD deve ser positivo.", recusa(t.sessoes.subirTeto(id, BigDecimal.ZERO)))
-        assertEquals(RepositorioDeConfiguracoes.MENSAGEM_TETO_ACIMA_DO_MAXIMO, recusa(t.sessoes.subirTeto(id, BigDecimal("92233720368.54775808"))))
-        // Igual ao teto atual, igual ao observado, e entre os dois: os três recusados.
-        assertEquals(RepositorioDeSessoes.MENSAGEM_TETO_NAO_SOBE, recusa(t.sessoes.subirTeto(id, BigDecimal("5"))))
-        assertEquals(RepositorioDeSessoes.MENSAGEM_TETO_NAO_SOBE, recusa(t.sessoes.subirTeto(id, BigDecimal("5.5"))))
-        assertEquals(RepositorioDeSessoes.MENSAGEM_TETO_NAO_SOBE, recusa(t.sessoes.subirTeto(id, BigDecimal("5.2"))))
-        assertEquals(500_000_000L, t.sessoes.carregar(id)!!.tetoDeCustoE8)
-        // O mesmo portão no SQL, sem a conferência do repositório na frente: igual ao observado não sobe.
-        assertEquals(0, t.banco.sessoes().subirTeto(id, Estados.RETOMAVEIS.toList(), 550_000_000L, "2026-09-28T00:00:00Z"))
-
-        val elevada = (t.sessoes.subirTeto(id, BigDecimal("6")) as Resultado.Ok).valor
-        assertEquals(600_000_000L, elevada.tetoDeCustoE8)
-        assertEquals(Estados.LIMITE_DE_CUSTO, elevada.status)
-        assertEquals("Teto financeiro da sessao elevado para US$ 6.00 pelo operador.", t.mensagens(id).last())
-        // E igual ao teto atual, acima do observado, também não sobe.
-        assertEquals(0, t.banco.sessoes().subirTeto(id, Estados.RETOMAVEIS.toList(), 600_000_000L, "2026-09-28T00:00:00Z"))
-
-        // O portão está no SQL: uma linha que voltou a rodar entre a leitura e a escrita não muda.
-        assertTrue(t.sessoes.transicionar(id, Estados.RODANDO, null, null, seSituacaoEm = setOf(Estados.LIMITE_DE_CUSTO)))
-        assertEquals(0, t.banco.sessoes().subirTeto(id, Estados.RETOMAVEIS.toList(), 700_000_000L, "2026-09-28T00:00:00Z"))
-        assertEquals(RepositorioDeSessoes.MENSAGEM_TETO_SO_RETOMAVEL, recusa(t.sessoes.subirTeto(id, BigDecimal("7"))))
-        assertEquals(600_000_000L, t.sessoes.carregar(id)!!.tetoDeCustoE8)
+        t.artefatos.inserir(t.artefato(id, 1, Provedor.CLAUDE, papel = "draft", texto = "Rascunho."))
+        val emissoes = CopyOnWriteArrayList<List<ResumoDoArtefato>>()
+        val coleta = launch(Dispatchers.IO) { t.artefatos.observarResumos(id).collect { emissoes += it } }
+        withTimeout(10_000) { while (emissoes.isEmpty()) delay(20) }
+        // O custo e o jornal mudam a cada passo da sessão: a lista dos autos não é relida (achado do Codex na #72).
+        t.sessoes.somarCusto(id, BigDecimal("0.1"))
+        assertTrue(t.sessoes.anotar(id, t.evento(EventoDaSessao.RODANDO, "passo")))
+        delay(1_000)
+        assertEquals(1, emissoes.size)
+        // Um artefato novo, sim.
+        t.artefatos.inserir(t.artefato(id, 2, Provedor.CODEX, texto = "Revisão."))
+        withTimeout(10_000) { while (emissoes.size < 2) delay(20) }
+        coleta.cancel()
+        assertEquals(listOf(1, 2), emissoes.last().map { it.turno })
     }
 
     @Test
@@ -225,35 +213,6 @@ class RepositorioDeSessoesTest {
         val lista = t.sessoes.observarTodas().first()
         assertEquals(30, lista.size)
         assertFalse(lista.any { it.id == nova })
-    }
-
-    @Test
-    fun subirTetoRecusaReduzirMesmoAcimaDoObservado() {
-        val id = criar().id
-        t.sessoes.somarCusto(id, BigDecimal("2"))
-        assertTrue(t.sessoes.transicionar(id, Estados.LIMITE_DE_CUSTO, "teto", t.evento(EventoDaSessao.BLOQUEADO, "teto")))
-        assertEquals(RepositorioDeSessoes.MENSAGEM_TETO_NAO_SOBE, recusa(t.sessoes.subirTeto(id, BigDecimal("4"))))
-        assertEquals(500_000_000L, t.sessoes.carregar(id)!!.tetoDeCustoE8)
-    }
-
-    @Test
-    fun subirTetoQuePerdeACorridaNoSqlNaoMudaNadaNemAnota() {
-        val id = criar().id
-        assertTrue(t.sessoes.transicionar(id, Estados.LIMITE_DE_CUSTO, "teto", t.evento(EventoDaSessao.BLOQUEADO, "teto")))
-        val jornal = t.mensagens(id)
-        // A sessão volta a rodar entre a leitura do repositório e a escrita: o relógio do
-        // evento é lido nesse intervalo, e é nele que a corrida é injetada.
-        var corrida: (() -> Unit)? = {
-            assertEquals(1, t.banco.sessoes().mudarStatus(id, listOf(Estados.LIMITE_DE_CUSTO), Estados.RODANDO, null, "2026-09-28T00:00:00.000Z", null))
-        }
-        val repositorio = RepositorioDeSessoes(t.banco) {
-            corrida?.invoke()
-            corrida = null
-            t.relogio()
-        }
-        assertEquals(Retomada.MENSAGEM_MUDOU_DE_ESTADO, recusa(repositorio.subirTeto(id, BigDecimal("7"))))
-        assertEquals(500_000_000L, t.sessoes.carregar(id)!!.tetoDeCustoE8)
-        assertEquals(jornal, t.mensagens(id))
     }
 
     @Test

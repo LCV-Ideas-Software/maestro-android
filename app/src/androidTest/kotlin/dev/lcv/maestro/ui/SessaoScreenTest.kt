@@ -156,6 +156,44 @@ class SessaoScreenTest {
         regra.esperarTexto("Sessão retomada.")
     }
 
+    @Test
+    fun retomadaRecusadaNaoDeixaOTetoElevado() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        val id = c.sessao(Estados.LIMITE_DE_CUSTO, teto = "5", custo = "5")
+        val jornal = c.banco.eventos().daSessao(id).map { it.mensagem }
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.RETOMAR)
+        regra.onNodeWithTag(Marcas.RETOMAR).performClick()
+        esperarTag(Marcas.NOVO_TETO)
+        // A chave do Codex some entre o diálogo e a confirmação: a retomada é recusada e o teto
+        // novo vai junto com ela, na mesma transação (achado do Codex na #72).
+        c.cofre.presentes[Provedor.CODEX] = false
+        confirmarRetomada("7")
+        regra.esperarTexto("Agentes indisponiveis para retomada: Codex.")
+        val linha = c.sessoes.carregar(id)!!
+        assertEquals(Estados.LIMITE_DE_CUSTO, linha.status)
+        assertEquals(Dinheiro.paraE8(BigDecimal("5")), linha.tetoDeCustoE8)
+        assertEquals(jornal, c.banco.eventos().daSessao(id).map { it.mensagem })
+        assertTrue(c.agendador.enfileiradas.isEmpty())
+    }
+
+    @Test
+    fun umArtefatoNovoApareceNosAutosSemMudancaNaSessao() {
+        val id = c.sessao(Estados.RODANDO)
+        val primeiro = c.artefato(id, 1, Provedor.CLAUDE, "Primeira versão do texto.")
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.artefato(primeiro))
+        // Só a tabela de artefatos muda: os autos a observam, e não o progresso da sessão,
+        // que por isso não relê os corpos a cada custo ou evento (achado do Codex na #72).
+        val segundo = c.artefato(id, 2, Provedor.CODEX, "Segunda versão do texto.", anterior = primeiro)
+        esperarTag(Marcas.artefato(segundo))
+        regra.waitUntil(5_000) {
+            regra.onAllNodes(hasText("Segunda versão do texto.", substring = true) and hasAnyAncestor(hasTestTag(Marcas.CONTEUDO_DA_ABA)))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
     private fun tetoSugerido(teto: String, custo: String): String {
         val id = c.sessao(Estados.LIMITE_DE_CUSTO, teto = teto, custo = custo)
         regra.abrir(c, sessaoPedida = id)

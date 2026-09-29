@@ -33,9 +33,13 @@ All material changes to Maestro Android are recorded here.
   screens over the real Room database with the vault, the scheduler and the
   authentication replaced by fakes, plus the process start-up; JVM tests
   cover the labels, formats, diff, the budget threshold and the manifest.
-- Add to `:core:sessao` what the screens need: `subirTeto` (a resumable
-  session's cost ceiling raised above both the current ceiling and the
-  observed cost, with its journal event, in one transaction), `observarTodas`,
+- Add to `:core:sessao` what the screens need: a new cost ceiling on the
+  resume request (above both the current ceiling and the observed cost,
+  raised in the resume's own transaction, so a refused resume leaves the
+  ceiling where it was), `observarTodas`, `observarResumos` (the artifact
+  list of the session screen without the accepted text and the review
+  report, observed on the artifact table only, so cost and journal updates
+  do not reload the bodies),
   the optional contact e-mail in the settings (Room schema v3, automatic
   migration, validated by `AgenteDeColeta`'s rule and read fresh by every
   audit and evidence search), `TesteDeChaves` (the web's key test), the
