@@ -80,4 +80,35 @@ class AnexosDaSessaoTest {
         assertFalse(anexos.remover(a.id))
         assertEquals(listOf(b.id), anexos.daSessao(id).map { it.id })
     }
+
+    @Test
+    fun aSessaoDoFormularioNasceComOManifestoOuNaoNasce() {
+        val sessao = (anexos.criarSessao(t.sessoes, t.entrada(), "citation-manifest.json", "application/json", bytes(10)) as Resultado.Ok).valor
+        assertEquals(listOf(sessao.id), t.sessoes.listar().map { it.id })
+        assertEquals(listOf("citation-manifest.json"), anexos.daSessao(sessao.id).map { it.nomeOriginal })
+        // A linha do anexo falha depois da linha da sessão, dentro da mesma operação: nada fica.
+        t.adulterar("CREATE TRIGGER anexo_falha BEFORE INSERT ON anexos BEGIN SELECT RAISE(ABORT, 'disco cheio'); END")
+        val falhou = try {
+            anexos.criarSessao(t.sessoes, t.entrada(), "outro.json", "application/json", bytes(20))
+            false
+        } catch (esperado: RuntimeException) {
+            true
+        }
+        assertTrue(falhou)
+        assertEquals(listOf(sessao.id), t.sessoes.listar().map { it.id })
+        assertEquals(1, pasta.listFiles()!!.size)
+    }
+
+    @Test
+    fun oDiscoQueFalhaERecusaSemSessaoNemAnexo() {
+        val id = t.sessoes.criar(t.entrada()).id
+        // Um arquivo onde a pasta dos anexos deveria estar: a pasta não pode ser criada.
+        pasta.writeBytes(bytes(1))
+        val recusa = anexos.adicionar(id, "a.json", "application/json", bytes(10)) as Resultado.Recusado
+        assertEquals("failed to write attachment: cannot create directory ${pasta.absolutePath}", recusa.mensagem)
+        val daSessao = anexos.criarSessao(t.sessoes, t.entrada(), "citation-manifest.json", "application/json", bytes(10)) as Resultado.Recusado
+        assertEquals(recusa.mensagem, daSessao.mensagem)
+        assertEquals(listOf(id), t.sessoes.listar().map { it.id })
+        assertEquals(0, anexos.daSessao(id).size)
+    }
 }

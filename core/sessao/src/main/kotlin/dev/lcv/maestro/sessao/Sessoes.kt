@@ -53,8 +53,12 @@ public class RepositorioDeSessoes(
 
     public fun observarEventos(id: String): Flow<List<EventoEntidade>> = banco.eventos().observar(id)
 
-    /** O insert do `POST /sessions` (`sessions.ts:4397-4436`): a linha e o primeiro evento, juntos. */
-    public fun criar(entrada: EntradaResolvida): SessaoEntidade {
+    /**
+     * O insert do `POST /sessions` (`sessions.ts:4397-4436`): a linha e o primeiro evento, juntos.
+     * [junto] grava na mesma transação o que a sessão não pode existir sem (o manifesto do
+     * formulário, em [AnexosDaSessao.criarSessao]); se ele falha, nada é gravado.
+     */
+    public fun criar(entrada: EntradaResolvida, junto: (SessaoEntidade) -> Unit = {}): SessaoEntidade {
         val id = "android-${UUID.randomUUID()}"
         val criadaEm = agora()
         val linha = SessaoEntidade(
@@ -78,6 +82,7 @@ public class RepositorioDeSessoes(
         banco.runInTransaction {
             banco.sessoes().inserir(linha)
             banco.eventos().inserir(EventoDaSessao(em = criadaEm, status = EventoDaSessao.NA_FILA, mensagem = MENSAGEM_NA_FILA).paraEntidade(id))
+            junto(linha)
         }
         return linha
     }

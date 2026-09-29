@@ -16,9 +16,13 @@ All material changes to Maestro Android are recorded here.
   `ContentResolver`, PDF through `PrintManager` once the page has loaded. The
   attachments screen, which reads the citation manifest exactly as the session
   will read it at start, and an optional manifest in the new-session form,
-  stored after the session is created and before it is queued; nothing
-  starts while that manifest is still being read, nor with one that is not
-  bound to the active protocol. The link review screen, a port of the desktop's `LinkIntegrityPanel.tsx` and of the
+  stored with the session in one transaction (the file first, then the
+  session row, its first event and the attachment row), so a failed write
+  never leaves a queued session without it; a disk failure is refused with
+  the desktop's `failed to write attachment` message here and on the
+  attachments screen. Nothing starts while that manifest is still being
+  read, nor with one that is not bound to the protocol the session receives,
+  which is checked again at start. The link review screen, a port of the desktop's `LinkIntegrityPanel.tsx` and of the
   operator capture of `EvidenceScreen.tsx` (`maestro-app` `0e17817`) with
   their labels and messages: the links of the session's current text, the
   evidence kept for each address, "Abrir no navegador" (the handoff record is

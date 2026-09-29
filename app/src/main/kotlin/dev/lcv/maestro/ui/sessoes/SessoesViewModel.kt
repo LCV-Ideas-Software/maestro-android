@@ -224,6 +224,7 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
             conteudoInicial = textoInicial,
         )
         val anexo = manifesto
+        var releitura: AnexosViewModel.Manifesto? = null
         ajustes.update { it.copy(iniciando = true) }
         viewModelScope.launch {
             try {
@@ -231,15 +232,36 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
                     val configuracoes = d.configuracoes.carregar()
                     when (val entrada = RepositorioDeConfiguracoes.resolverInicio(pedidoDeInicio, configuracoes, d.cofre.chaves())) {
                         is Resultado.Recusado -> entrada
-                        is Resultado.Ok -> Sincronia.reconciliacao.withLock {
-                            val linha = d.sessoes.criar(entrada.valor)
-                            // O manifesto entra antes do enfileiramento: a sessão só lê anexos depois dele.
-                            anexo?.let { d.anexos.adicionar(linha.id, it.nome, it.tipo, it.bytes) }
-                            d.agendador.enfileirar(linha.id)
-                            Resultado.Ok(linha.id)
+                        is Resultado.Ok -> {
+                            // O protocolo pode ter mudado nas configurações depois da escolha: o manifesto
+                            // é lido de novo contra o que a sessão vai receber (achado do Codex na #78).
+                            val lido = anexo?.let {
+                                AnexosViewModel.lerManifesto(listOf(ManifestosDosAnexos.Anexo(it.nome, it.tipo) { it.bytes }), entrada.valor.protocolo)
+                            }
+                            if (lido is AnexosViewModel.Manifesto.Recusado) {
+                                releitura = lido
+                                Resultado.Recusado(lido.motivo)
+                            } else {
+                                Sincronia.reconciliacao.withLock {
+                                    // A sessão e o manifesto são gravados juntos: nenhuma fica na fila sem ele.
+                                    val criada = if (anexo == null) {
+                                        Resultado.Ok(d.sessoes.criar(entrada.valor))
+                                    } else {
+                                        d.anexos.criarSessao(d.sessoes, entrada.valor, anexo.nome, anexo.tipo, anexo.bytes)
+                                    }
+                                    when (criada) {
+                                        is Resultado.Recusado -> criada
+                                        is Resultado.Ok -> {
+                                            d.agendador.enfileirar(criada.valor.id)
+                                            Resultado.Ok(criada.valor.id)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
+                releitura?.let { lido -> if (manifesto === anexo) manifesto = anexo?.copy(leitura = lido) }
                 when (resultado) {
                     is Resultado.Recusado -> eventos.send(Evento.Aviso(Mensagem.Literal(resultado.mensagem)))
                     is Resultado.Ok -> {

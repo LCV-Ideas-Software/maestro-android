@@ -202,7 +202,8 @@ or image loads, raw HTML escaped, a content security policy that loads
 nothing — and exported as Markdown, TXT or PDF through the system's document
 picker and print framework. The session's attachments carry the citation
 manifest, read on screen exactly as the session will read it; the
-new-session form accepts one before the session is queued. The link review
+new-session form accepts one, stored in the same transaction as the session,
+so no session is queued without it. The link review
 ports the desktop's link-integrity panel: the links of the session's current
 text as the release audit checked them, with the evidence kept for each
 address; opening a link in the system browser, only after the public-network

@@ -181,11 +181,17 @@ escolheu os cinco. O que a escolha pede, e como fica:
 - **Manifesto de citações:** a tela de anexos da sessão anexa pelo seletor de
   documentos do sistema, mostra na hora o que a sessão vai ler do manifesto e
   remove. O formulário de nova sessão aceita um manifesto opcional, gravado
-  depois de criar a sessão e antes de enfileirá-la, sob a mesma trava da
-  reconciliação; um manifesto que a sessão recusaria impede o início — o
-  ilegível, o desvinculado do protocolo ativo e o que ainda está sendo lido. O
-  arquivo é lido só pelo `ContentResolver`, sem permissão de armazenamento, e
-  o teto de 16 MiB vale durante a leitura.
+  junto com a sessão, sob a mesma trava da reconciliação: o arquivo é
+  publicado antes, e a linha da sessão, o primeiro evento e a linha do anexo
+  entram numa transação só. Se a gravação falha, nenhuma sessão fica na fila
+  sem o manifesto para a reconciliação retomar (achado do Codex na #78); o
+  disco que falha vira recusa com a frase do desktop (`failed to write
+  attachment: …`), aqui e na tela de anexos. Um manifesto que a sessão
+  recusaria impede o início — o ilegível, o desvinculado do protocolo ativo e
+  o que ainda está sendo lido —, e no início ele é lido de novo contra o
+  protocolo que a sessão vai receber, porque as configurações podem ter
+  mudado depois da escolha. O arquivo é lido só pelo `ContentResolver`, sem
+  permissão de armazenamento, e o teto de 16 MiB vale durante a leitura.
 - **As linhas de link de uma sessão:** o registro de links é global, como no
   canônico, porque o id de cada linha já leva a impressão da origem.
   `LinksDaSessao` acha as da sessão pela impressão do texto que ela tem agora
@@ -330,7 +336,8 @@ no Rust em `68528f9`:
   o rascunho já pago. As quatro regras de `validate_manifest` que não
   dependem do texto — esquema, vínculo com o hash do protocolo ativo,
   capacidade e hash ausente — são conferidas pela sessão antes de começar e
-  pelas telas de anexos e de nova sessão, com o hash esperado na mensagem; a
+  pelas telas de anexos e de nova sessão (nesta, de novo no início, contra o
+  protocolo que a sessão recebe), com o hash esperado na mensagem; a
   auditoria continua a dá-las, na mesma ordem.
 
 ### 2.3 O cliente web
@@ -1712,8 +1719,10 @@ de teste, porque compra confiança sem entregá-la.
   sessão que não convergiu, o Markdown tal qual e o TXT do renderizador, o
   seletor cancelado ou o documento que não abre, que não deixam arquivo, e a
   gravação que falha, que pede a remoção do documento; o manifesto lido, o
-  recusado, o acima do teto e o que não muda com a sessão em execução, e o do
-  formulário gravado antes do enfileiramento; os links do texto atual, e não
+  recusado, o acima do teto e o que não muda com a sessão em execução, o do
+  formulário gravado antes do enfileiramento, o do formulário lido de novo
+  contra o protocolo trocado depois da escolha, e o disco que falha, que avisa
+  sem derrubar o aplicativo e sem deixar sessão na fila; os links do texto atual, e não
   os de uma versão anterior, relidos quando o texto muda com a tela aberta, e
   a nota e a decisão de um link que saiu da lista, que não vão para outro; a
   revisão e as propostas desligadas com a sessão em execução, com a captura
@@ -1732,7 +1741,8 @@ de teste, porque compra confiança sem entregá-la.
   das recusas, os dois registros) e a busca que guarda cada resultado; no
   `:core:protocolo`, as quatro regras de vínculo do manifesto na auditoria e
   fora dela; no `:core:sessao`, na JVM, o manifesto desvinculado recusado
-  antes do rascunho, e, instrumentado, as linhas de link da sessão e a ordem delas,
+  antes do rascunho, e, instrumentado, a sessão do formulário que nasce com o
+  manifesto ou não nasce, as linhas de link da sessão e a ordem delas,
   os registros de evidência de um endereço, a decisão 23, o teto de tempo
   conferido de novo depois da auditoria do portão e o HTML cru que a auditoria
   real recusa antes de virar texto final.

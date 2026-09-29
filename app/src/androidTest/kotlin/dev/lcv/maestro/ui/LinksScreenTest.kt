@@ -286,7 +286,10 @@ class LinksScreenTest {
         regra.waitUntil(5_000) { c.buscas.isNotEmpty() }
 
         regra.onNodeWithTag(Marcas.VOLTAR).performClick()
-
+        // O ViewModel só é descartado quando a transição de saída (700 ms na `NavDisplay`) termina, e ela
+        // corre no relógio do teste, um quadro por volta do `waitUntil`: sem adiantá-lo, o cancelamento
+        // chegava entre 4,3 e 4,9 s depois do toque, colado no limite da espera.
+        regra.mainClock.advanceTimeBy(1_000)
         regra.waitUntil(5_000) { c.buscasCanceladas.get() > 0 }
         // Cancelada, a busca não chega a gravar proposta nenhuma.
         Thread.sleep(500)

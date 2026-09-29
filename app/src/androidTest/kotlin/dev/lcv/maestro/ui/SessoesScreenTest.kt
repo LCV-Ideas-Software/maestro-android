@@ -18,10 +18,12 @@ import androidx.compose.ui.test.performTextInput
 import androidx.lifecycle.Lifecycle
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.lcv.maestro.Sincronia
+import dev.lcv.maestro.protocolo.FormatoDoRegistro
 import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.sessao.Estados
 import dev.lcv.maestro.sessao.ExecucaoEntidade
 import dev.lcv.maestro.sessao.FormatoDeInstante
+import dev.lcv.maestro.sessao.PedidoDeConfiguracoes
 import java.time.Duration
 import java.time.Instant
 import kotlinx.coroutines.CompletableDeferred
@@ -170,6 +172,49 @@ class SessoesScreenTest {
         // Tirar o arquivo devolve o seletor.
         regra.onNodeWithTag(Marcas.TIRAR_MANIFESTO).performScrollTo().performClick()
         regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).assertExists()
+    }
+
+    @Test
+    fun oManifestoEReconferidoContraOProtocoloQueASessaoRecebe() {
+        // Achado do Codex na #78: o protocolo mudou nas configurações depois da escolha do manifesto.
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        regra.abrir(c, seletor = SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", MANIFESTO_DE_EXEMPLO.toByteArray()))))
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).performScrollTo().performClick()
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.MANIFESTO_DO_FORMULARIO).fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.MANIFESTO_DO_FORMULARIO).assertTextEquals("Manifesto lido: 1 citação e 1 fonte.")
+        val outro = "Protocolo editorial trocado depois da escolha do manifesto; ".repeat(3).trim()
+        c.configuracoes.salvar(PedidoDeConfiguracoes(protocolo = outro))
+        iniciar()
+        regra.onNodeWithText("Seguir sem notificações").performClick()
+        val motivo = "O manifesto nao esta vinculado ao hash do protocolo ativo. Hash do protocolo ativo: ${FormatoDoRegistro.sha256(outro)}"
+        regra.esperarTexto(motivo)
+        // A recusa vem depois da autenticação, no caminho que grava: nada foi gravado nem enfileirado.
+        assertEquals(1, c.autenticacoes.get())
+        assertTrue(c.sessoes.listar().isEmpty())
+        assertTrue(c.agendador.enfileiradas.isEmpty())
+        regra.onNodeWithTag(Marcas.MANIFESTO_DO_FORMULARIO).assertTextEquals(
+            "Manifesto recusado: $motivo. Com ele, a sessão pausaria na auditoria final antes de qualquer chamada paga; remova ou troque o arquivo.",
+        )
+    }
+
+    @Test
+    fun umManifestoQueNaoPodeSerGravadoNaoDeixaSessaoNaFila() {
+        // Achado do Codex na #78: a sessão ficava `queued` sem o manifesto, e a reconciliação a retomaria.
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        regra.abrir(c, seletor = SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", MANIFESTO_DE_EXEMPLO.toByteArray()))))
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).performScrollTo().performClick()
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.MANIFESTO_DO_FORMULARIO).fetchSemanticsNodes().isNotEmpty() }
+        // Um arquivo onde a pasta dos anexos deveria estar: o manifesto não pode ser gravado.
+        c.pastaDosAnexos.writeBytes(byteArrayOf(0))
+        iniciar()
+        regra.onNodeWithText("Seguir sem notificações").performClick()
+        regra.esperarTexto("failed to write attachment: cannot create directory ${c.pastaDosAnexos.absolutePath}")
+        assertTrue(c.sessoes.listar().isEmpty())
+        assertTrue(c.agendador.enfileiradas.isEmpty())
     }
 
     @Test

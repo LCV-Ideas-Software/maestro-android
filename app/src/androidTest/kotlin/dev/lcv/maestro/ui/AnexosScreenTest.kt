@@ -112,6 +112,18 @@ class AnexosScreenTest {
     }
 
     @Test
+    fun oDiscoQueFalhaEAvisadoSemDerrubarOAplicativo() {
+        val id = c.sessao(Estados.ERRO, erro = "Falha qualquer.")
+        abrirNosAnexos(id, SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", MANIFESTO_DE_EXEMPLO.toByteArray()))))
+        // Um arquivo onde a pasta dos anexos deveria estar: o anexo não pode ser gravado.
+        c.pastaDosAnexos.writeBytes(byteArrayOf(0))
+
+        regra.onNodeWithTag(Marcas.ANEXAR_MANIFESTO).performClick()
+        regra.esperarTexto("failed to write attachment: cannot create directory ${c.pastaDosAnexos.absolutePath}")
+        assertTrue(c.anexos.daSessao(id).isEmpty())
+    }
+
+    @Test
     fun comASessaoNaFilaOuEmExecucaoOsAnexosNaoMudam() {
         val id = c.sessao(Estados.RODANDO)
         abrirNosAnexos(id, SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", MANIFESTO_DE_EXEMPLO.toByteArray()))))
