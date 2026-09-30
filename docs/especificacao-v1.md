@@ -213,7 +213,11 @@ escolheu os cinco. O que a escolha pede, e como fica:
   não mexe nas linhas de link. O registro é global, e duas sessões com o mesmo
   texto dividem as linhas: a tela grava por `LinksDaSessao.registroDaTela`,
   que recusa, na transação da gravação, a linha do texto de qualquer sessão na
-  fila ou em execução (achado do Codex na #78).
+  fila ou em execução (achado do Codex na #78). A linha e a entrada do diário
+  de auditoria (`anotar`) são gravadas na mesma transação, na auditoria, na
+  decisão e nas propostas: a linha nunca muda sem a entrada que a explica.
+  Divergência do canônico, que grava os dois arquivos em sequência (achado do
+  Codex na #78).
 - **Captura assistida pelo operador:** `ImportacaoDoOperador`, no
   `:core:provedores`, porta `handoff_record`,
   `open_web_evidence_in_default_browser` e `import_operator_evidence`, com as
@@ -1761,7 +1765,8 @@ de teste, porque compra confiança sem entregá-la.
   a nota e a decisão de um link que saiu da lista, que não vão para outro; a
   revisão e as propostas desligadas com a sessão em execução, com a captura
   liberada, e recusadas na linha dividida com outra sessão do mesmo texto em
-  execução; a passagem ao navegador só com a URL que a regra de rede aceitou,
+  execução; a decisão e as propostas cujo diário não grava, que não ficam na
+  linha; a passagem ao navegador só com a URL que a regra de rede aceitou,
   a recusada que não chega ao navegador, o navegador que não abre e o disparo
   barrado por política; o arquivo importado sob o link, sem mudá-lo, o de
   tipo fora da lista e o escolhido para um link que saiu da lista; o disco que
@@ -1786,7 +1791,8 @@ de teste, porque compra confiança sem entregá-la.
   devolve a falha do armazém, como o `save_stored(...)?` do canônico, e,
   cancelada depois da resposta, não grava o resultado seguinte nem entrega
   nada ao motor; no
-  `:core:protocolo`, as quatro regras de vínculo do manifesto na auditoria e
+  `:core:protocolo`, a entrada do diário gravada dentro da transação da linha
+  na auditoria, na decisão e nas propostas, as quatro regras de vínculo do manifesto na auditoria e
   fora dela; no `:core:sessao`, na JVM, o manifesto desvinculado recusado
   antes do rascunho, e, instrumentado, a sessão do formulário que nasce com o
   manifesto ou não nasce, os anexos travados na transação com a sessão na

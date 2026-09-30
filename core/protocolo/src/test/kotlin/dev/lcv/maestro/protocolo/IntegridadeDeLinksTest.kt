@@ -53,12 +53,24 @@ class IntegridadeDeLinksTest {
     private class RegistroEmMemoria : IntegridadeDeLinks.RegistroDeLinks {
         val linhas = LinkedHashMap<String, LinhaDeLink>()
         val eventos = mutableListOf<Pair<String, String>>()
-        override fun <T> emTransacao(bloco: () -> T): T = synchronized(this) { bloco() }
+
+        /** As entradas do diário gravadas fora de uma transação: a linha poderia mudar sem elas. */
+        val foraDaTransacao = mutableListOf<String>()
+        private var profundidade = 0
+        override fun <T> emTransacao(bloco: () -> T): T = synchronized(this) {
+            profundidade++
+            try {
+                bloco()
+            } finally {
+                profundidade--
+            }
+        }
         override fun carregar(linkId: String): LinhaDeLink? = linhas[linkId]
         override fun salvar(linha: LinhaDeLink) {
             linhas[linha.linkId] = linha
         }
         override fun anotar(tipo: String, linha: LinhaDeLink) {
+            if (profundidade == 0) foraDaTransacao += tipo
             eventos += tipo to linha.linkId
         }
         override fun todos(): List<LinhaDeLink> = linhas.values.toList()
@@ -460,6 +472,28 @@ class IntegridadeDeLinksTest {
         }
         val busca = IntegridadeDeLinks.listar(IntegridadeDeLinks.PedidoDeListagem(consulta = " EXAMPLE.COM/B "), registro)
         assertEquals(listOf("https://example.com/b"), busca.itens.map { it.urlNormalizada })
+    }
+
+    @Test
+    fun `a linha e a entrada do diario sao gravadas na mesma transacao`() {
+        // Achado do Codex na #78: com o diário fora da transação, a linha ficava gravada quando a entrada falhava.
+        val registro = RegistroEmMemoria()
+        val linha = auditar("Ver [fonte oficial](https://example.com/a).", registro).linhas.single()
+        IntegridadeDeLinks.revisar(
+            IntegridadeDeLinks.PedidoDeRevisao(
+                linha.linkId, DecisaoDeRevisao.QUARENTENA, "aguardando conferência", "operator", linha.urlNormalizada, linha.sha256,
+            ),
+            registro,
+            agora,
+        )
+        IntegridadeDeLinks.proporCorrecoes(
+            IntegridadeDeLinks.PedidoDeCorrecao(linha.linkId, "crossref"),
+            registro,
+            { _, _, _ -> emptyList() },
+            agora,
+        )
+        assertEquals(setOf("audit", "review", "correction_candidates"), registro.eventos.map { it.first }.toSet())
+        assertEquals(emptyList<String>(), registro.foraDaTransacao)
     }
 
     @Test

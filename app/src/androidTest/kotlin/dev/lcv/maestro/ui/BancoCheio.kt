@@ -18,10 +18,14 @@ class BancoCheio(private val base: SupportSQLiteOpenHelper.Factory = FrameworkSQ
 
     @Volatile var cheio: Boolean = false
 
+    /** Com [cheio], só a escrita nesta tabela falha: o espaço acaba no meio de uma transação. */
+    @Volatile var soNaTabela: String? = null
+
     override fun create(configuration: SupportSQLiteOpenHelper.Configuration): SupportSQLiteOpenHelper = Ajudante(base.create(configuration))
 
     private fun conferir(sql: String) {
-        if (cheio && ESCRITA.containsMatchIn(sql) && !sql.contains("room_")) throw SQLiteFullException(MENSAGEM)
+        val naTabela = soNaTabela?.let { sql.contains(it) } ?: true
+        if (cheio && naTabela && ESCRITA.containsMatchIn(sql) && !sql.contains("room_")) throw SQLiteFullException(MENSAGEM)
     }
 
     private inner class Ajudante(private val base: SupportSQLiteOpenHelper) : SupportSQLiteOpenHelper by base {

@@ -429,6 +429,34 @@ class LinksScreenTest {
     }
 
     @Test
+    fun aDecisaoCujoDiarioNaoGravaNaoFicaNaLinha() {
+        // Achado do Codex na #78: a linha era gravada numa transação e o diário noutra.
+        val id = sessaoComLinks()
+        abrirOLink(id, RELATORIO)
+        regra.onNodeWithTag(Marcas.decisao("quarentena")).performScrollTo().performClick()
+        regra.onNodeWithTag(Marcas.NOTA_DA_REVISAO).performScrollTo().performTextInput("Aguardando a fonte ser conferida.")
+        c.bancoCheio.soNaTabela = "eventos_de_links"
+        c.bancoCheio.cheio = true
+
+        regra.onNodeWithTag(Marcas.REGISTRAR_DECISAO).performScrollTo().performClick()
+        regra.esperarTexto("A decisão não foi registrada. Motivo: ${BancoCheio.MENSAGEM}")
+        assertEquals(StatusDaRevisao.PENDENTE, linha(id, RELATORIO).statusDaRevisao)
+    }
+
+    @Test
+    fun asPropostasCujoDiarioNaoGravaNaoFicamNaLinha() {
+        val id = sessaoComLinks()
+        c.resultadosDaBusca = listOf(c.resultadoDeBusca("https://exemplo.org/substituto", "Relatório substituto"))
+        abrirOLink(id, RELATORIO)
+        c.bancoCheio.soNaTabela = "eventos_de_links"
+        c.bancoCheio.cheio = true
+
+        regra.onNodeWithTag(Marcas.BUSCAR_PROPOSTAS).performScrollTo().performClick()
+        regra.esperarTexto("A busca de candidatos falhou. O link e o texto permaneceram inalterados. Motivo: ${BancoCheio.MENSAGEM}")
+        assertTrue(linha(id, RELATORIO).candidatosDeCorrecao.isEmpty())
+    }
+
+    @Test
     fun oBancoCheioNasPropostasEAvisado() {
         val id = sessaoComLinks()
         c.resultadosDaBusca = listOf(c.resultadoDeBusca("https://exemplo.org/substituto", "Relatório substituto"))

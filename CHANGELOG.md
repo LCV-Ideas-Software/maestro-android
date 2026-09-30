@@ -44,7 +44,10 @@ All material changes to Maestro Android are recorded here.
   running, review and proposals wait (operator's decision 24, 29/09/2026),
   also for rows shared with another active session of the same text, refused
   in the transaction that would write them; the capture stays available. A
-  manifest picked while a start is still running is kept for the next session. A file picked for a link that left the list
+  manifest picked while a start is still running is kept for the next session.
+  A link row and its audit-diary entry are written in one transaction by the
+  audit, the review and the proposals, so a failed diary entry leaves the row
+  as it was. A file picked for a link that left the list
   while the picker was open is not imported, and a browser launch that a
   policy blocks (`SecurityException`) is recorded like a missing browser.
   No `<queries>` element: `startActivity` does
