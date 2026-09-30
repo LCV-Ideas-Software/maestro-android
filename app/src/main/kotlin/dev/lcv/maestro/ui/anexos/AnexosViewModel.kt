@@ -85,7 +85,20 @@ class AnexosViewModel(private val d: Dependencias, private val id: String) : Vie
     }
 
     fun recarregar() {
-        viewModelScope.launch { conteudo.value = withContext(Dispatchers.IO) { ler() } }
+        viewModelScope.launch { reler() }
+    }
+
+    /**
+     * Relê os anexos. O armazenamento que falha na releitura mantém a lista que a tela tinha, com o
+     * aviso, e não passa por falha da gravação que já foi feita (decisão 25; achado do Codex na #78).
+     */
+    private suspend fun reler() {
+        conteudo.value = try {
+            withContext(Dispatchers.IO) { ler() }
+        } catch (erro: Exception) {
+            eventos.send(Mensagem.DeRecurso(R.string.anexos_leitura_falhou, listOf(motivoDeArmazenamento(erro))))
+            return
+        }
     }
 
     private fun ler(): Conteudo {
@@ -133,12 +146,13 @@ class AnexosViewModel(private val d: Dependencias, private val id: String) : Vie
         trabalhando.value = true
         viewModelScope.launch {
             try {
-                val mensagem = withContext(Dispatchers.IO) {
-                    acao().also { conteudo.value = ler() }
+                val mensagem = try {
+                    withContext(Dispatchers.IO) { acao() }
+                } catch (erro: Exception) {
+                    Mensagem.DeRecurso(R.string.gravacao_falhou, listOf(motivoDeArmazenamento(erro)))
                 }
+                reler()
                 eventos.send(mensagem)
-            } catch (erro: Exception) {
-                eventos.send(Mensagem.DeRecurso(R.string.gravacao_falhou, listOf(motivoDeArmazenamento(erro))))
             } finally {
                 trabalhando.value = false
             }

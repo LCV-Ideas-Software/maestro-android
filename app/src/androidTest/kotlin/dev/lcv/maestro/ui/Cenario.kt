@@ -146,7 +146,11 @@ internal class NavegadorFalso : Navegador {
 
     @Volatile var falha: String? = null
 
+    /** O que o teste quer ver no instante do disparo, como o banco no momento em que o app pode morrer. */
+    @Volatile var aoAbrir: (() -> Unit)? = null
+
     override fun abrir(contexto: Context, url: String): String? {
+        aoAbrir?.invoke()
         abertas += url
         return falha
     }

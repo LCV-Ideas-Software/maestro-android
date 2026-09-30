@@ -153,6 +153,20 @@ class AnexosScreenTest {
     }
 
     @Test
+    fun aReleituraQueFalhaDepoisDeAnexarNaoDizQueAGravacaoFalhou() {
+        // Achado do Codex na #78: o anexo gravou, e só a releitura falhou; a tela não pode dizer o contrário.
+        val id = c.sessao(Estados.ERRO, erro = "Falha qualquer.")
+        abrirNosAnexos(id, SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", MANIFESTO_DE_EXEMPLO.toByteArray()))))
+        c.bancoCheio.leituraQuebrada = "anexos"
+
+        regra.onNodeWithTag(Marcas.ANEXAR_MANIFESTO).performClick()
+        regra.esperarTexto("Não foi possível reler os anexos; a lista ficou como estava. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}")
+        regra.esperarTexto("Anexo adicionado.")
+        c.bancoCheio.leituraQuebrada = null
+        assertEquals(1, c.anexos.daSessao(id).size)
+    }
+
+    @Test
     fun oBancoCheioAoRemoverEAvisadoEOAnexoFica() {
         val id = c.sessao(Estados.ERRO, erro = "Falha qualquer.")
         val anexo = (c.anexos.adicionar(id, "citation-manifest.json", "application/json", MANIFESTO_DE_EXEMPLO.toByteArray()) as Resultado.Ok).valor

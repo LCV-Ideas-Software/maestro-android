@@ -115,6 +115,7 @@
     <string name="exportado_txt">TXT exportado.</string>
     <string name="exportacao_cancelada">Exportação cancelada.</string>
     <string name="exportacao_falhou">Não foi possível gravar o arquivo; nada foi salvo.</string>
+    <string name="anexos_leitura_falhou">Não foi possível reler os anexos; a lista ficou como estava. Motivo: %1$s</string>
     <string name="leitura_falhou">Não foi possível reler a lista de links; ela ficou como estava. Motivo: %1$s</string>
     <string name="gravacao_falhou">Não foi possível gravar no aparelho. Motivo: %1$s</string>
 

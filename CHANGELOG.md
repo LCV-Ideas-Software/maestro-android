@@ -30,7 +30,8 @@ All material changes to Maestro Android are recorded here.
   operator capture of `EvidenceScreen.tsx` (`maestro-app` `0e17817`) with
   their labels and messages: the links of the session's current text, the
   evidence kept for each address, "Abrir no navegador" (the handoff record is
-  validated and built first; the system browser gets only the validated URL
+  validated, built and stored first, then updated with the launch result;
+  the system browser gets only the validated URL
   through `ACTION_VIEW`), the import of the saved page, Crossref and OpenAlex
   correction proposals, and the accept, reject or quarantine decision with
   the engine's refusal reason. The list is read again when the session's

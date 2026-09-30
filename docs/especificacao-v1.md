@@ -223,9 +223,12 @@ escolheu os cinco. O que a escolha pede, e como fica:
   `open_web_evidence_in_default_browser` e `import_operator_evidence`, com as
   regras de nome, tipo, tamanho e bytes mágicos. **Abrir no navegador** valida
   a URL pela mesma regra de rede pública da coleta, monta o registro de
-  passagem e só então entrega a URL validada ao navegador do sistema
+  passagem, grava-o e só então entrega a URL validada ao navegador do sistema
   (`ACTION_VIEW`); o navegador que não abre, ou cujo disparo uma política
-  barra (`SecurityException`), fica anotado no registro. O arquivo salvo volta
+  barra (`SecurityException`), fica anotado no registro, gravado de novo depois
+  do disparo. O desktop grava uma vez, depois do disparo; aqui o registro vai
+  antes, porque o Android pode matar o aplicativo depois do `startActivity`, e
+  sem ele não há disparo (achado do Codex na #78). O arquivo salvo volta
   pelo seletor de documentos e vira evidência fornecida pelo operador, sob o
   endereço do link para o qual o seletor foi aberto; se esse link saiu da
   lista enquanto o seletor estava aberto, nada é importado; o disco que falha
@@ -258,7 +261,8 @@ escolheu os cinco. O que a escolha pede, e como fica:
   como depois da auditoria de outra sessão com o mesmo texto: o julgamento
   digitado era para outro conteúdo. Ao fim de uma ação, só sai do formulário o
   que ela enviou, e o que se digitou enquanto ela corria fica. A releitura que
-  falha por armazenamento mantém a lista que a tela tinha, com o aviso
+  falha por armazenamento mantém a lista que a tela tinha, com o aviso, aqui e
+  na tela de anexos, sem passar por falha da gravação que já foi feita
   (decisão 25). Achados do Codex na #78.
 - **Decisão 23 do operador (29/09/2026):** todo turno de revisão cujo texto
   atual reprova na auditoria final leva ao revisor o pacote do portão — as

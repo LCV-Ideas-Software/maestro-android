@@ -193,8 +193,11 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
         if (!comecar()) return
         try {
             val mensagem = try {
+                // O registro de passagem é gravado antes de o navegador abrir: depois do `startActivity`, o
+                // Android pode parar e matar o aplicativo, e o navegador teria a URL sem o registro que a
+                // audita (achado do Codex na #78). Divergência do desktop, que grava uma vez, depois do disparo.
                 val passagem = withContext(Dispatchers.IO) {
-                    d.importacao.passagem(linha.urlNormalizada) { d.evidencias.existente(it)?.registro }
+                    d.importacao.passagem(linha.urlNormalizada) { d.evidencias.existente(it)?.registro }.also { d.evidencias.guardar(it) }
                 }
                 val falha = d.navegador.abrir(contexto, passagem.registro.url)
                 withContext(Dispatchers.IO) { d.evidencias.guardar(d.importacao.aberta(passagem, falha)) }

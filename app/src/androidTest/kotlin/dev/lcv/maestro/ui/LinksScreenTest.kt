@@ -26,6 +26,7 @@ import dev.lcv.maestro.sessao.Estados
 import dev.lcv.maestro.sessao.LinksDaSessao
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
+import kotlin.concurrent.thread
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -402,8 +403,25 @@ class LinksScreenTest {
 
         regra.onNodeWithTag(Marcas.ABRIR_NO_NAVEGADOR).performScrollTo().performClick()
         regra.esperarTexto("Não foi possível registrar o handoff para o navegador padrão. Motivo: ${BancoCheio.MENSAGEM}")
-        assertEquals(listOf(RELATORIO), c.navegador.abertas)
+        // Sem registro, sem disparo: o navegador não recebe a URL de uma passagem que não ficou auditada.
+        assertTrue(c.navegador.abertas.isEmpty())
         assertTrue(c.evidencias.registrosDe(setOf(RELATORIO)).isEmpty())
+    }
+
+    @Test
+    fun oRegistroDePassagemJaEstaGravadoQuandoONavegadorAbre() {
+        // Achado do Codex na #78: depois do `startActivity`, o Android pode matar o aplicativo.
+        val id = sessaoComLinks()
+        abrirOLink(id, RELATORIO)
+        val passagem = ImportacaoDoOperador.idDaPassagem(RELATORIO)
+        var noDisparo: List<String>? = null
+        // O disparo é na linha principal, e o Room não lê nela: a leitura vai para outra thread, e o disparo a espera.
+        c.navegador.aoAbrir = { thread { noDisparo = c.evidencias.existente(passagem)?.registro?.notas }.join() }
+
+        regra.onNodeWithTag(Marcas.ABRIR_NO_NAVEGADOR).performScrollTo().performClick()
+        regra.esperarTexto("Handoff registrado. Exporte o artefato no navegador e importe-o abaixo.")
+        assertEquals(2, noDisparo?.size)
+        assertEquals("Default-browser handoff launched", c.evidencias.existente(passagem)!!.registro.notas.last())
     }
 
     @Test
