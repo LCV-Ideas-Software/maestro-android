@@ -28,6 +28,7 @@ import dev.lcv.maestro.sessao.TrimJs
 import dev.lcv.maestro.ui.Documentos
 import dev.lcv.maestro.ui.Mensagem
 import dev.lcv.maestro.ui.anexos.AnexosViewModel
+import dev.lcv.maestro.ui.motivoDeArmazenamento
 import java.time.Duration
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -270,6 +271,8 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
                         eventos.send(Evento.Aberta(resultado.valor))
                     }
                 }
+            } catch (erro: Exception) {
+                eventos.send(Evento.Aviso(Mensagem.DeRecurso(R.string.gravacao_falhou, listOf(motivoDeArmazenamento(erro)))))
             } finally {
                 ajustes.update { it.copy(iniciando = false) }
             }

@@ -237,7 +237,11 @@ escolheu os cinco. O que a escolha pede, e como fica:
   JSON como corpo; o disco que falha ao guardar um deles é a falha da busca.
   As propostas só sobrevivem à auditoria seguinte numa linha
   decidida (`preservarRevisao`, igual ao canônico), e por isso a tela pede a
-  decisão depois de propor. Sair da tela cancela a busca em curso.
+  decisão depois de propor. Sair da tela cancela a busca em curso, e nada é
+  gravado depois: sem chamada HTTP para interromper, a política de rede da
+  busca barra o resultado seguinte ao validar a URL dele, a busca confere o
+  cancelamento antes de entregar os resultados ao motor, e o motor só grava a
+  linha com a tela viva (achado do Codex na #78).
 - **A lista acompanha o texto e a auditoria:** com a tela aberta durante a
   execução, a lista é relida quando o texto da sessão muda e quando a
   auditoria regrava as linhas ou as evidências do mesmo texto (o
@@ -252,6 +256,16 @@ escolheu os cinco. O que a escolha pede, e como fica:
   aparelho não tem editor. Essa auditoria pode ir à rede, link por link, e
   por isso o teto de tempo é conferido de novo depois dela, antes da chamada
   paga.
+- **Decisão 25 do operador (29/09/2026):** numa ação de tela, o banco cheio, o
+  erro de disco do SQLite e o arquivo que não grava são a falha da ação, com o
+  motivo no aviso, e não derrubam o aplicativo — em todas as telas que gravam:
+  iniciar, cancelar e retomar a sessão, salvar as configurações, anexar e
+  remover, e a passagem ao navegador, a importação, a decisão e as propostas
+  de um link. Um classificador só (`motivoDeArmazenamento`) decide o que é
+  falha de armazenamento; o resto, inclusive o cancelamento da corrotina,
+  segue adiante. A pergunta veio de três rodadas seguidas do Codex na #78 que
+  acharam, cada uma, mais uma tela que caía; o trabalho em segundo plano já
+  levava qualquer exceção a `error` da sessão.
 - **Lacuna medida, fora desta entrega:** no canônico atual (`0e17817`,
   MAESTRO-34), a revisão confere também a URL final e a cadeia de
   redirecionamentos; o motor do Android, portado de `68528f9`, confere a URL e
@@ -1749,14 +1763,24 @@ de teste, porque compra confiança sem entregá-la.
   falha na importação e na busca, que avisa sem derrubar o aplicativo; a revisão com a recusa
   do motor para nota curta e para aceite de link que não passou; as propostas
   com o provedor escolhido, que sobrevivem à auditoria seguinte na linha
-  decidida, e a busca cancelada quando a tela sai; e a aba Links dos autos que
-  leva à tela. Na JVM: o renderizador do texto final, o tipo da captura, os
+  decidida, e a busca cancelada quando a tela sai, que não grava as propostas
+  nem quando a resposta já tinha chegado; a aba Links dos autos que
+  leva à tela; e, pela decisão 25, o banco cheio em cada ação de tela que
+  grava — iniciar, cancelar, retomar, salvar as configurações, anexar,
+  remover, a passagem ao navegador, a importação, a decisão e as propostas —,
+  que avisa sem derrubar o aplicativo e sem gravar pela metade. O banco
+  cheio é o `SQLiteFullException` do framework, lançado sob demanda por um
+  `openHelperFactory` de teste do Room (`BancoCheio`), no ponto em que o
+  SQLite o lançaria: um gatilho SQL daria `SQLITE_CONSTRAINT`, e o limite de
+  páginas só falha quando a escrita pede página nova. Na JVM: o renderizador do texto final, o tipo da captura, os
   rótulos do painel do desktop e a regra do manifesto do formulário, que não
   deixa começar durante a leitura dele; na tela de anexos, o manifesto de
   outro protocolo recusado com o hash ativo. No `:core:provedores`, na JVM, a
   captura assistida (as regras de nome, tipo, tamanho e bytes mágicos, a ordem
-  das recusas, os dois registros) e a busca que guarda cada resultado e
-  devolve a falha do armazém, como o `save_stored(...)?` do canônico; no
+  das recusas, os dois registros) e a busca que guarda cada resultado,
+  devolve a falha do armazém, como o `save_stored(...)?` do canônico, e,
+  cancelada depois da resposta, não grava o resultado seguinte nem entrega
+  nada ao motor; no
   `:core:protocolo`, as quatro regras de vínculo do manifesto na auditoria e
   fora dela; no `:core:sessao`, na JVM, o manifesto desvinculado recusado
   antes do rascunho, e, instrumentado, a sessão do formulário que nasce com o

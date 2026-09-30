@@ -218,6 +218,21 @@ class SessoesScreenTest {
     }
 
     @Test
+    fun oBancoCheioAoIniciarEAvisadoSemDerrubarOAplicativo() {
+        // Decisão 25 do operador (29/09/2026): o banco cheio numa ação da tela é a falha da ação.
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        regra.abrir(c)
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        c.bancoCheio.cheio = true
+        iniciar()
+        regra.onNodeWithText("Seguir sem notificações").performClick()
+        regra.esperarTexto("Não foi possível gravar no aparelho. Motivo: ${BancoCheio.MENSAGEM}")
+        assertTrue(c.sessoes.listar().isEmpty())
+        assertTrue(c.agendador.enfileiradas.isEmpty())
+    }
+
+    @Test
     fun semAutenticacaoNadaEGravado() {
         c.configurar()
         c.chaves(Provedor.CLAUDE, Provedor.CODEX)

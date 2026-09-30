@@ -121,6 +121,37 @@ class SessaoScreenTest {
         assertEquals(listOf(id to Estados.CANCELADA), c.agendador.canceladas.toList())
     }
 
+    @Test
+    fun oBancoCheioAoCancelarEAvisadoSemDerrubarOAplicativo() {
+        // Decisão 25 do operador (29/09/2026): o banco cheio numa ação da tela é a falha da ação.
+        val id = c.sessao(Estados.RODANDO)
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.CANCELAR)
+        c.bancoCheio.cheio = true
+        regra.onNodeWithTag(Marcas.CANCELAR).performClick()
+        regra.esperarTexto("Não foi possível gravar no aparelho. Motivo: ${BancoCheio.MENSAGEM}")
+        assertEquals(Estados.RODANDO, c.sessoes.carregar(id)?.status)
+        assertTrue(c.agendador.canceladas.isEmpty())
+    }
+
+    @Test
+    fun oBancoCheioAoRetomarEAvisadoSemDerrubarOAplicativo() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        val id = c.sessao(Estados.LIMITE_DE_CUSTO, teto = "5", custo = "5")
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.RETOMAR)
+        regra.onNodeWithTag(Marcas.RETOMAR).performClick()
+        esperarTag(Marcas.NOVO_TETO)
+        c.bancoCheio.cheio = true
+        confirmarRetomada("7")
+        regra.esperarTexto("Não foi possível gravar no aparelho. Motivo: ${BancoCheio.MENSAGEM}")
+        val linha = c.sessoes.carregar(id)!!
+        assertEquals(Estados.LIMITE_DE_CUSTO, linha.status)
+        assertEquals(Dinheiro.paraE8(BigDecimal("5")), linha.tetoDeCustoE8)
+        assertTrue(c.agendador.enfileiradas.isEmpty())
+    }
+
     private fun confirmarRetomada(teto: String? = null) {
         if (teto != null) {
             regra.onNodeWithTag(Marcas.NOVO_TETO).performTextClearance()

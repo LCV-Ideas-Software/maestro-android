@@ -141,6 +141,18 @@ class ConfiguracoesScreenTest {
     }
 
     @Test
+    fun oBancoCheioAoSalvarEAvisadoSemDerrubarOAplicativo() {
+        // Decisão 25 do operador (29/09/2026): o banco cheio numa ação da tela é a falha da ação.
+        abrirConfiguracoes()
+        val antes = c.configuracoes.carregar().tetoDeCustoUsd
+        digitar(Marcas.CAMPO_TETO, "12.5")
+        c.bancoCheio.cheio = true
+        regra.onNodeWithTag(Marcas.SALVAR_CONFIGURACOES).performScrollTo().performClick()
+        regra.esperarTexto("Não foi possível gravar no aparelho. Motivo: ${BancoCheio.MENSAGEM}")
+        assertEquals(0, antes.compareTo(c.configuracoes.carregar().tetoDeCustoUsd))
+    }
+
+    @Test
     fun salvarValoresValidosGravaERecarregaOFormulario() {
         abrirConfiguracoes()
         digitar(Marcas.CAMPO_TETO, "12.5")

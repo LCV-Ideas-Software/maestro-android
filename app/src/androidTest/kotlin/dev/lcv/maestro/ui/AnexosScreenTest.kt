@@ -14,6 +14,7 @@ import dev.lcv.maestro.protocolo.FormatoDoRegistro
 import dev.lcv.maestro.sessao.AnexosDaSessao
 import dev.lcv.maestro.sessao.Estados
 import dev.lcv.maestro.sessao.RepositorioDeConfiguracoes
+import dev.lcv.maestro.sessao.Resultado
 import dev.lcv.maestro.ui.anexos.AnexosViewModel
 import java.io.File
 import kotlinx.coroutines.flow.first
@@ -134,6 +135,34 @@ class AnexosScreenTest {
         regra.onNodeWithTag(Marcas.ANEXOS_EM_EXECUCAO).assertExists()
         regra.onNodeWithTag(Marcas.ANEXAR_MANIFESTO).assertIsNotEnabled()
         assertTrue(c.anexos.daSessao(id).isEmpty())
+    }
+
+    // Decisão 25 do operador (29/09/2026): o banco cheio numa ação da tela é a falha da ação, sem derrubar o aplicativo.
+
+    @Test
+    fun oBancoCheioAoAnexarEAvisadoENaoDeixaArquivo() {
+        val id = c.sessao(Estados.ERRO, erro = "Falha qualquer.")
+        abrirNosAnexos(id, SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", MANIFESTO_DE_EXEMPLO.toByteArray()))))
+        c.bancoCheio.cheio = true
+
+        regra.onNodeWithTag(Marcas.ANEXAR_MANIFESTO).performClick()
+        regra.esperarTexto("Não foi possível gravar no aparelho. Motivo: ${BancoCheio.MENSAGEM}")
+        assertTrue(c.anexos.daSessao(id).isEmpty())
+        // O arquivo já publicado sai com a transação que falhou.
+        assertEquals(0, c.pastaDosAnexos.listFiles()?.size ?: 0)
+    }
+
+    @Test
+    fun oBancoCheioAoRemoverEAvisadoEOAnexoFica() {
+        val id = c.sessao(Estados.ERRO, erro = "Falha qualquer.")
+        val anexo = (c.anexos.adicionar(id, "citation-manifest.json", "application/json", MANIFESTO_DE_EXEMPLO.toByteArray()) as Resultado.Ok).valor
+        abrirNosAnexos(id, SeletorDeTeste())
+        c.bancoCheio.cheio = true
+
+        regra.onNodeWithTag(Marcas.removerAnexo(anexo.id)).performScrollTo().performClick()
+        regra.esperarTexto("Não foi possível gravar no aparelho. Motivo: ${BancoCheio.MENSAGEM}")
+        assertEquals(listOf(anexo.id), c.anexos.daSessao(id).map { it.id })
+        assertTrue(File(anexo.caminho).exists())
     }
 
     /**

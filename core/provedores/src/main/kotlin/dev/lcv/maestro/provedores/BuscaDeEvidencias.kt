@@ -174,6 +174,10 @@ public class BuscaDeEvidencias internal constructor(
             armazem?.guardar(ColetorHttp.Coleta(registro, bruta.cabecalhos, bytesDoItem))
             registros += registro
         }
+        // Depois da resposta não há chamada para `cancelarTudo` interromper. A política guardada já barra o
+        // resultado seguinte, ao validar a URL dele; depois do último, o cancelamento é conferido antes de o
+        // motor receber os resultados (achado do Codex na #78).
+        transporte.conferirCancelamento()
         return registros
     }
 

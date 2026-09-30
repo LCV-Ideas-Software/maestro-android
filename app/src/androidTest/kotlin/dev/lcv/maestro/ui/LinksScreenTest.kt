@@ -341,6 +341,76 @@ class LinksScreenTest {
     }
 
     @Test
+    fun aBuscaQueTerminaDepoisDeATelaSairNaoGravaAsPropostas() {
+        // Achado do Codex na #78: a resposta HTTP já tinha chegado, não há chamada para cancelar, e o
+        // motor ainda gravaria as propostas na linha depois de a tela sair.
+        val id = sessaoComLinks()
+        c.resultadosDaBusca = listOf(c.resultadoDeBusca("https://exemplo.org/substituto", "Relatório substituto"))
+        c.buscaPresa = CountDownLatch(1)
+        c.buscaTerminouAntes = true
+        abrirOLink(id, RELATORIO)
+        regra.onNodeWithTag(Marcas.BUSCAR_PROPOSTAS).performScrollTo().performClick()
+        regra.waitUntil(5_000) { c.buscas.isNotEmpty() }
+
+        regra.onNodeWithTag(Marcas.VOLTAR).performClick()
+        // A transição de saída corre no relógio do teste (ver `sairDaTelaCancelaABuscaDePropostasEmCurso`).
+        regra.mainClock.advanceTimeBy(1_000)
+        regra.waitUntil(5_000) { c.buscasCanceladas.get() > 0 }
+        Thread.sleep(500)
+        assertTrue(linha(id, RELATORIO).candidatosDeCorrecao.isEmpty())
+    }
+
+    // Decisão 25 do operador (29/09/2026): o banco cheio numa ação da tela é a falha da ação, sem derrubar o aplicativo.
+
+    @Test
+    fun oBancoCheioNaPassagemAoNavegadorEAvisado() {
+        val id = sessaoComLinks()
+        abrirOLink(id, RELATORIO)
+        c.bancoCheio.cheio = true
+
+        regra.onNodeWithTag(Marcas.ABRIR_NO_NAVEGADOR).performScrollTo().performClick()
+        regra.esperarTexto("Não foi possível registrar o handoff para o navegador padrão. Motivo: ${BancoCheio.MENSAGEM}")
+        assertEquals(listOf(RELATORIO), c.navegador.abertas)
+        assertTrue(c.evidencias.registrosDe(setOf(RELATORIO)).isEmpty())
+    }
+
+    @Test
+    fun oBancoCheioNaImportacaoEAvisado() {
+        val id = sessaoComLinks()
+        abrirOLink(id, RELATORIO, SeletorDeTeste(Uri.fromFile(c.arquivo("pagina-salva.html", "<html></html>".toByteArray()))))
+        c.bancoCheio.cheio = true
+
+        regra.onNodeWithTag(Marcas.IMPORTAR_CAPTURA).performScrollTo().performClick()
+        regra.esperarTexto("A importação falhou. O arquivo local não foi alterado. Motivo: ${BancoCheio.MENSAGEM}")
+        assertTrue(c.evidencias.registrosDe(setOf(RELATORIO)).isEmpty())
+    }
+
+    @Test
+    fun oBancoCheioNaDecisaoEAvisado() {
+        val id = sessaoComLinks()
+        abrirOLink(id, RELATORIO)
+        regra.onNodeWithTag(Marcas.decisao("quarentena")).performScrollTo().performClick()
+        regra.onNodeWithTag(Marcas.NOTA_DA_REVISAO).performScrollTo().performTextInput("Aguardando a fonte ser conferida.")
+        c.bancoCheio.cheio = true
+
+        regra.onNodeWithTag(Marcas.REGISTRAR_DECISAO).performScrollTo().performClick()
+        regra.esperarTexto("A decisão não foi registrada. Motivo: ${BancoCheio.MENSAGEM}")
+        assertEquals(StatusDaRevisao.PENDENTE, linha(id, RELATORIO).statusDaRevisao)
+    }
+
+    @Test
+    fun oBancoCheioNasPropostasEAvisado() {
+        val id = sessaoComLinks()
+        c.resultadosDaBusca = listOf(c.resultadoDeBusca("https://exemplo.org/substituto", "Relatório substituto"))
+        abrirOLink(id, RELATORIO)
+        c.bancoCheio.cheio = true
+
+        regra.onNodeWithTag(Marcas.BUSCAR_PROPOSTAS).performScrollTo().performClick()
+        regra.esperarTexto("A busca de candidatos falhou. O link e o texto permaneceram inalterados. Motivo: ${BancoCheio.MENSAGEM}")
+        assertTrue(linha(id, RELATORIO).candidatosDeCorrecao.isEmpty())
+    }
+
+    @Test
     fun oArquivoEscolhidoParaUmLinkQueSaiuDaListaNaoEImportado() {
         // Achado do Codex na #78: o seletor do sistema demora, e o link aberto pode mudar antes da volta.
         val id = sessaoComLinks()

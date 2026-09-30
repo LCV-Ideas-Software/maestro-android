@@ -24,6 +24,7 @@ import dev.lcv.maestro.sessao.RepositorioDeSessoes
 import dev.lcv.maestro.sessao.Resultado
 import dev.lcv.maestro.sessao.ResumoDoArtefato
 import dev.lcv.maestro.ui.Mensagem
+import dev.lcv.maestro.ui.motivoDeArmazenamento
 import java.math.BigDecimal
 import java.math.RoundingMode
 import kotlinx.coroutines.Dispatchers
@@ -150,6 +151,8 @@ class SessaoViewModel(private val d: Dependencias, private val id: String) : Vie
                         is Resultado.Recusado -> Mensagem.Literal(resultado.mensagem)
                     },
                 )
+            } catch (erro: Exception) {
+                eventos.send(Mensagem.DeRecurso(R.string.gravacao_falhou, listOf(motivoDeArmazenamento(erro))))
             } finally {
                 ajustes.update { it.copy(trabalhando = false) }
             }
@@ -243,6 +246,8 @@ class SessaoViewModel(private val d: Dependencias, private val id: String) : Vie
                         is Resultado.Recusado -> Mensagem.Literal(resultado.mensagem)
                     },
                 )
+            } catch (erro: Exception) {
+                eventos.send(Mensagem.DeRecurso(R.string.gravacao_falhou, listOf(motivoDeArmazenamento(erro))))
             } finally {
                 ajustes.update { it.copy(trabalhando = false) }
             }

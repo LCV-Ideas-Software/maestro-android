@@ -9,6 +9,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.core.app.ActivityOptionsCompat
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.room.Room
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.work.WorkManager
 import android.content.Context
@@ -163,7 +164,11 @@ internal class Cenario {
     private var instante: Instant = Instant.parse("2026-09-28T12:00:00Z")
     val relogio: () -> Instant = { synchronized(this) { instante.also { instante = instante.plusSeconds(1) } } }
 
-    val banco: BancoDaSessao = BancoDaSessao.abrir(contexto, arquivo)
+    /** Ligado, toda escrita nas tabelas do aplicativo falha como o SQLite sem espaço. */
+    val bancoCheio = BancoCheio()
+
+    // O `BancoDaSessao.abrir` da produção, com o `openHelperFactory` que pode encher o banco.
+    val banco: BancoDaSessao = Room.databaseBuilder(contexto, BancoDaSessao::class.java, arquivo.absolutePath).openHelperFactory(bancoCheio).build()
     val sessoes = RepositorioDeSessoes(banco, relogio)
     val artefatos = RepositorioDeArtefatos(banco, relogio)
     val retomada = Retomada(banco, sessoes, artefatos, relogio)
@@ -209,6 +214,12 @@ internal class Cenario {
      */
     @Volatile var buscaPresa: CountDownLatch? = null
 
+    /**
+     * Posto, a busca presa devolve os resultados mesmo cancelada: a resposta HTTP já tinha chegado, e
+     * não há chamada para o cancelamento interromper.
+     */
+    @Volatile var buscaTerminouAntes: Boolean = false
+
     /** Posto, a busca falha ao guardar os resultados, como a real com o disco cheio: a `IOException` do armazém sai crua. */
     @Volatile var discoDaBusca: IOException? = null
     val buscasCanceladas = AtomicInteger()
@@ -224,7 +235,7 @@ internal class Cenario {
                     buscas += consulta to provedor
                     buscaPresa?.let { presa ->
                         presa.await(10, TimeUnit.SECONDS)
-                        if (buscasCanceladas.get() > 0) throw ColetaCancelada()
+                        if (buscasCanceladas.get() > 0 && !buscaTerminouAntes) throw ColetaCancelada()
                     }
                     discoDaBusca?.let { throw it }
                     resultadosDaBusca

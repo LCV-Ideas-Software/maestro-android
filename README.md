@@ -215,7 +215,9 @@ explicit accept, reject or quarantine decision with its note, refused where
 the engine refuses it. The artifacts' links tab, which the device never
 fills, now leads there. Every revision turn whose current text fails the
 release audit carries the failing rows and correction candidates to the
-reviewer (operator's decision 23, 29/09/2026).
+reviewer (operator's decision 23, 29/09/2026). A full database or a disk
+error never crashes a screen: every action that writes reports it as its own
+failure (operator's decision 25, 29/09/2026).
 
 The native port is specified in
 [`docs/especificacao-v1.md`](docs/especificacao-v1.md) (in Portuguese), written

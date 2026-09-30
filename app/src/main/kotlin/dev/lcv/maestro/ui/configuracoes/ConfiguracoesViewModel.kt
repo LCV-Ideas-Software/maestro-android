@@ -24,6 +24,7 @@ import dev.lcv.maestro.sessao.Resultado
 import dev.lcv.maestro.sessao.ResultadoDoTeste
 import dev.lcv.maestro.sessao.TrimJs
 import dev.lcv.maestro.ui.Mensagem
+import dev.lcv.maestro.ui.motivoDeArmazenamento
 import java.math.BigDecimal
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -170,6 +171,8 @@ class ConfiguracoesViewModel(private val d: Dependencias) : ViewModel() {
                     }
                     is Resultado.Recusado -> avisar(Mensagem.Literal(resultado.mensagem))
                 }
+            } catch (erro: Exception) {
+                avisar(Mensagem.DeRecurso(R.string.gravacao_falhou, listOf(motivoDeArmazenamento(erro))))
             } finally {
                 _estado.update { it.copy(salvando = false) }
             }

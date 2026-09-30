@@ -18,6 +18,7 @@ import dev.lcv.maestro.sessao.Resultado
 import dev.lcv.maestro.ui.Documentos
 import dev.lcv.maestro.ui.Mensagem
 import dev.lcv.maestro.ui.Rotulos
+import dev.lcv.maestro.ui.motivoDeArmazenamento
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -136,6 +137,8 @@ class AnexosViewModel(private val d: Dependencias, private val id: String) : Vie
                     acao().also { conteudo.value = ler() }
                 }
                 eventos.send(mensagem)
+            } catch (erro: Exception) {
+                eventos.send(Mensagem.DeRecurso(R.string.gravacao_falhou, listOf(motivoDeArmazenamento(erro))))
             } finally {
                 trabalhando.value = false
             }

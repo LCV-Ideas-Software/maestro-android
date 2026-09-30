@@ -157,6 +157,36 @@ class BuscaDeEvidenciasTest {
         assertEquals("No space left on device", erro.message)
     }
 
+    /** Um armazém que cancela a busca enquanto grava o primeiro resultado: a tela saiu depois da resposta HTTP. */
+    private class ArmazemQueCancela : ColetorHttp.ArmazemDeEvidencias {
+        lateinit var busca: BuscaDeEvidencias
+        val guardadas = mutableListOf<String>()
+        override fun existente(id: String): ColetorHttp.Coleta? = null
+        override fun guardar(coleta: ColetorHttp.Coleta) {
+            guardadas += coleta.registro.id
+            busca.cancelarTudo()
+        }
+    }
+
+    @Test
+    fun `cancelada depois da resposta, a busca nao grava o resultado seguinte`() {
+        // Achado do Codex na #78: sem chamada HTTP em curso, o cancelamento não interrompia a gravação.
+        val armazem = ArmazemQueCancela()
+        armazem.busca = busca(armazem = armazem)
+        servidor.enqueue(RedeDeTeste.resposta(200, crossref, "Content-Type" to "application/json"))
+        assertFailsWith<ColetaCancelada> { armazem.busca.buscar("q", "crossref", 12) }
+        assertEquals(1, armazem.guardadas.size)
+    }
+
+    @Test
+    fun `cancelada durante a ultima gravacao, a busca nao entrega resultado ao motor`() {
+        val armazem = ArmazemQueCancela()
+        armazem.busca = busca(armazem = armazem)
+        servidor.enqueue(RedeDeTeste.resposta(200, crossref, "Content-Type" to "application/json"))
+        assertFailsWith<ColetaCancelada> { armazem.busca.buscar("q", "crossref", 1) }
+        assertEquals(1, armazem.guardadas.size)
+    }
+
     @Test
     fun `cancelarTudo fecha a busca antes de qualquer consulta de nome`() {
         val busca = busca()

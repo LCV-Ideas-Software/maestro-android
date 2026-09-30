@@ -23,11 +23,12 @@ import dev.lcv.maestro.provedores.ImportacaoDoOperador
 import dev.lcv.maestro.ui.Documentos
 import dev.lcv.maestro.ui.Mensagem
 import dev.lcv.maestro.ui.Rotulos
-import java.io.IOException
+import dev.lcv.maestro.ui.motivoDeArmazenamento
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -39,6 +40,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -182,6 +184,8 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                 if (falha == null) Mensagem.DeRecurso(R.string.passagem_registrada) else Mensagem.DeRecurso(R.string.passagem_sem_navegador, listOf(falha))
             } catch (erro: IntegridadeDeLinks.Falha) {
                 Mensagem.DeRecurso(R.string.passagem_falhou, listOf(erro.message.orEmpty()))
+            } catch (erro: Exception) {
+                Mensagem.DeRecurso(R.string.passagem_falhou, listOf(motivoDeArmazenamento(erro)))
             }
             eventos.send(mensagem)
         } finally {
@@ -222,10 +226,10 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                         is ImportacaoDoOperador.Importacao.Importada -> try {
                             d.evidencias.guardar(importacao.coleta)
                             Saida(Mensagem.DeRecurso(R.string.captura_importada)) { notaDaCaptura = "" }
-                        } catch (erro: IOException) {
+                        } catch (erro: Exception) {
                             // O disco que falha é a falha da importação: no desktop, `write_binary_file`
-                            // devolve o erro à tela (achado do Codex na #78).
-                            Saida(Mensagem.DeRecurso(R.string.captura_falhou, listOf(erro.message.orEmpty())))
+                            // devolve o erro à tela (achado do Codex na #78; decisão 25 do operador).
+                            Saida(Mensagem.DeRecurso(R.string.captura_falhou, listOf(motivoDeArmazenamento(erro))))
                         }
                     }
                 }
@@ -258,6 +262,8 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                 }
             } catch (erro: IntegridadeDeLinks.Falha) {
                 Saida(Mensagem.DeRecurso(R.string.decisao_nao_registrada, listOf(erro.message.orEmpty())))
+            } catch (erro: Exception) {
+                Saida(Mensagem.DeRecurso(R.string.decisao_nao_registrada, listOf(motivoDeArmazenamento(erro))))
             }
         }
     }
@@ -286,17 +292,29 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                 }
                 val (saida, links) = try {
                     withContext(Dispatchers.IO) {
+                        // A resposta HTTP pode ter chegado antes de a tela sair, e aí não há chamada para o
+                        // vigia cancelar: a linha só é gravada com esta corrotina viva (achado do Codex na #78).
+                        // O diário (`anotar`) não é barrado: gravada a linha, a entrada dele tem de acompanhá-la.
+                        val viva = coroutineContext.job
+                        val base = d.links.registro(id)
+                        val registro = object : IntegridadeDeLinks.RegistroDeLinks by base {
+                            override fun salvar(linha: LinhaDeLink) {
+                                viva.ensureActive()
+                                base.salvar(linha)
+                            }
+                        }
                         val saida = try {
-                            val proposta = IntegridadeDeLinks.proporCorrecoes(pedido, d.links.registro(id), busca.buscador, d.relogio())
+                            val proposta = IntegridadeDeLinks.proporCorrecoes(pedido, registro, busca.buscador, d.relogio())
                             Saida(Mensagem.DePlural(R.plurals.propostas_registradas, proposta.candidatosDeCorrecao.size))
                         } catch (erro: IntegridadeDeLinks.Falha) {
-                            Saida(Mensagem.DeRecurso(R.string.propostas_falharam, listOf(erro.message.orEmpty())))
-                        } catch (erro: IOException) {
-                            // A busca guarda cada resultado como evidência, e o disco que falha é a falha dela.
                             Saida(Mensagem.DeRecurso(R.string.propostas_falharam, listOf(erro.message.orEmpty())))
                         } catch (erro: ColetaCancelada) {
                             // Só acontece com a tela saindo: o escopo já foi cancelado, e o aviso não sai.
                             Saida(Mensagem.DeRecurso(R.string.propostas_falharam, listOf(erro.message.orEmpty())))
+                        } catch (erro: Exception) {
+                            // A busca guarda cada resultado como evidência e o motor grava as propostas na linha:
+                            // o armazenamento que falha é a falha dela (decisão 25 do operador).
+                            Saida(Mensagem.DeRecurso(R.string.propostas_falharam, listOf(motivoDeArmazenamento(erro))))
                         }
                         saida to ler()
                     }

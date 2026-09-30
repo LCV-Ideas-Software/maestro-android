@@ -39,7 +39,8 @@ All material changes to Maestro Android are recorded here.
   storing an imported file or a search result is reported as that action's
   failure instead of crashing the screen, a decision typed for a link that
   left the list is cleared rather than applied to another, and leaving the
-  screen cancels a running correction search. While the session is queued or
+  screen cancels a running correction search, which then stores nothing
+  more, even when the HTTP response had already arrived. While the session is queued or
   running, review and proposals wait (operator's decision 24, 29/09/2026);
   the capture stays available. A file picked for a link that left the list
   while the picker was open is not imported, and a browser launch that a
@@ -49,7 +50,13 @@ All material changes to Maestro Android are recorded here.
   missing browser arrives as `ActivityNotFoundException`, recorded on the
   handoff. Instrumented tests use the official
   `ActivityResultRegistry` for the document picker and a browser double that
-  only records the URL; no test opens a browser.
+  only records the URL; no test opens a browser. Every screen action that
+  writes (start, cancel and resume a session, save the settings, attach and
+  remove, and the handoff, import, decision and proposals of a link) turns a
+  full database, an SQLite disk error or a file that cannot be written into
+  that action's failure message instead of crashing the app (operator's
+  decision 25, 29/09/2026); instrumented tests raise the framework's
+  `SQLiteFullException` on demand through a test `openHelperFactory`.
 - Add `ImportacaoDoOperador` to `:core:provedores`: the operator-assisted
   capture of the desktop (`handoff_record`,
   `open_web_evidence_in_default_browser` and `import_operator_evidence` with
