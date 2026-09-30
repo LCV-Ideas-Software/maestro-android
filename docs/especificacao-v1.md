@@ -210,7 +210,10 @@ escolheu os cinco. O que a escolha pede, e como fica:
   esperam (decisão 24 do operador, 29/09/2026): a auditoria da sessão regrava
   as mesmas linhas e guarda o que leu, e uma decisão feita nesse meio-tempo
   podia se perder ou não chegar ao revisor. A captura segue liberada, porque
-  não mexe nas linhas de link.
+  não mexe nas linhas de link. O registro é global, e duas sessões com o mesmo
+  texto dividem as linhas: a tela grava por `LinksDaSessao.registroDaTela`,
+  que recusa, na transação da gravação, a linha do texto de qualquer sessão na
+  fila ou em execução (achado do Codex na #78).
 - **Captura assistida pelo operador:** `ImportacaoDoOperador`, no
   `:core:provedores`, porta `handoff_record`,
   `open_web_evidence_in_default_browser` e `import_operator_evidence`, com as
@@ -1749,14 +1752,16 @@ de teste, porque compra confiança sem entregá-la.
   texto liberado, pede a remoção; o manifesto lido, o
   recusado, o acima do teto e o que não muda com a sessão em execução, nem
   quando chega a um ViewModel que ainda não leu o status, o do
-  formulário gravado antes do enfileiramento, o do formulário lido de novo
+  formulário gravado antes do enfileiramento, o escolhido durante um início
+  em curso, que fica para a próxima sessão, o do formulário lido de novo
   contra o protocolo trocado depois da escolha, e o disco que falha, que avisa
   sem derrubar o aplicativo e sem deixar sessão na fila; os links do texto atual, e não
   os de uma versão anterior, relidos quando o texto muda com a tela aberta e
   quando a auditoria grava as linhas do mesmo texto, e
   a nota e a decisão de um link que saiu da lista, que não vão para outro; a
   revisão e as propostas desligadas com a sessão em execução, com a captura
-  liberada; a passagem ao navegador só com a URL que a regra de rede aceitou,
+  liberada, e recusadas na linha dividida com outra sessão do mesmo texto em
+  execução; a passagem ao navegador só com a URL que a regra de rede aceitou,
   a recusada que não chega ao navegador, o navegador que não abre e o disparo
   barrado por política; o arquivo importado sob o link, sem mudá-lo, o de
   tipo fora da lista e o escolhido para um link que saiu da lista; o disco que

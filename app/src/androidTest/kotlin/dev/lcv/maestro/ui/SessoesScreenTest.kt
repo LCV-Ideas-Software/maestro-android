@@ -218,6 +218,34 @@ class SessoesScreenTest {
     }
 
     @Test
+    fun oManifestoEscolhidoDuranteOInicioFicaParaAProximaSessao() {
+        // Achado do Codex na #78: o início que termina não pode apagar a escolha feita enquanto ele corria.
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        regra.abrir(c, seletor = SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", MANIFESTO_DE_EXEMPLO.toByteArray()))))
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        // A trava da reconciliação segura o início sem manifesto no meio do caminho.
+        runBlocking { Sincronia.reconciliacao.lock() }
+        try {
+            iniciar()
+            regra.onNodeWithText("Seguir sem notificações").performClick()
+            regra.waitUntil(5_000) { c.autenticacoes.get() == 1 }
+            regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).performScrollTo().performClick()
+            regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.MANIFESTO_DO_FORMULARIO).fetchSemanticsNodes().isNotEmpty() }
+        } finally {
+            Sincronia.reconciliacao.unlock()
+        }
+        regra.waitUntil(5_000) { c.agendador.enfileiradas.isNotEmpty() }
+        val linha = c.sessoes.listar().single()
+        assertTrue(c.anexos.daSessao(linha.id).isEmpty())
+        // A tela da sessão abriu; na volta ao formulário, o manifesto escolhido continua lá.
+        regra.esperarTexto("Sessão Maestro AI iniciada.")
+        regra.onNodeWithTag(Marcas.VOLTAR).performClick()
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.MANIFESTO_DO_FORMULARIO).fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.MANIFESTO_DO_FORMULARIO).assertTextEquals("Manifesto lido: 1 citação e 1 fonte.")
+    }
+
+    @Test
     fun oBancoCheioAoIniciarEAvisadoSemDerrubarOAplicativo() {
         // Decisão 25 do operador (29/09/2026): o banco cheio numa ação da tela é a falha da ação.
         c.configurar()

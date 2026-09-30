@@ -22,6 +22,7 @@ import dev.lcv.maestro.protocolo.StatusDaRevisao
 import dev.lcv.maestro.provedores.ImportacaoDoOperador
 import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.sessao.Estados
+import dev.lcv.maestro.sessao.LinksDaSessao
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import org.junit.Assert.assertEquals
@@ -357,6 +358,35 @@ class LinksScreenTest {
         regra.mainClock.advanceTimeBy(1_000)
         regra.waitUntil(5_000) { c.buscasCanceladas.get() > 0 }
         Thread.sleep(500)
+        assertTrue(linha(id, RELATORIO).candidatosDeCorrecao.isEmpty())
+    }
+
+    // Achado do Codex na #78: o registro é global, e outra sessão com o mesmo texto, em execução, divide as linhas.
+
+    @Test
+    fun aDecisaoNumaLinhaDeOutraSessaoEmExecucaoEsperaEla() {
+        val id = sessaoComLinks()
+        c.sessao(Estados.RODANDO, textoAtual = TEXTO)
+        abrirOLink(id, RELATORIO)
+        regra.onNodeWithTag(Marcas.decisao("quarentena")).performScrollTo().performClick()
+        regra.onNodeWithTag(Marcas.NOTA_DA_REVISAO).performScrollTo().performTextInput("Aguardando a fonte ser conferida.")
+
+        regra.onNodeWithTag(Marcas.REGISTRAR_DECISAO).performScrollTo().performClick()
+        regra.esperarTexto("A decisão não foi registrada. Motivo: ${LinksDaSessao.MENSAGEM_EM_AUDITORIA}")
+        assertEquals(StatusDaRevisao.PENDENTE, linha(id, RELATORIO).statusDaRevisao)
+    }
+
+    @Test
+    fun asPropostasNumaLinhaDeOutraSessaoEmExecucaoEsperamEla() {
+        val id = sessaoComLinks()
+        c.sessao(Estados.NA_FILA, textoAtual = TEXTO)
+        c.resultadosDaBusca = listOf(c.resultadoDeBusca("https://exemplo.org/substituto", "Relatório substituto"))
+        abrirOLink(id, RELATORIO)
+
+        regra.onNodeWithTag(Marcas.BUSCAR_PROPOSTAS).performScrollTo().performClick()
+        regra.esperarTexto(
+            "A busca de candidatos falhou. O link e o texto permaneceram inalterados. Motivo: ${LinksDaSessao.MENSAGEM_EM_AUDITORIA}",
+        )
         assertTrue(linha(id, RELATORIO).candidatosDeCorrecao.isEmpty())
     }
 

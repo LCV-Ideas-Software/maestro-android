@@ -41,8 +41,10 @@ All material changes to Maestro Android are recorded here.
   left the list is cleared rather than applied to another, and leaving the
   screen cancels a running correction search, which then stores nothing
   more, even when the HTTP response had already arrived. While the session is queued or
-  running, review and proposals wait (operator's decision 24, 29/09/2026);
-  the capture stays available. A file picked for a link that left the list
+  running, review and proposals wait (operator's decision 24, 29/09/2026),
+  also for rows shared with another active session of the same text, refused
+  in the transaction that would write them; the capture stays available. A
+  manifest picked while a start is still running is kept for the next session. A file picked for a link that left the list
   while the picker was open is not imported, and a browser launch that a
   policy blocks (`SecurityException`) is recorded like a missing browser.
   No `<queries>` element: `startActivity` does

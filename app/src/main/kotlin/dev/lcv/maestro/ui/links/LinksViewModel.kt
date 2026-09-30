@@ -253,7 +253,7 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                         urlNormalizadaEsperada = linha.urlNormalizada,
                         sha256Esperado = linha.sha256,
                     ),
-                    d.links.registro(id),
+                    d.links.registroDaTela(id),
                     d.relogio(),
                 )
                 Saida(Mensagem.DeRecurso(R.string.decisao_registrada)) {
@@ -296,7 +296,7 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                         // vigia cancelar: a linha só é gravada com esta corrotina viva (achado do Codex na #78).
                         // O diário (`anotar`) não é barrado: gravada a linha, a entrada dele tem de acompanhá-la.
                         val viva = coroutineContext.job
-                        val base = d.links.registro(id)
+                        val base = d.links.registroDaTela(id)
                         val registro = object : IntegridadeDeLinks.RegistroDeLinks by base {
                             override fun salvar(linha: LinhaDeLink) {
                                 viva.ensureActive()

@@ -1,6 +1,7 @@
 package dev.lcv.maestro.sessao
 
 import dev.lcv.maestro.protocolo.FormatoDoRegistro
+import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.protocolo.LinhaDeLink
 import java.time.Instant
 import kotlinx.coroutines.flow.Flow
@@ -19,6 +20,25 @@ public class LinksDaSessao(private val banco: BancoDaSessao, private val relogio
 
     /** O registro sobre o qual a tela revisa e propõe correções, anotado em nome da sessão. */
     public fun registro(sessaoId: String): RegistroDeLinksRoom = RegistroDeLinksRoom(banco, sessaoId, relogio)
+
+    /**
+     * O [registro] da tela de revisão, que recusa gravar a linha cujo texto de origem é o de uma sessão na
+     * fila ou em execução — a desta ou a de outra: o registro é global, e duas sessões com o mesmo texto
+     * dividem as linhas (decisão 24 do operador; achado do Codex na #78). A recusa vem da transação da
+     * gravação, e o diário (`anotar`) só é gravado depois de a linha ser.
+     */
+    public fun registroDaTela(sessaoId: String): IntegridadeDeLinks.RegistroDeLinks {
+        val base = registro(sessaoId)
+        return object : IntegridadeDeLinks.RegistroDeLinks by base {
+            override fun salvar(linha: LinhaDeLink) {
+                if (emAuditoria(linha.impressaoDaOrigem)) throw IntegridadeDeLinks.Falha(MENSAGEM_EM_AUDITORIA)
+                base.salvar(linha)
+            }
+        }
+    }
+
+    private fun emAuditoria(impressao: String): Boolean =
+        banco.sessoes().emExecucao().any { FormatoDoRegistro.sha256(it.textoFinal ?: it.textoAtual) == impressao }
 
     /**
      * As linhas do texto da sessão, na ordem da listagem do motor (`IntegridadeDeLinks.listar`): a
@@ -41,4 +61,10 @@ public class LinksDaSessao(private val banco: BancoDaSessao, private val relogio
      * isso só pela mudança do texto (achado do Codex na #78).
      */
     public fun mudancas(): Flow<Set<String>> = banco.invalidationTracker.createFlow("links", "evidencias")
+
+    public companion object {
+        /** Só do aparelho: a linha é do texto de uma sessão que a auditoria dela ainda regrava. */
+        public const val MENSAGEM_EM_AUDITORIA: String =
+            "uma sessão com este mesmo texto está na fila ou em execução; a revisão e as propostas esperam ela parar"
+    }
 }

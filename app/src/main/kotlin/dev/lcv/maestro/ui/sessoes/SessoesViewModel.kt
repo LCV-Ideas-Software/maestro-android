@@ -266,7 +266,8 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
                 when (resultado) {
                     is Resultado.Recusado -> eventos.send(Evento.Aviso(Mensagem.Literal(resultado.mensagem)))
                     is Resultado.Ok -> {
-                        manifesto = null
+                        // O manifesto escolhido durante o início é para a próxima sessão (achado do Codex na #78).
+                        if (manifesto === anexo) manifesto = null
                         eventos.send(Evento.Aviso(Mensagem.DeRecurso(R.string.iniciada)))
                         eventos.send(Evento.Aberta(resultado.valor))
                     }
