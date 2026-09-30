@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -26,6 +27,7 @@ import dev.lcv.maestro.sessao.LinksDaSessao
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -425,6 +427,71 @@ class LinksScreenTest {
 
         regra.onNodeWithTag(Marcas.REGISTRAR_DECISAO).performScrollTo().performClick()
         regra.esperarTexto("A decisão não foi registrada. Motivo: ${BancoCheio.MENSAGEM}")
+        assertEquals(StatusDaRevisao.PENDENTE, linha(id, RELATORIO).statusDaRevisao)
+    }
+
+    // Rodada 8 do Codex na #78.
+
+    @Test
+    fun aReleituraQueFalhaDepoisDaDecisaoAvisaEMantemALista() {
+        val id = sessaoComLinks()
+        val relatorio = abrirOLink(id, RELATORIO)
+        regra.onNodeWithTag(Marcas.decisao("quarentena")).performScrollTo().performClick()
+        regra.onNodeWithTag(Marcas.NOTA_DA_REVISAO).performScrollTo().performTextInput("Aguardando a fonte ser conferida.")
+        // A decisão grava; a lista relida depois dela lê as evidências, e essa leitura falha.
+        c.bancoCheio.leituraQuebrada = "evidencias"
+
+        regra.onNodeWithTag(Marcas.REGISTRAR_DECISAO).performScrollTo().performClick()
+        regra.esperarTexto("Não foi possível reler a lista de links; ela ficou como estava. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}")
+        assertNotEquals(StatusDaRevisao.PENDENTE, linha(id, RELATORIO).statusDaRevisao)
+        regra.onNodeWithTag(Marcas.link(relatorio.linkId)).assertExists()
+    }
+
+    @Test
+    fun oQueSeDigitaDuranteARevisaoFicaNoFormulario() {
+        val id = sessaoComLinks()
+        abrirOLink(id, RELATORIO)
+        regra.onNodeWithTag(Marcas.decisao("quarentena")).performScrollTo().performClick()
+        regra.onNodeWithTag(Marcas.NOTA_DA_REVISAO).performScrollTo().performTextInput("Aguardando a fonte ser conferida.")
+        // A revisão fica presa na gravação do diário, e nesse meio-tempo o operador escreve mais.
+        val trava = CountDownLatch(1)
+        c.bancoCheio.tabelaTravada = "eventos_de_links"
+        c.bancoCheio.trava = trava
+
+        regra.onNodeWithTag(Marcas.REGISTRAR_DECISAO).performScrollTo().performClick()
+        regra.onNodeWithTag(Marcas.NOTA_DA_REVISAO).performScrollTo().performTextInput(" Mais uma linha.")
+        trava.countDown()
+        regra.esperarTexto("Decisão registrada sobre a versão verificada. Nenhuma substituição foi aplicada ao texto.")
+        regra.onNodeWithTag(Marcas.NOTA_DA_REVISAO).assertTextEquals("Aguardando a fonte ser conferida. Mais uma linha.")
+    }
+
+    @Test
+    fun aNotaDigitadaDuranteAImportacaoFicaNoFormulario() {
+        val id = sessaoComLinks()
+        abrirOLink(id, RELATORIO, SeletorDeTeste(Uri.fromFile(c.arquivo("pagina-salva.html", "<html></html>".toByteArray()))))
+        regra.onNodeWithTag(Marcas.NOTA_DA_CAPTURA).performScrollTo().performTextInput("Página salva do site oficial.")
+        val trava = CountDownLatch(1)
+        c.bancoCheio.tabelaTravada = "evidencias"
+        c.bancoCheio.trava = trava
+
+        regra.onNodeWithTag(Marcas.IMPORTAR_CAPTURA).performScrollTo().performClick()
+        regra.onNodeWithTag(Marcas.NOTA_DA_CAPTURA).performScrollTo().performTextInput(" Segunda cópia.")
+        trava.countDown()
+        regra.esperarTexto("Artefato importado, hasheado e registrado com proveniência do operador.")
+        regra.onNodeWithTag(Marcas.NOTA_DA_CAPTURA).assertTextEquals("Página salva do site oficial. Segunda cópia.")
+    }
+
+    @Test
+    fun aLinhaAbertaQueVoltaComOutroHashRecomecaOFormulario() {
+        // P1: outra sessão com o mesmo texto audita e a linha, com o mesmo id, passa a ter outro hash.
+        val id = sessaoComLinks()
+        abrirOLink(id, RELATORIO)
+        regra.onNodeWithTag(Marcas.decisao("quarentena")).performScrollTo().performClick()
+        regra.onNodeWithTag(Marcas.NOTA_DA_REVISAO).performScrollTo().performTextInput("Aguardando a fonte ser conferida.")
+
+        c.auditarLinks(id, TEXTO) { url -> c.resultadoDeBusca(url, "Relatório") }
+        regra.waitUntil(5_000) { regra.onAllNodes(hasText("Aguardando a fonte ser conferida.", substring = true)).fetchSemanticsNodes().isEmpty() }
+        regra.onNodeWithTag(Marcas.REGISTRAR_DECISAO).performScrollTo().assertIsNotEnabled()
         assertEquals(StatusDaRevisao.PENDENTE, linha(id, RELATORIO).statusDaRevisao)
     }
 

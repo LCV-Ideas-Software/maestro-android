@@ -38,7 +38,9 @@ All material changes to Maestro Android are recorded here.
   rewrites the rows or the evidence of the same text, a disk failure while
   storing an imported file or a search result is reported as that action's
   failure instead of crashing the screen, a decision typed for a link that
-  left the list is cleared rather than applied to another, and leaving the
+  left the list, or whose URL or hash changed, is cleared rather than applied
+  to other content, an action clears only what it submitted, a list reload
+  that fails keeps the list shown with a notice, and leaving the
   screen cancels a running correction search, which then stores nothing
   more, even when the HTTP response had already arrived. While the session is queued or
   running, review and proposals wait (operator's decision 24, 29/09/2026),

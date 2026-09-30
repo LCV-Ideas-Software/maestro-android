@@ -1,11 +1,17 @@
 package dev.lcv.maestro.ui
 
 import android.content.ContentValues
+import android.database.Cursor
+import android.database.sqlite.SQLiteDiskIOException
 import android.database.sqlite.SQLiteFullException
+import android.os.CancellationSignal
 import androidx.sqlite.db.SupportSQLiteDatabase
 import androidx.sqlite.db.SupportSQLiteOpenHelper
+import androidx.sqlite.db.SupportSQLiteQuery
 import androidx.sqlite.db.SupportSQLiteStatement
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * O banco cheio sob demanda (decisão 25 do operador, 29/09/2026), pelo `openHelperFactory` do Room:
@@ -21,11 +27,24 @@ class BancoCheio(private val base: SupportSQLiteOpenHelper.Factory = FrameworkSQ
     /** Com [cheio], só a escrita nesta tabela falha: o espaço acaba no meio de uma transação. */
     @Volatile var soNaTabela: String? = null
 
+    /** Posto, a leitura desta tabela falha como o SQLite com erro de disco. */
+    @Volatile var leituraQuebrada: String? = null
+
+    /** Posta, a escrita na tabela [tabelaTravada] espera a trava abrir: uma ação lenta, no meio da transação. */
+    @Volatile var trava: CountDownLatch? = null
+    @Volatile var tabelaTravada: String? = null
+
     override fun create(configuration: SupportSQLiteOpenHelper.Configuration): SupportSQLiteOpenHelper = Ajudante(base.create(configuration))
 
     private fun conferir(sql: String) {
+        if (!ESCRITA.containsMatchIn(sql) || sql.contains("room_")) return
+        tabelaTravada?.takeIf { sql.contains(it) }?.let { trava?.await(10, TimeUnit.SECONDS) }
         val naTabela = soNaTabela?.let { sql.contains(it) } ?: true
-        if (cheio && naTabela && ESCRITA.containsMatchIn(sql) && !sql.contains("room_")) throw SQLiteFullException(MENSAGEM)
+        if (cheio && naTabela) throw SQLiteFullException(MENSAGEM)
+    }
+
+    private fun conferirLeitura(sql: String) {
+        if (leituraQuebrada?.let { sql.contains(it) } == true) throw SQLiteDiskIOException(MENSAGEM_DE_DISCO)
     }
 
     private inner class Ajudante(private val base: SupportSQLiteOpenHelper) : SupportSQLiteOpenHelper by base {
@@ -35,6 +54,26 @@ class BancoCheio(private val base: SupportSQLiteOpenHelper.Factory = FrameworkSQ
 
     private inner class Banco(private val base: SupportSQLiteDatabase) : SupportSQLiteDatabase by base {
         override fun compileStatement(sql: String): SupportSQLiteStatement = Instrucao(base.compileStatement(sql), sql)
+
+        override fun query(query: String): Cursor {
+            conferirLeitura(query)
+            return base.query(query)
+        }
+
+        override fun query(query: String, bindArgs: Array<out Any?>): Cursor {
+            conferirLeitura(query)
+            return base.query(query, bindArgs)
+        }
+
+        override fun query(query: SupportSQLiteQuery): Cursor {
+            conferirLeitura(query.sql)
+            return base.query(query)
+        }
+
+        override fun query(query: SupportSQLiteQuery, cancellationSignal: CancellationSignal?): Cursor {
+            conferirLeitura(query.sql)
+            return base.query(query, cancellationSignal)
+        }
 
         override fun execSQL(sql: String) {
             conferir(sql)
@@ -82,6 +121,9 @@ class BancoCheio(private val base: SupportSQLiteOpenHelper.Factory = FrameworkSQ
     companion object {
         /** A mensagem do framework para `SQLITE_FULL`. */
         const val MENSAGEM: String = "database or disk is full (code 13 SQLITE_FULL)"
+
+        /** A mensagem do framework para `SQLITE_IOERR`. */
+        const val MENSAGEM_DE_DISCO: String = "disk I/O error (code 10 SQLITE_IOERR)"
         private val ESCRITA = Regex("^\\s*(INSERT|UPDATE|DELETE|REPLACE)\\b", RegexOption.IGNORE_CASE)
     }
 }

@@ -254,7 +254,12 @@ escolheu os cinco. O que a escolha pede, e como fica:
   auditoria regrava as linhas ou as evidências do mesmo texto (o
   `InvalidationTracker` do Room sobre as duas tabelas); se o link aberto sai
   dela, a nota e a decisão digitadas para ele são apagadas e nunca vão para
-  outro link.
+  outro link. O mesmo quando a linha aberta volta com outra URL ou outro hash,
+  como depois da auditoria de outra sessão com o mesmo texto: o julgamento
+  digitado era para outro conteúdo. Ao fim de uma ação, só sai do formulário o
+  que ela enviou, e o que se digitou enquanto ela corria fica. A releitura que
+  falha por armazenamento mantém a lista que a tela tinha, com o aviso
+  (decisão 25). Achados do Codex na #78.
 - **Decisão 23 do operador (29/09/2026):** todo turno de revisão cujo texto
   atual reprova na auditoria final leva ao revisor o pacote do portão — as
   linhas que falharam e os candidatos de correção. Antes, o pacote só ia numa
@@ -1761,8 +1766,10 @@ de teste, porque compra confiança sem entregá-la.
   contra o protocolo trocado depois da escolha, e o disco que falha, que avisa
   sem derrubar o aplicativo e sem deixar sessão na fila; os links do texto atual, e não
   os de uma versão anterior, relidos quando o texto muda com a tela aberta e
-  quando a auditoria grava as linhas do mesmo texto, e
-  a nota e a decisão de um link que saiu da lista, que não vão para outro; a
+  quando a auditoria grava as linhas do mesmo texto, a releitura que falha e
+  mantém a lista, a nota e a decisão de um link que saiu da lista ou voltou
+  com outro hash, que não vão para outro conteúdo, e o que se digita durante
+  a revisão e a importação, que fica no formulário; a
   revisão e as propostas desligadas com a sessão em execução, com a captura
   liberada, e recusadas na linha dividida com outra sessão do mesmo texto em
   execução; a decisão e as propostas cujo diário não grava, que não ficam na

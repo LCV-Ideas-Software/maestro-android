@@ -85,8 +85,12 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
     var decisao by mutableStateOf<DecisaoDeRevisao?>(null)
     var nota by mutableStateOf("")
 
+    /** A URL e o hash da linha aberta quando o formulário começou ([escolher]). */
+    private var versaoEscolhida: Pair<String, String?>? = null
+
     fun escolher(linkId: String?) {
         escolhido = linkId
+        versaoEscolhida = conteudo.value?.firstOrNull { it.linha.linkId == linkId }?.linha?.let(::versao)
         notaDaCaptura = ""
         consulta = ""
         decisao = null
@@ -130,26 +134,44 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
         // releituras pedidas durante outra viram uma só.
         viewModelScope.launch {
             val texto = d.sessoes.observar(id).map { linha -> linha?.let { it.textoFinal ?: it.textoAtual } }.distinctUntilChanged()
-            combine(texto, d.links.mudancas()) { _, _ -> }.conflate().collect {
-                aplicar(withContext(Dispatchers.IO) { ler() })
-            }
+            combine(texto, d.links.mudancas()) { _, _ -> }.conflate().collect { reler() }
         }
     }
 
     fun recarregar() {
-        viewModelScope.launch { aplicar(withContext(Dispatchers.IO) { ler() }) }
+        viewModelScope.launch { reler() }
+    }
+
+    /**
+     * Relê a lista e a aplica. O armazenamento que falha na releitura mantém a lista que a tela tinha,
+     * com o aviso, e não derruba o aplicativo, nem depois de uma ação que já gravou (decisão 25 do
+     * operador; achado do Codex na #78).
+     */
+    private suspend fun reler() {
+        val relida = try {
+            withContext(Dispatchers.IO) { ler() }
+        } catch (erro: Exception) {
+            eventos.send(Mensagem.DeRecurso(R.string.leitura_falhou, listOf(motivoDeArmazenamento(erro))))
+            return
+        }
+        aplicar(relida)
     }
 
     /**
      * A lista relida. Se o link aberto sumiu dela (o texto mudou), abre o primeiro, e o que se
      * digitou para o anterior é apagado: a nota e a decisão de um link nunca vão para outro
-     * (achado do Codex na #78). Linha principal.
+     * (achado do Codex na #78). O mesmo vale quando a linha aberta volta com outra URL ou outro
+     * hash, como depois da auditoria de outra sessão com o mesmo texto: é outro conteúdo a julgar.
+     * Linha principal.
      */
     private fun aplicar(links: List<Link>) {
         conteudo.value = links
-        val aberto = links.firstOrNull { it.linha.linkId == escolhido }?.linha?.linkId ?: links.firstOrNull()?.linha?.linkId
-        if (aberto != escolhido) escolher(aberto)
+        val aberto = links.firstOrNull { it.linha.linkId == escolhido }?.linha ?: links.firstOrNull()?.linha
+        if (aberto?.linkId != escolhido || aberto?.let(::versao) != versaoEscolhida) escolher(aberto?.linkId)
     }
+
+    /** O que a revisão confere (`urlNormalizadaEsperada` e `sha256Esperado`): o formulário vale só para ela. */
+    private fun versao(linha: LinhaDeLink): Pair<String, String?> = linha.urlNormalizada to linha.sha256
 
     private fun ler(): List<Link> {
         val linhas = d.links.linhas(id)
@@ -175,11 +197,7 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                     d.importacao.passagem(linha.urlNormalizada) { d.evidencias.existente(it)?.registro }
                 }
                 val falha = d.navegador.abrir(contexto, passagem.registro.url)
-                val links = withContext(Dispatchers.IO) {
-                    d.evidencias.guardar(d.importacao.aberta(passagem, falha))
-                    ler()
-                }
-                aplicar(links)
+                withContext(Dispatchers.IO) { d.evidencias.guardar(d.importacao.aberta(passagem, falha)) }
                 // O desktop dá o mesmo aviso nos dois casos; aqui, sem navegador, o aviso diz o que o registro anotou.
                 if (falha == null) Mensagem.DeRecurso(R.string.passagem_registrada) else Mensagem.DeRecurso(R.string.passagem_sem_navegador, listOf(falha))
             } catch (erro: IntegridadeDeLinks.Falha) {
@@ -187,6 +205,7 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
             } catch (erro: Exception) {
                 Mensagem.DeRecurso(R.string.passagem_falhou, listOf(motivoDeArmazenamento(erro)))
             }
+            reler()
             eventos.send(mensagem)
         } finally {
             trabalhando.value = false
@@ -225,7 +244,10 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                         is ImportacaoDoOperador.Importacao.Recusada -> Saida(Mensagem.DeRecurso(R.string.captura_falhou, listOf(importacao.motivo)))
                         is ImportacaoDoOperador.Importacao.Importada -> try {
                             d.evidencias.guardar(importacao.coleta)
-                            Saida(Mensagem.DeRecurso(R.string.captura_importada)) { notaDaCaptura = "" }
+                            Saida(Mensagem.DeRecurso(R.string.captura_importada)) {
+                                // Só sai a nota que foi enviada: a digitada durante a importação fica (achado do Codex na #78).
+                                if (escolhido == linha.linkId && notaDaCaptura.trim() == notaDoPedido) notaDaCaptura = ""
+                            }
                         } catch (erro: Exception) {
                             // O disco que falha é a falha da importação: no desktop, `write_binary_file`
                             // devolve o erro à tela (achado do Codex na #78; decisão 25 do operador).
@@ -257,8 +279,11 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                     d.relogio(),
                 )
                 Saida(Mensagem.DeRecurso(R.string.decisao_registrada)) {
-                    decisao = null
-                    nota = ""
+                    // Só sai o que foi enviado: a decisão e a nota digitadas durante a revisão ficam (achado do Codex na #78).
+                    if (escolhido == linha.linkId && decisao == decisaoDoPedido && nota == notaDoPedido) {
+                        decisao = null
+                        nota = ""
+                    }
                 }
             } catch (erro: IntegridadeDeLinks.Falha) {
                 Saida(Mensagem.DeRecurso(R.string.decisao_nao_registrada, listOf(erro.message.orEmpty())))
@@ -290,7 +315,7 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                         busca.cancelar()
                     }
                 }
-                val (saida, links) = try {
+                val saida = try {
                     withContext(Dispatchers.IO) {
                         // A resposta HTTP pode ter chegado antes de a tela sair, e aí não há chamada para o
                         // vigia cancelar: a linha só é gravada com esta corrotina viva (achado do Codex na #78).
@@ -316,12 +341,12 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                             // o armazenamento que falha é a falha dela (decisão 25 do operador).
                             Saida(Mensagem.DeRecurso(R.string.propostas_falharam, listOf(motivoDeArmazenamento(erro))))
                         }
-                        saida to ler()
+                        saida
                     }
                 } finally {
                     vigia.cancel()
                 }
-                aplicar(links)
+                reler()
                 eventos.send(saida.mensagem)
             } finally {
                 trabalhando.value = false
@@ -351,9 +376,9 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
         if (!comecar()) return
         viewModelScope.launch {
             try {
-                val (saida, links) = withContext(Dispatchers.IO) { acao() to ler() }
+                val saida = withContext(Dispatchers.IO) { acao() }
                 saida.aoGravar?.invoke()
-                aplicar(links)
+                reler()
                 eventos.send(saida.mensagem)
             } finally {
                 trabalhando.value = false

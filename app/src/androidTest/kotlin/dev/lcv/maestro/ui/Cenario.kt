@@ -345,8 +345,12 @@ internal class Cenario {
      * da sessão as grava; sem rede, a coleta falha com `timeout`. [texto] tem
      * de ser o texto atual (ou final) da sessão para as linhas serem dela.
      */
-    fun auditarLinks(sessaoId: String, texto: String) {
-        IntegridadeDeLinks.auditar(texto, AnalisadorDeUrlOkHttp, { throw IntegridadeDeLinks.Falha("timeout") }, links.registro(sessaoId), relogio)
+    fun auditarLinks(
+        sessaoId: String,
+        texto: String,
+        coletor: IntegridadeDeLinks.ColetorDeEvidencia = IntegridadeDeLinks.ColetorDeEvidencia { throw IntegridadeDeLinks.Falha("timeout") },
+    ) {
+        IntegridadeDeLinks.auditar(texto, AnalisadorDeUrlOkHttp, coletor, links.registro(sessaoId), relogio)
     }
 
     /**
