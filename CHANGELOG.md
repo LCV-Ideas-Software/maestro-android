@@ -6,6 +6,88 @@ All material changes to Maestro Android are recorded here.
 
 ### Added
 
+- Add the rest of `:app` (MAEANDR-21, second of two pull requests; MAEANDR-18):
+  the final-text screen for a converged session — the Markdown rendered by
+  `commonmark-java`, the same parser the release audit uses, with
+  `escapeHtml` and `sanitizeUrls`, in a `WebView` with JavaScript, file and
+  content access, network and image loads, cache, DOM storage and navigation
+  off, a content security policy that loads nothing, and the render-process
+  death handled; Markdown and TXT export through `CreateDocument` and the
+  `ContentResolver`, PDF through `PrintManager` once the page has loaded; an
+  export result that reaches a screen recreated while the picker was open
+  waits for the session to load, and without a released text the created
+  document is deleted. The attachments screen, which reads the citation
+  manifest exactly as the session will read it at start, and refuses to
+  change the attachments of a queued or running session in the same
+  transaction that would write them, and an optional manifest in the new-session form,
+  stored with the session in one transaction (the file first, then the
+  session row, its first event and the attachment row), so a failed write
+  never leaves a queued session without it; a disk failure is refused with
+  the desktop's `failed to write attachment` message here and on the
+  attachments screen. Nothing starts while that manifest is still being
+  read, nor with one that is not bound to the protocol the session receives,
+  which is checked again at start. The link review screen, a port of the desktop's `LinkIntegrityPanel.tsx` and of the
+  operator capture of `EvidenceScreen.tsx` (`maestro-app` `0e17817`) with
+  their labels and messages: the links of the session's current text, the
+  evidence kept for each address, "Abrir no navegador" (the handoff record is
+  validated, built and stored first, then updated with the launch result;
+  the system browser gets only the validated URL
+  through `ACTION_VIEW`), the import of the saved page, Crossref and OpenAlex
+  correction proposals, and the accept, reject or quarantine decision with
+  the engine's refusal reason. The list is read again when the session's
+  text changes while the screen is open and when the session's audit
+  rewrites the rows or the evidence of the same text, a disk failure while
+  looking up or storing an imported file, or while building or storing a
+  search, is reported as that action's
+  failure instead of crashing the screen, a decision typed for a link that
+  left the list, or whose URL or hash changed, is cleared rather than applied
+  to other content, an action clears only what it submitted, a list reload
+  that fails keeps the list shown with a notice, the newest reload that
+  succeeded wins, so an older one finishing late never restores a stale list
+  and a newer one that fails never discards it (on the attachments screen as
+  well), and leaving the
+  screen cancels a running correction search, which then stores nothing
+  more, even when the HTTP response had already arrived. While the session is queued or
+  running, review and proposals wait (operator's decision 24, 29/09/2026),
+  also for rows shared with another active session of the same text, refused
+  in the transaction that would write them; the capture stays available. A
+  manifest picked while a start is still running is kept for the next session.
+  A link row and its audit-diary entry are written in one transaction by the
+  audit, the review and the proposals, so a failed diary entry leaves the row
+  as it was. A file picked for a link that left the list
+  while the picker was open is not imported, and a browser launch that a
+  policy blocks (`SecurityException`) is recorded like a missing browser.
+  No `<queries>` element: `startActivity` does
+  not need package visibility to open a URL (official documentation), and a
+  missing browser arrives as `ActivityNotFoundException`, recorded on the
+  handoff. Instrumented tests use the official
+  `ActivityResultRegistry` for the document picker and a browser double that
+  only records the URL; no test opens a browser. Every screen action that
+  writes (start, cancel and resume a session, save the settings, attach and
+  remove, and the handoff, import, decision and proposals of a link) turns a
+  full database, an SQLite disk error or a file that cannot be written into
+  that action's failure message instead of crashing the app (operator's
+  decision 25, 29/09/2026), including the reads that prepare an action
+  (opening the resume dialog, picking the manifest, testing the keys), and
+  the message states what actually happened: cancel and resume reread the
+  row inside their own transaction, so a failure there leaves nothing
+  written; the key vault returns the reason it could not store or remove a
+  key; an export only says nothing was saved once the created document was
+  deleted; and a handoff whose outcome could not be noted says whether the
+  browser opened. Instrumented tests raise the framework's `SQLiteFullException`
+  and disk I/O errors on demand through a test `openHelperFactory`. Reads
+  made when a screen opens or resumes, live observation and the reconcile on
+  app start follow in #80.
+- Add `ImportacaoDoOperador` to `:core:provedores`: the operator-assisted
+  capture of the desktop (`handoff_record`,
+  `open_web_evidence_in_default_browser` and `import_operator_evidence` with
+  their name, media-type, size and magic-byte rules, `web_evidence.rs` at
+  `0e17817`), under the same public-network rule as the collector.
+- Add `LinksDaSessao` to `:core:sessao` (the link rows of a session, found by
+  the fingerprint of its current or final text), the evidence records of an
+  address (`ArmazemDeEvidenciasEmArquivo.registrosDe`), and the capture on
+  `Fabrica`.
+
 - Add the screens in `:app` (MAEANDR-21, first of two pull requests): Jetpack
   Compose with Material 3 and Navigation 3 over the four `:core:*` modules,
   ported from the web's `MaestroAiModule.tsx` (`admin-app` `c5f5d73c`) in the
@@ -985,6 +1067,24 @@ All material changes to Maestro Android are recorded here.
 
 ### Changed
 
+- Every revision turn whose current text fails the release audit now carries
+  the gate packet — the failing rows and the correction candidates — to the
+  reviewer, not only a corrective retry (operator's decision 23,
+  29/09/2026). That audit may reach the network, so the time ceiling is
+  checked again after it, before the paid call.
+- A citation manifest that is not bound to the active protocol (schema,
+  protocol hash, capacity) is now refused when the session starts, before
+  the paid draft, with the expected hash in the message; the audit keeps the
+  same four checks in the same order (`AuditoriaAbnt.bloqueiosDoVinculo`).
+  The desktop fixes the hash when the file is imported; on the device the
+  user writes it.
+- `BuscaDeEvidencias` stores each search result as evidence, with the item
+  JSON as its body and an earlier record's creation date kept, as the
+  canonical search does; the correction candidates cite those records.
+- The artifacts' links tab in `:app` no longer lists per-artifact link audits,
+  which the device never writes (the list was always empty); it explains that
+  links are audited per session, at the release gate, and leads to the link
+  review screen.
 - Align the approved-content lock with the canonical lock's v00.05.65 contract
   (MAEANDR-17). The desktop rewrote its lock in `maestro-app#395` and `#396`
   without adopting this repository's `revised_block_origins` ledger. The 33 test

@@ -569,11 +569,17 @@ public object IntegridadeDeLinks {
         registro.salvar(linha)
     }
 
-    /** `save_audit_record`: preserva a revisão anterior, se ainda couber, e grava. */
+    /**
+     * `save_audit_record` e o `append_event` que o segue: preserva a revisão anterior, se ainda couber, e
+     * grava a linha e a entrada do diário na mesma transação. Divergência do canônico, que grava os dois
+     * arquivos em sequência: aqui a falha do diário desfaz a linha, e a linha nunca muda sem a entrada
+     * que a explica (achado do Codex na #78).
+     */
     private fun salvarDaAuditoria(registro: RegistroDeLinks, linha: LinhaDeLink): LinhaDeLink =
         registro.emTransacao {
             val final = registro.carregar(linha.linkId)?.let { preservarRevisao(linha, it) } ?: linha
             gravar(registro, final)
+            registro.anotar("audit", final)
             final
         }
 
@@ -622,7 +628,6 @@ public object IntegridadeDeLinks {
                         registro,
                         linhaMalformada(extraido, impressao, ocorrencia, normalizacao.motivo, relogio()),
                     )
-                    registro.anotar("audit", malformada)
                     linhas += malformada
                     continue
                 }
@@ -657,7 +662,6 @@ public object IntegridadeDeLinks {
                 }
             }
             val gravada = salvarDaAuditoria(registro, linha)
-            registro.anotar("audit", gravada)
             linhas += gravada
         }
         return ResultadoDosLinks(
@@ -742,7 +746,7 @@ public object IntegridadeDeLinks {
         if (EspacoUnicode.contarPontosDeCodigo(nota) < 10) {
             throw Falha("review note must contain at least 10 characters")
         }
-        val revisada = atualizar(registro, pedido.linkId) { linha ->
+        val revisada = atualizar(registro, pedido.linkId, "review") { linha ->
             if (linha.urlNormalizada != pedido.urlNormalizadaEsperada || linha.sha256 != pedido.sha256Esperado) {
                 throw Falha("link URL or content hash changed since it was read; reload before reviewing")
             }
@@ -759,17 +763,20 @@ public object IntegridadeDeLinks {
                 pedido.decisao,
             )
         }
-        registro.anotar("review", revisada)
         return revisada
     }
 
-    /** `update_record`: carrega, altera e grava sob a trava. */
-    private fun atualizar(registro: RegistroDeLinks, linkId: String, alterar: (LinhaDeLink) -> LinhaDeLink): LinhaDeLink =
+    /**
+     * `update_record` e o `append_event` que o segue: carrega, altera e grava a linha e a entrada
+     * [tipoDoDiario] do diário sob a mesma transação (ver [salvarDaAuditoria]).
+     */
+    private fun atualizar(registro: RegistroDeLinks, linkId: String, tipoDoDiario: String, alterar: (LinhaDeLink) -> LinhaDeLink): LinhaDeLink =
         registro.emTransacao {
             if (!idValido(linkId)) throw Falha("invalid link-integrity id")
             val atual = registro.carregar(linkId) ?: throw Falha("failed to read link-integrity record")
             val alterada = alterar(atual)
             gravar(registro, alterada)
+            registro.anotar(tipoDoDiario, alterada)
             alterada
         }
 
@@ -843,7 +850,7 @@ public object IntegridadeDeLinks {
         )
         val vistos = HashSet<String>()
         val unicos = candidatos.filter { vistos.add(it.candidatoId) }
-        val atualizada = atualizar(registro, pedido.linkId) { mais ->
+        val atualizada = atualizar(registro, pedido.linkId, "correction_candidates") { mais ->
             if (mais.impressaoDaOrigem != linha.impressaoDaOrigem ||
                 mais.urlNormalizada != linha.urlNormalizada ||
                 mais.sha256 != linha.sha256
@@ -854,7 +861,6 @@ public object IntegridadeDeLinks {
             }
             mais.copy(candidatosDeCorrecao = unicos)
         }
-        registro.anotar("correction_candidates", atualizada)
         return atualizada
     }
 }

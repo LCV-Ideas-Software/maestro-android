@@ -38,9 +38,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.lcv.maestro.R
@@ -48,6 +50,7 @@ import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.sessao.Agentes.rotulo
 import dev.lcv.maestro.sessao.Orcamento
 import dev.lcv.maestro.ui.AvisoDeOrcamento
+import dev.lcv.maestro.ui.BotaoFantasma
 import dev.lcv.maestro.ui.BotaoPrimario
 import dev.lcv.maestro.ui.Cabecalho
 import dev.lcv.maestro.ui.CampoDeTexto
@@ -63,6 +66,7 @@ import dev.lcv.maestro.ui.RotuloDeCampo
 import dev.lcv.maestro.ui.Rotulos
 import dev.lcv.maestro.ui.Tema
 import dev.lcv.maestro.ui.VazioDeResultado
+import dev.lcv.maestro.ui.anexos.AnexosViewModel
 import dev.lcv.maestro.ui.rememberAutenticacaoDaTela
 import java.math.BigDecimal
 
@@ -183,6 +187,55 @@ private fun Metricas(estado: SessoesViewModel.Estado) {
     }
 }
 
+/**
+ * Só do aparelho (especificação, seção 2.2): o manifesto de citações opcional,
+ * lido na hora com a leitura que a sessão fará ao começar. Um arquivo que ela
+ * não leria como manifesto impede o início, com o motivo.
+ */
+@Composable
+private fun ManifestoDoFormulario(vm: SessoesViewModel) {
+    val resolver = LocalContext.current.contentResolver
+    val escolher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { vm.escolherManifesto(it, resolver) }
+    RotuloDeCampo(stringResource(R.string.campo_manifesto))
+    val manifesto = vm.manifesto
+    if (manifesto == null) {
+        BotaoFantasma(
+            stringResource(R.string.escolher_manifesto),
+            aoClicar = { escolher.launch(arrayOf("application/json", "*/*")) },
+            icone = R.drawable.simbolo_description,
+            carregando = vm.lendoManifesto,
+            modifier = Modifier.testTag(Marcas.ESCOLHER_MANIFESTO),
+        )
+        return
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(manifesto.nome, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Tema.cores.texto)
+            val leitura = manifesto.leitura
+            Text(
+                text = when (leitura) {
+                    is AnexosViewModel.Manifesto.Lido -> stringResource(
+                        if (leitura.comAnterior) R.string.manifesto_lido_com_anterior else R.string.manifesto_lido,
+                        pluralStringResource(R.plurals.citacoes, leitura.citacoes, leitura.citacoes),
+                        pluralStringResource(R.plurals.fontes, leitura.fontes, leitura.fontes),
+                    )
+                    is AnexosViewModel.Manifesto.Recusado -> stringResource(R.string.manifesto_recusado, leitura.motivo)
+                    AnexosViewModel.Manifesto.Ausente -> stringResource(R.string.manifesto_nao_reconhecido)
+                },
+                fontSize = 13.sp,
+                color = if (leitura is AnexosViewModel.Manifesto.Lido) Tema.cores.textoFraco else Tema.cores.erro,
+                modifier = Modifier.testTag(Marcas.MANIFESTO_DO_FORMULARIO),
+            )
+        }
+        BotaoFantasma(
+            stringResource(R.string.acao_remover),
+            aoClicar = vm::tirarManifesto,
+            icone = R.drawable.simbolo_delete,
+            modifier = Modifier.testTag(Marcas.TIRAR_MANIFESTO),
+        )
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NovaSessao(vm: SessoesViewModel, estado: SessoesViewModel.Estado, autenticando: Boolean, aoIniciar: () -> Unit) {
@@ -206,6 +259,7 @@ private fun NovaSessao(vm: SessoesViewModel, estado: SessoesViewModel.Estado, au
             linhas = 5,
             marca = Marcas.CAMPO_TEXTO_INICIAL,
         )
+        ManifestoDoFormulario(vm)
         // `<select>` do web: cada agente é uma opção, desabilitada se não está pronto.
         RotuloDeCampo(stringResource(R.string.campo_redator_inicial))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -2,6 +2,7 @@ package dev.lcv.maestro.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -17,10 +18,12 @@ import androidx.compose.ui.test.performTextInput
 import androidx.lifecycle.Lifecycle
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.lcv.maestro.Sincronia
+import dev.lcv.maestro.protocolo.FormatoDoRegistro
 import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.sessao.Estados
 import dev.lcv.maestro.sessao.ExecucaoEntidade
 import dev.lcv.maestro.sessao.FormatoDeInstante
+import dev.lcv.maestro.sessao.PedidoDeConfiguracoes
 import java.time.Duration
 import java.time.Instant
 import kotlinx.coroutines.CompletableDeferred
@@ -133,6 +136,143 @@ class SessoesScreenTest {
         // A tela da sessão abriu, e o aviso do web aparece nela.
         regra.esperarTexto("Sessão Maestro AI iniciada.")
         regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.METRICA_CUSTO).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test
+    fun oManifestoDoFormularioEGravadoAntesDoEnfileiramento() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        val seletor = SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", MANIFESTO_DE_EXEMPLO.toByteArray())))
+        regra.abrir(c, seletor = seletor)
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).performScrollTo().performClick()
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.MANIFESTO_DO_FORMULARIO).fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.MANIFESTO_DO_FORMULARIO).assertTextEquals("Manifesto lido: 1 citação e 1 fonte.")
+        iniciar()
+        regra.onNodeWithText("Seguir sem notificações").performClick()
+        regra.waitUntil(5_000) { c.agendador.enfileiradas.isNotEmpty() }
+        val linha = c.sessoes.listar().single()
+        assertEquals(listOf("citation-manifest.json"), c.anexos.daSessao(linha.id).map { it.nomeOriginal })
+        // No instante do enfileiramento o anexo já estava gravado: o worker o encontra ao começar.
+        assertEquals(listOf(1), c.agendador.anexosAoEnfileirar.toList())
+    }
+
+    @Test
+    fun umManifestoQueASessaoNaoLeriaImpedeOInicio() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        regra.abrir(c, seletor = SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", "{}".toByteArray()))))
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).performScrollTo().performClick()
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.MANIFESTO_DO_FORMULARIO).fetchSemanticsNodes().isNotEmpty() }
+        iniciar()
+        regra.esperarTexto("O manifesto de citações escolhido não pode ser usado; troque ou remova o arquivo.")
+        assertEquals(0, c.autenticacoes.get())
+        assertTrue(c.sessoes.listar().isEmpty())
+        // Tirar o arquivo devolve o seletor.
+        regra.onNodeWithTag(Marcas.TIRAR_MANIFESTO).performScrollTo().performClick()
+        regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).assertExists()
+    }
+
+    @Test
+    fun oDiscoQueFalhaAoLerAsConfiguracoesNaEscolhaDoManifestoEAvisado() {
+        // Conferir o manifesto lê o protocolo das configurações, e essa leitura falha (decisão 25 do operador).
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        regra.abrir(c, seletor = SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", MANIFESTO_DE_EXEMPLO.toByteArray()))))
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        c.bancoCheio.leituraQuebrada = "configuracoes"
+        regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).performScrollTo().performClick()
+        regra.esperarTexto("Não foi possível ler os dados do aparelho. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}")
+        c.bancoCheio.leituraQuebrada = null
+        regra.onNodeWithTag(Marcas.MANIFESTO_DO_FORMULARIO).assertDoesNotExist()
+        regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).assertExists()
+    }
+
+    @Test
+    fun oManifestoEReconferidoContraOProtocoloQueASessaoRecebe() {
+        // Achado do Codex na #78: o protocolo mudou nas configurações depois da escolha do manifesto.
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        regra.abrir(c, seletor = SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", MANIFESTO_DE_EXEMPLO.toByteArray()))))
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).performScrollTo().performClick()
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.MANIFESTO_DO_FORMULARIO).fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.MANIFESTO_DO_FORMULARIO).assertTextEquals("Manifesto lido: 1 citação e 1 fonte.")
+        val outro = "Protocolo editorial trocado depois da escolha do manifesto; ".repeat(3).trim()
+        c.configuracoes.salvar(PedidoDeConfiguracoes(protocolo = outro))
+        iniciar()
+        regra.onNodeWithText("Seguir sem notificações").performClick()
+        val motivo = "O manifesto nao esta vinculado ao hash do protocolo ativo. Hash do protocolo ativo: ${FormatoDoRegistro.sha256(outro)}"
+        regra.esperarTexto(motivo)
+        // A recusa vem depois da autenticação, no caminho que grava: nada foi gravado nem enfileirado.
+        assertEquals(1, c.autenticacoes.get())
+        assertTrue(c.sessoes.listar().isEmpty())
+        assertTrue(c.agendador.enfileiradas.isEmpty())
+        regra.onNodeWithTag(Marcas.MANIFESTO_DO_FORMULARIO).assertTextEquals(
+            "Manifesto recusado: $motivo. Com ele, a sessão pausaria na auditoria final antes de qualquer chamada paga; remova ou troque o arquivo.",
+        )
+    }
+
+    @Test
+    fun umManifestoQueNaoPodeSerGravadoNaoDeixaSessaoNaFila() {
+        // Achado do Codex na #78: a sessão ficava `queued` sem o manifesto, e a reconciliação a retomaria.
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        regra.abrir(c, seletor = SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", MANIFESTO_DE_EXEMPLO.toByteArray()))))
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).performScrollTo().performClick()
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.MANIFESTO_DO_FORMULARIO).fetchSemanticsNodes().isNotEmpty() }
+        // Um arquivo onde a pasta dos anexos deveria estar: o manifesto não pode ser gravado.
+        c.pastaDosAnexos.writeBytes(byteArrayOf(0))
+        iniciar()
+        regra.onNodeWithText("Seguir sem notificações").performClick()
+        regra.esperarTexto("failed to write attachment: cannot create directory ${c.pastaDosAnexos.absolutePath}")
+        assertTrue(c.sessoes.listar().isEmpty())
+        assertTrue(c.agendador.enfileiradas.isEmpty())
+    }
+
+    @Test
+    fun oManifestoEscolhidoDuranteOInicioFicaParaAProximaSessao() {
+        // Achado do Codex na #78: o início que termina não pode apagar a escolha feita enquanto ele corria.
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        regra.abrir(c, seletor = SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", MANIFESTO_DE_EXEMPLO.toByteArray()))))
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        // A trava da reconciliação segura o início sem manifesto no meio do caminho.
+        runBlocking { Sincronia.reconciliacao.lock() }
+        try {
+            iniciar()
+            regra.onNodeWithText("Seguir sem notificações").performClick()
+            regra.waitUntil(5_000) { c.autenticacoes.get() == 1 }
+            regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).performScrollTo().performClick()
+            regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.MANIFESTO_DO_FORMULARIO).fetchSemanticsNodes().isNotEmpty() }
+        } finally {
+            Sincronia.reconciliacao.unlock()
+        }
+        regra.waitUntil(5_000) { c.agendador.enfileiradas.isNotEmpty() }
+        val linha = c.sessoes.listar().single()
+        assertTrue(c.anexos.daSessao(linha.id).isEmpty())
+        // A tela da sessão abriu; na volta ao formulário, o manifesto escolhido continua lá.
+        regra.esperarTexto("Sessão Maestro AI iniciada.")
+        regra.onNodeWithTag(Marcas.VOLTAR).performClick()
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.MANIFESTO_DO_FORMULARIO).fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.MANIFESTO_DO_FORMULARIO).assertTextEquals("Manifesto lido: 1 citação e 1 fonte.")
+    }
+
+    @Test
+    fun oBancoCheioAoIniciarEAvisadoSemDerrubarOAplicativo() {
+        // Decisão 25 do operador (29/09/2026): o banco cheio numa ação da tela é a falha da ação.
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        regra.abrir(c)
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        c.bancoCheio.cheio = true
+        iniciar()
+        regra.onNodeWithText("Seguir sem notificações").performClick()
+        regra.esperarTexto("Não foi possível gravar no aparelho. Motivo: ${BancoCheio.MENSAGEM}")
+        assertTrue(c.sessoes.listar().isEmpty())
+        assertTrue(c.agendador.enfileiradas.isEmpty())
     }
 
     @Test

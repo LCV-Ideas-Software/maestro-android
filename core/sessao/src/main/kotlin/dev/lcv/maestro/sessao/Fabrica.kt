@@ -10,6 +10,7 @@ import dev.lcv.maestro.provedores.AnalisadorDeUrlOkHttp
 import dev.lcv.maestro.provedores.BuscaDeEvidencias
 import dev.lcv.maestro.provedores.ClienteDeProvedores
 import dev.lcv.maestro.provedores.ColetorHttp
+import dev.lcv.maestro.provedores.ImportacaoDoOperador
 import dev.lcv.maestro.provedores.ResolvedorPublico
 import dev.lcv.maestro.seguranca.CofreDeChaves
 import java.io.File
@@ -51,6 +52,7 @@ public class Fabrica(
     public val configuracoes: RepositorioDeConfiguracoes = RepositorioDeConfiguracoes(banco, cofre, relogio)
     public val anexos: AnexosDaSessao = AnexosDaSessao(banco, File(contexto.applicationContext.noBackupFilesDir, "anexos"), relogio)
     public val evidencias: ArmazemDeEvidenciasEmArquivo = ArmazemDeEvidenciasEmArquivo(banco, File(contexto.applicationContext.noBackupFilesDir, "evidencias"), relogio)
+    public val links: LinksDaSessao = LinksDaSessao(banco, relogio)
 
     /**
      * O WorkManager só é tocado no primeiro uso do agendador, nunca durante a
@@ -66,6 +68,9 @@ public class Fabrica(
     override val notificacao: Notificacao = Notificacao(contexto.applicationContext, abrirSessao)
     private val resolvedor = ResolvedorPublico.dnsDoGoogle()
 
+    /** A captura assistida pelo operador (seção 2.2): a passagem ao navegador e o arquivo importado, sob a mesma regra de rede pública. */
+    public val importacao: ImportacaoDoOperador = ImportacaoDoOperador(resolvedor)
+
     /**
      * O agente de coleta com o e-mail de contato **atual** das configurações
      * (seção 5.4, item 7), montado a cada auditoria e a cada busca: um agente
@@ -75,8 +80,11 @@ public class Fabrica(
      */
     internal fun agenteDeColeta(): AgenteDeColeta = AgenteDeColeta(versaoDoAplicativo, configuracoes.carregar().emailDeContato)
 
-    /** A busca de evidências (Crossref e OpenAlex) com o e-mail atual; um objeto por chamada. Bloqueante: `Dispatchers.IO`. */
-    public fun buscaDeEvidencias(): BuscaDeEvidencias = BuscaDeEvidencias(resolvedor, agenteDeColeta())
+    /**
+     * A busca de evidências (Crossref e OpenAlex) com o e-mail atual, que guarda
+     * cada resultado no armazém; um objeto por chamada. Bloqueante: `Dispatchers.IO`.
+     */
+    public fun buscaDeEvidencias(): BuscaDeEvidencias = BuscaDeEvidencias(resolvedor, agenteDeColeta(), evidencias)
 
     /** O cliente dos seis provedores: novo, limpo e só TLS moderno, como o transporte da auditoria. */
     private val cliente = ClienteDeProvedores(OkHttpClient.Builder().connectionSpecs(listOf(ConnectionSpec.MODERN_TLS)).build(), cofre)

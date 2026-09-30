@@ -8,6 +8,8 @@ local.properties
 captures/
 .externalNativeBuild/
 .cxx/
+# Kotlin 2.x keeps the compiler daemon's session and error files here.
+.kotlin/
 
 # Signing material and credentials
 *.jks

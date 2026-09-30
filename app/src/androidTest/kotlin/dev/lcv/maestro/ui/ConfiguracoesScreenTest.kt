@@ -141,6 +141,18 @@ class ConfiguracoesScreenTest {
     }
 
     @Test
+    fun oBancoCheioAoSalvarEAvisadoSemDerrubarOAplicativo() {
+        // Decisão 25 do operador (29/09/2026): o banco cheio numa ação da tela é a falha da ação.
+        abrirConfiguracoes()
+        val antes = c.configuracoes.carregar().tetoDeCustoUsd
+        digitar(Marcas.CAMPO_TETO, "12.5")
+        c.bancoCheio.cheio = true
+        regra.onNodeWithTag(Marcas.SALVAR_CONFIGURACOES).performScrollTo().performClick()
+        regra.esperarTexto("Não foi possível gravar no aparelho. Motivo: ${BancoCheio.MENSAGEM}")
+        assertEquals(0, antes.compareTo(c.configuracoes.carregar().tetoDeCustoUsd))
+    }
+
+    @Test
     fun salvarValoresValidosGravaERecarregaOFormulario() {
         abrirConfiguracoes()
         digitar(Marcas.CAMPO_TETO, "12.5")
@@ -177,6 +189,39 @@ class ConfiguracoesScreenTest {
         assertEquals(1, c.autenticacoes.get())
         assertEquals(listOf(Provedor.CLAUDE, Provedor.CODEX), c.testadas.toList())
         Provedor.entries.forEach { regra.onNodeWithTag(Marcas.resultadoDoTeste(it)).assertExists() }
+    }
+
+    // Revisão antes do push da rodada 10 na #78 (decisão 25 do operador).
+
+    @Test
+    fun oDiscoQueFalhaAoLerAsTarifasDoTesteEAvisado() {
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        abrirConfiguracoes()
+        c.bancoCheio.leituraQuebrada = "configuracoes"
+        regra.onNodeWithTag(Marcas.TESTAR_CHAVES).performScrollTo().performClick()
+        regra.onNodeWithTag(Marcas.CONFIRMAR_TESTE).performClick()
+        regra.esperarTexto("Não foi possível ler os dados do aparelho. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}")
+        c.bancoCheio.leituraQuebrada = null
+        assertEquals(emptyList<Provedor>(), c.testadas.toList())
+    }
+
+    @Test
+    fun oCofreQueNaoGravaDizOMotivo() {
+        c.cofre.respostas += Guarda.Falhou("disco que não grava")
+        abrirConfiguracoes()
+        digitar(Marcas.chave(Provedor.CLAUDE), "sk-teste-1")
+        regra.onNodeWithTag(Marcas.salvarChave(Provedor.CLAUDE)).performScrollTo().performClick()
+        regra.esperarTexto("O cofre de chaves não gravou a chave; tente de novo. Motivo: disco que não grava")
+    }
+
+    @Test
+    fun aRemocaoQueFalhaDizOMotivo() {
+        c.chaves(Provedor.CLAUDE)
+        c.cofre.falhaAoApagar = "disco que não grava"
+        abrirConfiguracoes()
+        regra.onNodeWithTag(Marcas.removerChave(Provedor.CLAUDE)).performScrollTo().performClick()
+        regra.esperarTexto("Não foi possível remover a chave agora; tente de novo. Motivo: disco que não grava")
+        esperarPilula(Provedor.CLAUDE, "configurada")
     }
 
     @Test

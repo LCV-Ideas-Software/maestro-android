@@ -841,15 +841,16 @@ public object AuditoriaAbnt {
 
     // ── manifesto (linhas 887–1297) ──────────────────────────────────────────
 
-    /** `validate_manifest`. */
-    private fun validarManifesto(
-        texto: String,
-        citacoesBrutas: List<Citacao>,
-        referenciasBrutas: List<ReferenciaBruta>,
-        hashDoPedido: String?,
-        manifesto: ManifestoDeCitacoes,
-        bloqueios: MutableList<BloqueioDeCitacao>,
-    ): Pair<List<Citacao>, List<String>> {
+    /**
+     * As quatro primeiras regras de `validate_manifest`, as que não dependem do
+     * texto: o esquema, o vínculo com o hash do protocolo ativo, a capacidade e
+     * o hash ausente, na ordem e com as mensagens da auditoria. A sessão as
+     * confere antes do primeiro turno pago (`CitacoesDaSessao`), porque no
+     * aparelho é o usuário quem escreve o `protocol_hash` do arquivo; no
+     * desktop a interface o fixa ao importar.
+     */
+    public fun bloqueiosDoVinculo(hashDoPedido: String?, manifesto: ManifestoDeCitacoes): List<BloqueioDeCitacao> {
+        val bloqueios = mutableListOf<BloqueioDeCitacao>()
         if (manifesto.versaoDoEsquema != ESQUEMA_DO_MANIFESTO) {
             bloqueios += bloqueio(
                 "manifest_schema_invalid",
@@ -878,6 +879,19 @@ public object AuditoriaAbnt {
                 "error", null, null, null, false,
             )
         }
+        return bloqueios
+    }
+
+    /** `validate_manifest`. */
+    private fun validarManifesto(
+        texto: String,
+        citacoesBrutas: List<Citacao>,
+        referenciasBrutas: List<ReferenciaBruta>,
+        hashDoPedido: String?,
+        manifesto: ManifestoDeCitacoes,
+        bloqueios: MutableList<BloqueioDeCitacao>,
+    ): Pair<List<Citacao>, List<String>> {
+        bloqueios += bloqueiosDoVinculo(hashDoPedido, manifesto)
         val fontes = HashMap<String, Fonte>()
         for (fonte in manifesto.fontes.take(MAXIMO_DE_FONTES)) {
             if (vazio(fonte.fonteId)) {

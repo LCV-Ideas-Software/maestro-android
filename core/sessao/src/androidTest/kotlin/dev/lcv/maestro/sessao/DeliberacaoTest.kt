@@ -1,8 +1,12 @@
 package dev.lcv.maestro.sessao
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.lcv.maestro.protocolo.AuditoriaFinal
 import dev.lcv.maestro.protocolo.Custo
+import dev.lcv.maestro.protocolo.FormatoDoRegistro
+import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.protocolo.PromptsDaSessao
+import dev.lcv.maestro.provedores.AnalisadorDeUrlOkHttp
 import dev.lcv.maestro.provedores.MAX_TOKENS_DE_SAIDA
 import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.provedores.Resultado as RespostaDoProvedor
@@ -301,6 +305,8 @@ class DeliberacaoTest {
         withTimeout(10_000) { while (d.chamadas.size < 2) kotlinx.coroutines.delay(20) }
         assertTrue(t.sessoes.cancelar(id) is Resultado.Ok)
         val antes = d.mensagens(id)
+        // O texto do turno foi auditado antes da chamada, com a sessão ativa, para o pacote do portão (decisão 23).
+        val auditoriasAntes = d.auditorias
         portao.complete(Unit)
 
         assertEquals(Desfecho.Interrompida, execucao.await())
@@ -308,7 +314,7 @@ class DeliberacaoTest {
         assertEquals(1, t.artefatos.daSessao(id).size)
         assertEquals(Estados.CANCELADA, t.sessoes.carregar(id)!!.status)
         // A releitura pós-chamada para antes da auditoria do turno: nenhuma requisição do motor para uma sessão cancelada.
-        assertEquals(0, d.auditorias)
+        assertEquals(auditoriasAntes, d.auditorias)
     }
 
     // ── rodada 1 do Codex na #70 ─────────────────────────────────────────
@@ -511,6 +517,76 @@ class DeliberacaoTest {
     }
 
     @Test
+    fun oRevisorDeUmTextoReprovadoRecebeOPacoteDoPortaoSemTentativaCorretiva() {
+        // Decisão 23 do operador (29/09/2026): sem editor no aparelho, o revisor é quem corrige o link
+        // reprovado, e só corrige o que lhe mostram — o pacote vai em todo turno sobre texto reprovado.
+        val id = criar()
+        d.auditar = { texto ->
+            if (texto == DeliberacaoDeTeste.TEXTO_A) DeliberacaoDeTeste.falha("link_integrity", "link rejeitado pelo operador") else null
+        }
+        d.responde(Provedor.CLAUDE, DeliberacaoDeTeste.rascunho(), DeliberacaoDeTeste.pronto(Provedor.CLAUDE))
+        d.responde(Provedor.CODEX, DeliberacaoDeTeste.revisado(Provedor.CODEX))
+
+        assertEquals(Desfecho.Convergida, executar(id))
+
+        val primeiraRevisao = d.chamadas[1]
+        assertEquals(Provedor.CODEX, primeiraRevisao.first)
+        assertTrue(primeiraRevisao.second.prompt.contains("## Current Deterministic Editorial Gate Packet"))
+        assertTrue(primeiraRevisao.second.prompt.contains("Reason: link rejeitado pelo operador"))
+        assertEquals(0, d.mensagens(id).count { it.startsWith("Corrective retry") })
+        // Sobre o texto aprovado pela auditoria, o turno seguinte vai sem pacote.
+        assertFalse(d.chamadas[2].second.prompt.contains("## Current Deterministic Editorial Gate Packet"))
+        val linha = t.sessoes.carregar(id)!!
+        assertEquals(DeliberacaoDeTeste.TEXTO_B, linha.textoFinal)
+        // O texto auditado é, byte a byte, o texto que a linha grava: é por ele que as linhas de link da sessão são achadas.
+        assertEquals(d.textosAuditados.last(), linha.textoAtual)
+    }
+
+    @Test
+    fun tetoDeTempoValeDepoisDaAuditoriaDoPortaoAntesDaChamadaDoRevisor() {
+        // A auditoria do texto reprovado vai à rede e pode gastar o resto do teto: o revisor não é pago
+        // e a sessão pausa por tempo, não por falha do revisor (achado do Codex na #78).
+        val id = criar(tetoDeMinutos = 1)
+        d.responde(Provedor.CLAUDE, DeliberacaoDeTeste.rascunho())
+        d.responde(Provedor.CODEX, DeliberacaoDeTeste.pronto())
+        d.auditar = {
+            d.deslocamento = Duration.ofMinutes(2)
+            DeliberacaoDeTeste.falha("link_integrity", "link rejeitado pelo operador")
+        }
+
+        assertEquals(Desfecho.Pausada(Estados.LIMITE_DE_TEMPO), executar(id))
+
+        assertEquals(listOf(Provedor.CLAUDE), d.chamadas.map { it.first })
+        assertEquals(Estados.LIMITE_DE_TEMPO, t.sessoes.carregar(id)!!.status)
+        assertEquals("Time guard blocked provider call before Codex.", d.mensagens(id).last())
+    }
+
+    @Test
+    fun htmlCruNuncaViraTextoFinalPelaAuditoriaReal() {
+        // A auditoria de produção (`AuditoriaFinal.falha`), sem rede: os textos não têm link, e o coletor recusa se for chamado.
+        val registro = RegistroDeLinksRoom(t.banco, null, t.relogio)
+        val motor = AuditoriaFinal.MotorDeLinks { candidato ->
+            IntegridadeDeLinks.auditar(candidato, AnalisadorDeUrlOkHttp, { error("o texto não tem link") }, registro, t.relogio)
+        }
+        d.auditar = { texto -> AuditoriaFinal.falha(texto, motor, t.relogio()) }
+        // Dois blocos, como o TEXTO_A: a reescrita do Codex troca só o segundo, o do HTML, e o declara.
+        val comHtml = "Alpha aprovado.\n\nBeta <script>alert(1)</script> aprovado."
+        val id = criar()
+        // O Claude redige com HTML cru; o READY do Codex sobre ele é recusado pelo portão; o Codex reescreve
+        // limpo e o Claude fecha sobre o texto limpo (critério de aceite da MAEANDR-21, seção 4.4).
+        d.responde(Provedor.CLAUDE, DeliberacaoDeTeste.rascunho(comHtml), DeliberacaoDeTeste.pronto(Provedor.CLAUDE))
+        d.responde(Provedor.CODEX, DeliberacaoDeTeste.pronto(Provedor.CODEX), DeliberacaoDeTeste.revisado(Provedor.CODEX))
+
+        val desfecho = executar(id)
+        val linha = t.sessoes.carregar(id)!!
+        assertEquals("erro da sessão: ${linha.erro}; jornal: ${d.mensagens(id)}", Desfecho.Convergida, desfecho)
+        assertEquals(DeliberacaoDeTeste.TEXTO_B, linha.textoFinal)
+        assertTrue(d.mensagens(id).any { it.startsWith("READY rejected by release gate") })
+        val recusa = t.banco.eventos().daSessao(id).first { it.mensagem.startsWith("READY rejected") }
+        assertTrue(recusa.auditoriaFinalJson!!.contains("raw_html_in_final_text"))
+    }
+
+    @Test
     fun auditoriaFinalFrescaPausaAConvergencia() {
         val id = criar()
         d.responde(Provedor.CLAUDE, DeliberacaoDeTeste.rascunho())
@@ -530,13 +606,15 @@ class DeliberacaoTest {
 
     @Test
     fun evidenciaDoOperadorPausaAntesDoRevisorPagoEDaConvergencia() {
-        val id = criar()
+        // A sessão nasce com um manifesto, como pelo formulário, que exige evidência do operador: o texto
+        // cita e o manifesto não tem a fonte.
+        val id = (
+            d.anexos.criarSessao(
+                t.sessoes, t.entrada(agentes = dois), "citation-manifest.json", "application/json",
+                """{"schema_version":"citation_manifest.v1","protocol_hash":"$HASH_DO_PROTOCOLO","citations":[],"sources":[]}""".toByteArray(),
+            ) as Resultado.Ok
+            ).valor.id
         d.responde(Provedor.CLAUDE, DeliberacaoDeTeste.rascunho("Alpha aprovado.\n\nSegundo Silva (2020, p. 3), beta."))
-        // Um manifesto anexado que exige evidência do operador: o texto cita e o manifesto não tem a fonte.
-        d.anexos.adicionar(
-            id, "citation-manifest.json", "application/json",
-            """{"schema_version":"citation_manifest.v1","protocol_hash":"","citations":[],"sources":[]}""".toByteArray(),
-        )
         d.responde(Provedor.CODEX, DeliberacaoDeTeste.pronto())
 
         val desfecho = executar(id)
@@ -659,7 +737,7 @@ class DeliberacaoTest {
         ) is Gravacao.Gravada)
         d.anexos.adicionar(
             id, "citation-manifest.json", "application/json",
-            """{"schema_version":"citation_manifest.v1","protocol_hash":"","citations":[],"sources":[]}""".toByteArray(),
+            """{"schema_version":"citation_manifest.v1","protocol_hash":"$HASH_DO_PROTOCOLO","citations":[],"sources":[]}""".toByteArray(),
         )
         assertTrue(t.retomada.pedir(id, null, null, BancoDeTeste.TODAS_AS_CHAVES) is Resultado.Ok)
 
@@ -702,5 +780,10 @@ class DeliberacaoTest {
         assertEquals(Estados.NA_FILA, t.sessoes.carregar(id)!!.status)
         assertEquals(1, t.artefatos.daSessao(id).size)
         assertFalse(d.mensagens(id).contains("Reviewer left custody unchanged."))
+    }
+
+    private companion object {
+        /** O hash do protocolo das sessões de teste: o manifesto anexado precisa dele para a sessão o aceitar. */
+        val HASH_DO_PROTOCOLO: String = FormatoDoRegistro.sha256(RepositorioDeConfiguracoes.PROTOCOLO_PADRAO)
     }
 }

@@ -116,8 +116,10 @@ public class Retomada(
             status = EventoDaSessao.RODANDO,
             mensagem = "Sessao retomada pelo operador com ${lider.rotulo} como lider do ciclo.",
         )
-        val aplicado = try {
-            banco.runInTransaction<Boolean> {
+        // Relida na mesma transação: uma releitura que falhasse depois do commit diria que nada foi gravado,
+        // com a sessão já na fila e sem trabalho enfileirado (revisão antes do push da rodada 10 na #78).
+        val retomada = try {
+            banco.runInTransaction<SessaoEntidade?> {
                 subida?.let { (tetoE8, eventoDoTeto) ->
                     // O portão do teto também está no SQL: retomável, sem texto final, acima do teto e do observado.
                     if (banco.sessoes().subirTeto(id, Estados.RETOMAVEIS.toList(), tetoE8, agora()) == 0) throw CasPerdido()
@@ -125,13 +127,11 @@ public class Retomada(
                 }
                 if (banco.sessoes().retomar(id, linha.status, lider.agente, RepositorioDeSessoes.agentesJson(painel), agora()) == 0) throw CasPerdido()
                 banco.eventos().inserir(evento.paraEntidade(id))
-                true
+                sessoes.carregar(id)
             }
         } catch (perdido: CasPerdido) {
-            false
+            return Resultado.Recusado(MENSAGEM_MUDOU_DE_ESTADO)
         }
-        if (!aplicado) return Resultado.Recusado(MENSAGEM_MUDOU_DE_ESTADO)
-        val retomada = sessoes.carregar(id)
         if (retomada?.status != Estados.NA_FILA) return Resultado.Recusado(MENSAGEM_MUDOU_DE_ESTADO)
         return Resultado.Ok(retomada)
     }

@@ -16,6 +16,7 @@ import dev.lcv.maestro.protocolo.Custo
 import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.seguranca.Guarda
 import dev.lcv.maestro.seguranca.NivelDoCofre
+import dev.lcv.maestro.seguranca.Remocao
 import dev.lcv.maestro.sessao.Campo
 import dev.lcv.maestro.sessao.Configuracoes
 import dev.lcv.maestro.sessao.PedidoDeConfiguracoes
@@ -24,6 +25,7 @@ import dev.lcv.maestro.sessao.Resultado
 import dev.lcv.maestro.sessao.ResultadoDoTeste
 import dev.lcv.maestro.sessao.TrimJs
 import dev.lcv.maestro.ui.Mensagem
+import dev.lcv.maestro.ui.motivoDeArmazenamento
 import java.math.BigDecimal
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -120,7 +122,7 @@ class ConfiguracoesViewModel(private val d: Dependencias) : ViewModel() {
         val chave = chavesDigitadas[provedor].orEmpty()
         if (chave.isBlank()) return
         viewModelScope.launch {
-            when (withContext(Dispatchers.IO) { d.cofre.guardar(provedor, chave) }) {
+            when (val guarda = withContext(Dispatchers.IO) { d.cofre.guardar(provedor, chave) }) {
                 is Guarda.Guardada -> {
                     chavesDigitadas[provedor] = ""
                     avisar(Mensagem.DeRecurso(R.string.chave_guardada))
@@ -129,7 +131,7 @@ class ConfiguracoesViewModel(private val d: Dependencias) : ViewModel() {
                 Guarda.ExigeAutenticacao ->
                     if (depoisDeAutenticar) avisar(Mensagem.DeRecurso(R.string.cofre_falhou)) else eventos.send(Evento.Autenticar(provedor))
                 Guarda.SemTravaDeTela -> _estado.update { it.copy(semTrava = true) }
-                Guarda.Falhou -> avisar(Mensagem.DeRecurso(R.string.cofre_falhou))
+                is Guarda.Falhou -> avisar(Mensagem.DeRecurso(R.string.cofre_nao_gravou, listOf(guarda.motivo)))
                 Guarda.ChaveInvalida -> avisar(Mensagem.DeRecurso(R.string.chave_invalida))
             }
         }
@@ -137,8 +139,10 @@ class ConfiguracoesViewModel(private val d: Dependencias) : ViewModel() {
 
     fun removerChave(provedor: Provedor) {
         viewModelScope.launch {
-            val apagou = withContext(Dispatchers.IO) { d.cofre.apagar(provedor) }
-            avisar(Mensagem.DeRecurso(if (apagou) R.string.chave_removida else R.string.chave_nao_removida))
+            when (val remocao = withContext(Dispatchers.IO) { d.cofre.apagar(provedor) }) {
+                Remocao.Removida -> avisar(Mensagem.DeRecurso(R.string.chave_removida))
+                is Remocao.Falhou -> avisar(Mensagem.DeRecurso(R.string.chave_nao_removida, listOf(remocao.motivo)))
+            }
             recarregarCofre()
         }
     }
@@ -170,6 +174,8 @@ class ConfiguracoesViewModel(private val d: Dependencias) : ViewModel() {
                     }
                     is Resultado.Recusado -> avisar(Mensagem.Literal(resultado.mensagem))
                 }
+            } catch (erro: Exception) {
+                avisar(Mensagem.DeRecurso(R.string.gravacao_falhou, listOf(motivoDeArmazenamento(erro))))
             } finally {
                 _estado.update { it.copy(salvando = false) }
             }
@@ -217,9 +223,14 @@ class ConfiguracoesViewModel(private val d: Dependencias) : ViewModel() {
         _estado.update { it.copy(testando = true, resultados = emptyList()) }
         viewModelScope.launch {
             try {
-                val resultados = withContext(Dispatchers.IO) {
-                    d.testeDeChaves.testar(d.configuracoes.carregar().taxas, d.cofre.chaves())
+                // As tarifas saem das configurações, no Room: o armazenamento que falha é a falha do teste (decisão 25).
+                val (taxas, chaves) = try {
+                    withContext(Dispatchers.IO) { d.configuracoes.carregar().taxas to d.cofre.chaves() }
+                } catch (erro: Exception) {
+                    avisar(Mensagem.DeRecurso(R.string.leitura_do_aparelho_falhou, listOf(motivoDeArmazenamento(erro))))
+                    return@launch
                 }
+                val resultados = withContext(Dispatchers.IO) { d.testeDeChaves.testar(taxas, chaves) }
                 _estado.update { it.copy(resultados = resultados) }
                 val falhas = resultados.count { !it.ok }
                 avisar(

@@ -194,9 +194,32 @@ before the first session; the form warns when this app's own count of
 background time in the last 24 hours is close to the six-hour limit; a
 session paused by cost resumes only with a ceiling above what it already spent;
 and tapping the notification opens the session. `Fabrica` is the composition
-root, with no Hilt (operator's decision of 28/09/2026). The second pull
-request adds the final-text screen with export, the link review and the
-citation-manifest attachment.
+root, with no Hilt (operator's decision of 28/09/2026).
+
+The second pull request of `:app` adds the rest. The released final text is
+shown formatted in a locked-down `WebView` — no JavaScript, no file, network
+or image loads, raw HTML escaped, a content security policy that loads
+nothing — and exported as Markdown, TXT or PDF through the system's document
+picker and print framework. The session's attachments carry the citation
+manifest, read on screen exactly as the session will read it, and do not
+change while the session is queued or running; the
+new-session form accepts one, stored in the same transaction as the session,
+so no session is queued without it. The link review
+ports the desktop's link-integrity panel: the links of the session's current
+text as the release audit checked them, with the evidence kept for each
+address; opening a link in the system browser, only after the public-network
+rule accepts it, and importing the saved page as operator-supplied evidence,
+which never changes the link row; Crossref and OpenAlex correction
+proposals, each result stored as evidence as the desktop does; and the
+explicit accept, reject or quarantine decision with its note, refused where
+the engine refuses it. The artifacts' links tab, which the device never
+fills, now leads there. Every revision turn whose current text fails the
+release audit carries the failing rows and correction candidates to the
+reviewer (operator's decision 23, 29/09/2026). A full database or a disk
+error never crashes a screen action: every action reports it as its own
+failure, with the reason, and never claims less or more than it wrote
+(operator's decision 25, 29/09/2026). Reads made when a screen opens or
+resumes follow in #80.
 
 The native port is specified in
 [`docs/especificacao-v1.md`](docs/especificacao-v1.md) (in Portuguese), written

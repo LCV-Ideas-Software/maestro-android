@@ -53,8 +53,12 @@ public class RepositorioDeSessoes(
 
     public fun observarEventos(id: String): Flow<List<EventoEntidade>> = banco.eventos().observar(id)
 
-    /** O insert do `POST /sessions` (`sessions.ts:4397-4436`): a linha e o primeiro evento, juntos. */
-    public fun criar(entrada: EntradaResolvida): SessaoEntidade {
+    /**
+     * O insert do `POST /sessions` (`sessions.ts:4397-4436`): a linha e o primeiro evento, juntos.
+     * [junto] grava na mesma transação o que a sessão não pode existir sem (o manifesto do
+     * formulário, em [AnexosDaSessao.criarSessao]); se ele falha, nada é gravado.
+     */
+    public fun criar(entrada: EntradaResolvida, junto: (SessaoEntidade) -> Unit = {}): SessaoEntidade {
         val id = "android-${UUID.randomUUID()}"
         val criadaEm = agora()
         val linha = SessaoEntidade(
@@ -78,6 +82,7 @@ public class RepositorioDeSessoes(
         banco.runInTransaction {
             banco.sessoes().inserir(linha)
             banco.eventos().inserir(EventoDaSessao(em = criadaEm, status = EventoDaSessao.NA_FILA, mensagem = MENSAGEM_NA_FILA).paraEntidade(id))
+            junto(linha)
         }
         return linha
     }
@@ -183,10 +188,12 @@ public class RepositorioDeSessoes(
         val linha = carregar(id) ?: return Resultado.Recusado(MENSAGEM_NAO_ENCONTRADA)
         if (linha.status !in Estados.ATIVOS) return Resultado.Recusado("Sessao ja finalizada; nada a cancelar.")
         val evento = EventoDaSessao(em = agora(), status = EventoDaSessao.BLOQUEADO, mensagem = MENSAGEM_CANCELADA)
-        if (!transicionar(id, Estados.CANCELADA, MENSAGEM_CANCELADA, evento)) {
-            return Resultado.Recusado("Sessao mudou de estado durante o cancelamento.")
-        }
-        return Resultado.Ok(carregar(id) ?: linha)
+        // Relida na mesma transação: uma releitura que falhasse depois do commit diria que nada foi gravado,
+        // com o cancelamento já feito e o trabalho sem ser cancelado (revisão antes do push da rodada 10 na #78).
+        val cancelada = banco.runInTransaction<SessaoEntidade?> {
+            if (transicionar(id, Estados.CANCELADA, MENSAGEM_CANCELADA, evento)) carregar(id) ?: linha else null
+        } ?: return Resultado.Recusado("Sessao mudou de estado durante o cancelamento.")
+        return Resultado.Ok(cancelada)
     }
 
     /**

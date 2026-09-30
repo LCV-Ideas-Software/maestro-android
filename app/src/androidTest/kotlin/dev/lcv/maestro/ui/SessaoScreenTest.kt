@@ -88,7 +88,9 @@ class SessaoScreenTest {
         regra.onNodeWithTag(Marcas.aba("relatorio")).performScrollTo().performClick()
         naAba("{\"decision\":\"READY\"}").assertExists()
         regra.onNodeWithTag(Marcas.aba("links")).performScrollTo().performClick()
-        naAba("Nenhum link encontrado neste artefato.").assertExists()
+        // A auditoria de links é da sessão, no portão: a aba leva à tela dela em vez de uma lista sempre vazia.
+        naAba("No aparelho, os links são auditados por sessão").assertExists()
+        regra.onNodeWithTag(Marcas.ABRIR_LINKS_DOS_AUTOS).assertExists()
         regra.onNodeWithTag(Marcas.aba("metadados")).performScrollTo().performClick()
         naAba("\"turn\": 2").assertExists()
         naAba("\"cost_usd\": 0.0123").assertExists()
@@ -117,6 +119,86 @@ class SessaoScreenTest {
         regra.esperarTexto("Sessão cancelada.")
         assertEquals(Estados.CANCELADA, c.sessoes.carregar(id)?.status)
         assertEquals(listOf(id to Estados.CANCELADA), c.agendador.canceladas.toList())
+    }
+
+    @Test
+    fun oBancoCheioAoCancelarEAvisadoSemDerrubarOAplicativo() {
+        // Decisão 25 do operador (29/09/2026): o banco cheio numa ação da tela é a falha da ação.
+        val id = c.sessao(Estados.RODANDO)
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.CANCELAR)
+        c.bancoCheio.cheio = true
+        regra.onNodeWithTag(Marcas.CANCELAR).performClick()
+        regra.esperarTexto("Não foi possível gravar no aparelho. Motivo: ${BancoCheio.MENSAGEM}")
+        assertEquals(Estados.RODANDO, c.sessoes.carregar(id)?.status)
+        assertTrue(c.agendador.canceladas.isEmpty())
+    }
+
+    @Test
+    fun oBancoCheioAoRetomarEAvisadoSemDerrubarOAplicativo() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        val id = c.sessao(Estados.LIMITE_DE_CUSTO, teto = "5", custo = "5")
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.RETOMAR)
+        regra.onNodeWithTag(Marcas.RETOMAR).performClick()
+        esperarTag(Marcas.NOVO_TETO)
+        c.bancoCheio.cheio = true
+        confirmarRetomada("7")
+        regra.esperarTexto("Não foi possível gravar no aparelho. Motivo: ${BancoCheio.MENSAGEM}")
+        val linha = c.sessoes.carregar(id)!!
+        assertEquals(Estados.LIMITE_DE_CUSTO, linha.status)
+        assertEquals(Dinheiro.paraE8(BigDecimal("5")), linha.tetoDeCustoE8)
+        assertTrue(c.agendador.enfileiradas.isEmpty())
+    }
+
+    // Revisão antes do push da rodada 10 na #78 (decisão 25 do operador).
+
+    @Test
+    fun oDiscoQueFalhaAoAbrirARetomadaEAvisado() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        val id = c.sessao(Estados.LIMITE_DE_CUSTO, teto = "5", custo = "5")
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.RETOMAR)
+        c.bancoCheio.leituraQuebrada = "configuracoes"
+        regra.onNodeWithTag(Marcas.RETOMAR).performClick()
+        regra.esperarTexto("Não foi possível ler os dados do aparelho. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}")
+        c.bancoCheio.leituraQuebrada = null
+        regra.onNodeWithTag(Marcas.CONFIRMAR_RETOMADA).assertDoesNotExist()
+    }
+
+    @Test
+    fun aReleituraQueFalhaDepoisDeCancelarNaoDeixaOCancelamentoPelaMetade() {
+        val id = c.sessao(Estados.RODANDO)
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.CANCELAR)
+        // A primeira leitura depois da escrita é a do fechamento da execução, na mesma transação; a que falha é a releitura.
+        c.bancoCheio.releiturasAntes = 1
+        c.bancoCheio.releituraQuebrada = "sessoes"
+        regra.onNodeWithTag(Marcas.CANCELAR).performClick()
+        regra.esperarTexto("Não foi possível gravar no aparelho. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}")
+        // Nada ficou gravado e o trabalho segue: o aviso diz a verdade.
+        assertEquals(Estados.RODANDO, c.sessoes.carregar(id)?.status)
+        assertTrue(c.agendador.canceladas.isEmpty())
+    }
+
+    @Test
+    fun aReleituraQueFalhaDepoisDeRetomarNaoDeixaASessaoNaFilaSemTrabalho() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        val id = c.sessao(Estados.LIMITE_DE_CUSTO, teto = "5", custo = "5")
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.RETOMAR)
+        regra.onNodeWithTag(Marcas.RETOMAR).performClick()
+        esperarTag(Marcas.NOVO_TETO)
+        c.bancoCheio.releituraQuebrada = "sessoes"
+        confirmarRetomada("7")
+        regra.esperarTexto("Não foi possível gravar no aparelho. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}")
+        val linha = c.sessoes.carregar(id)!!
+        assertEquals(Estados.LIMITE_DE_CUSTO, linha.status)
+        assertEquals(Dinheiro.paraE8(BigDecimal("5")), linha.tetoDeCustoE8)
+        assertTrue(c.agendador.enfileiradas.isEmpty())
     }
 
     private fun confirmarRetomada(teto: String? = null) {

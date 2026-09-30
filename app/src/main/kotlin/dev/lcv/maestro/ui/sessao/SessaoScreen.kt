@@ -69,6 +69,7 @@ import dev.lcv.maestro.ui.Tema
 import dev.lcv.maestro.ui.TextoPreformatado
 import dev.lcv.maestro.ui.VazioDeResultado
 import dev.lcv.maestro.ui.rememberAutenticacaoDaTela
+import dev.lcv.maestro.ui.textofinal.TextoFinalViewModel
 
 /** As cinco abas dos autos, com os rótulos e os ícones do web. */
 private enum class Aba(val rotulo: Int, val icone: Int, val nome: String) {
@@ -83,7 +84,7 @@ private enum class Aba(val rotulo: Int, val icone: Int, val nome: String) {
 private const val EVENTOS_VISIVEIS = 8
 
 @Composable
-fun SessaoScreen(vm: SessaoViewModel) {
+fun SessaoScreen(vm: SessaoViewModel, aoAbrirTextoFinal: () -> Unit, aoAbrirAnexos: () -> Unit, aoAbrirLinks: () -> Unit) {
     val estado by vm.estado.collectAsStateWithLifecycle()
     val avisos = LocalAvisos.current
     val autenticacao = rememberAutenticacaoDaTela()
@@ -122,9 +123,24 @@ fun SessaoScreen(vm: SessaoViewModel) {
                 Acoes(sessao, estado.trabalhando, aoCancelar = vm::cancelar, aoRetomar = vm::abrirRetomada)
                 Metricas(sessao)
                 Rastreamento(sessao)
-                Autos(estado, vm::escolherArtefato)
-                TextoDaSessao(sessao)
+                Autos(estado, vm::escolherArtefato, aoAbrirLinks)
+                TextoDaSessao(sessao, aoAbrirTextoFinal)
                 Erro(sessao, estado.ultimaParada)
+                // Os anexos da sessão, com o manifesto de citações, e os links auditados do texto (seção 2.2, MAEANDR-18).
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BotaoFantasma(
+                        stringResource(R.string.abrir_anexos),
+                        aoClicar = aoAbrirAnexos,
+                        icone = R.drawable.simbolo_description,
+                        modifier = Modifier.testTag(Marcas.ABRIR_ANEXOS),
+                    )
+                    BotaoFantasma(
+                        stringResource(R.string.abrir_links),
+                        aoClicar = aoAbrirLinks,
+                        icone = R.drawable.simbolo_link,
+                        modifier = Modifier.testTag(Marcas.ABRIR_LINKS),
+                    )
+                }
             }
         }
     }
@@ -227,7 +243,7 @@ private fun Rastreamento(sessao: ProjecaoDaSessao) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Autos(estado: SessaoViewModel.Estado, aoEscolher: (String) -> Unit) {
+private fun Autos(estado: SessaoViewModel.Estado, aoEscolher: (String) -> Unit, aoAbrirLinks: () -> Unit) {
     var aba by rememberSaveable { mutableStateOf(Aba.TEXTO) }
     Cartao {
         Cabecalho(R.drawable.simbolo_description, stringResource(R.string.autos), stringResource(R.string.cadeia_viva))
@@ -276,12 +292,12 @@ private fun Autos(estado: SessaoViewModel.Estado, aoEscolher: (String) -> Unit) 
                 }
             }
         }
-        Column(modifier = Modifier.testTag(Marcas.CONTEUDO_DA_ABA)) { ConteudoDaAba(aba, detalhe) }
+        Column(modifier = Modifier.testTag(Marcas.CONTEUDO_DA_ABA)) { ConteudoDaAba(aba, detalhe, aoAbrirLinks) }
     }
 }
 
 @Composable
-private fun ConteudoDaAba(aba: Aba, detalhe: DetalheDoArtefato) {
+private fun ConteudoDaAba(aba: Aba, detalhe: DetalheDoArtefato, aoAbrirLinks: () -> Unit) {
     when (aba) {
         Aba.TEXTO -> SelectionContainer { TextoPreformatado(detalhe.conteudoMd) }
         Aba.DIFF -> SelectionContainer {
@@ -290,32 +306,43 @@ private fun ConteudoDaAba(aba: Aba, detalhe: DetalheDoArtefato) {
             )
         }
         Aba.RELATORIO -> SelectionContainer { TextoPreformatado(detalhe.relatorioDeRevisao.ifEmpty { "{}" }) }
-        Aba.LINKS -> if (detalhe.auditoriaDeLinks.isEmpty()) {
-            VazioDeResultado(stringResource(R.string.sem_links))
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(Tema.espacos.entreLinhas)) {
-                detalhe.auditoriaDeLinks.forEach { link ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(link.url, modifier = Modifier.weight(1f), color = Tema.cores.texto)
-                        Pilula(Rotulos.link(link))
-                    }
-                }
-            }
+        // A deliberação do aparelho não audita links por artefato: a auditoria é da sessão, no portão
+        // da auditoria final, e a aba leva à tela dela (a lista por artefato ficaria sempre vazia).
+        Aba.LINKS -> Column(verticalArrangement = Arrangement.spacedBy(Tema.espacos.entreLinhas)) {
+            Legenda(stringResource(R.string.links_nos_autos))
+            BotaoPrimario(
+                stringResource(R.string.abrir_links_auditados),
+                aoClicar = aoAbrirLinks,
+                icone = R.drawable.simbolo_link,
+                modifier = Modifier.testTag(Marcas.ABRIR_LINKS_DOS_AUTOS),
+            )
         }
         Aba.METADADOS -> SelectionContainer { TextoPreformatado(detalhe.resumo.metadadosJson()) }
     }
 }
 
-/** "Texto final" quando convergiu, senão "Texto atual" (`final_text || current_text`), no `<pre>` do web. */
+/**
+ * "Texto final" quando convergiu, senão "Texto atual" (`final_text || current_text`), no `<pre>` do web.
+ * No lugar do **Criar Post** do web, o texto liberado abre a tela da seção 4.4, formatado e exportável.
+ */
 @Composable
-private fun TextoDaSessao(sessao: ProjecaoDaSessao) {
+private fun TextoDaSessao(sessao: ProjecaoDaSessao, aoAbrirTextoFinal: () -> Unit) {
     val convergiu = sessao.status == Estados.CONVERGIDA
+    val liberado = TextoFinalViewModel.liberado(sessao.status, sessao.textoFinal) != null
     Cartao {
         Cabecalho(
             if (convergiu) R.drawable.simbolo_check_circle else R.drawable.simbolo_description,
             stringResource(R.string.secao_texto),
             stringResource(if (convergiu) R.string.texto_final else R.string.texto_atual),
         )
+        if (liberado) {
+            BotaoPrimario(
+                stringResource(R.string.abrir_texto_final),
+                aoClicar = aoAbrirTextoFinal,
+                icone = R.drawable.simbolo_description,
+                modifier = Modifier.testTag(Marcas.ABRIR_TEXTO_FINAL),
+            )
+        }
         val texto = sessao.textoFinal?.takeIf { it.isNotEmpty() } ?: sessao.textoAtual
         SelectionContainer {
             TextoPreformatado(

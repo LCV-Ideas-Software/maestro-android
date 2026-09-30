@@ -4,6 +4,8 @@
  */
 package dev.lcv.maestro.ui.sessoes
 
+import android.content.ContentResolver
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -12,7 +14,9 @@ import androidx.lifecycle.viewModelScope
 import dev.lcv.maestro.Dependencias
 import dev.lcv.maestro.R
 import dev.lcv.maestro.Sincronia
+import dev.lcv.maestro.protocolo.ManifestosDosAnexos
 import dev.lcv.maestro.provedores.Provedor
+import dev.lcv.maestro.sessao.AnexosDaSessao
 import dev.lcv.maestro.sessao.Configuracoes
 import dev.lcv.maestro.sessao.Elegibilidade
 import dev.lcv.maestro.sessao.Orcamento
@@ -21,7 +25,10 @@ import dev.lcv.maestro.sessao.RepositorioDeConfiguracoes
 import dev.lcv.maestro.sessao.Resultado
 import dev.lcv.maestro.sessao.SessaoEntidade
 import dev.lcv.maestro.sessao.TrimJs
+import dev.lcv.maestro.ui.Documentos
 import dev.lcv.maestro.ui.Mensagem
+import dev.lcv.maestro.ui.anexos.AnexosViewModel
+import dev.lcv.maestro.ui.motivoDeArmazenamento
 import java.time.Duration
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -81,6 +88,26 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
     var colegiado by mutableStateOf(Provedor.entries.toList())
         private set
 
+    /**
+     * O manifesto de citações escolhido no formulário (especificação, seção
+     * 2.2), já lido com o teto dos anexos e com a leitura que a sessão fará
+     * ao começar. Ele é gravado entre a criação da sessão e o enfileiramento:
+     * a sessão só começa a ler anexos depois do enfileiramento.
+     */
+    data class ManifestoEscolhido(val nome: String, val tipo: String, val bytes: ByteArray, val leitura: AnexosViewModel.Manifesto)
+
+    var manifesto by mutableStateOf<ManifestoEscolhido?>(null)
+        private set
+
+    /**
+     * A leitura do manifesto escolhido está em curso. Ligada no mesmo instante
+     * em que o seletor devolve o arquivo, antes da leitura, que é assíncrona:
+     * sem ela, um toque em Iniciar nesse meio-tempo começaria a sessão sem o
+     * arquivo (achado do Codex na #78).
+     */
+    var lendoManifesto by mutableStateOf(false)
+        private set
+
     private val ajustes = MutableStateFlow(Estado())
     private val eventos = Channel<Evento>(Channel.BUFFERED)
     val avisos: Flow<Evento> = eventos.receiveAsFlow()
@@ -131,15 +158,54 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
         colegiado = if (redatorInicial in proximo) proximo else listOf(redatorInicial) + proximo
     }
 
+    /** O documento que o seletor devolveu como manifesto; `null` é o seletor cancelado, e nada muda. */
+    fun escolherManifesto(uri: Uri?, resolver: ContentResolver) {
+        if (uri == null) return
+        lendoManifesto = true
+        viewModelScope.launch {
+            try {
+                when (val leitura = withContext(Dispatchers.IO) { Documentos.ler(resolver, uri, AnexosDaSessao.MAX_BYTES) }) {
+                    Documentos.Leitura.AcimaDoTeto -> eventos.send(Evento.Aviso(Mensagem.Literal(AnexosDaSessao.MENSAGEM_ACIMA_DO_TETO)))
+                    Documentos.Leitura.Falhou -> eventos.send(Evento.Aviso(Mensagem.DeRecurso(R.string.anexo_ilegivel)))
+                    is Documentos.Leitura.Lido -> {
+                        val tipo = leitura.tipo ?: AnexosViewModel.TIPO_DESCONHECIDO
+                        // O protocolo que a sessão nova vai receber é o das configurações (`resolveStartRequest`), no Room:
+                        // o armazenamento que falha é a falha da escolha (decisão 25).
+                        val lido = try {
+                            withContext(Dispatchers.IO) {
+                                AnexosViewModel.lerManifesto(
+                                    listOf(ManifestosDosAnexos.Anexo(leitura.nome, tipo) { leitura.bytes }),
+                                    d.configuracoes.carregar().protocolo,
+                                )
+                            }
+                        } catch (erro: Exception) {
+                            eventos.send(Evento.Aviso(Mensagem.DeRecurso(R.string.leitura_do_aparelho_falhou, listOf(motivoDeArmazenamento(erro)))))
+                            return@launch
+                        }
+                        manifesto = ManifestoEscolhido(leitura.nome, tipo, leitura.bytes, lido)
+                    }
+                }
+            } finally {
+                lendoManifesto = false
+            }
+        }
+    }
+
+    fun tirarManifesto() {
+        manifesto = null
+    }
+
     /** As validações do `startSession` do web, antes de pedir permissão ou autenticação; `null` é "pode seguir". */
     fun conferirInicio(): Mensagem? {
         val prontos = ajustes.value.prontos
         val validos = colegiado.filter { it in prontos }
+        val doManifesto = motivoDoManifesto(lendoManifesto, manifesto)
         return when {
             TrimJs.aparar(pedido).isEmpty() -> Mensagem.DeRecurso(R.string.erro_pedido_vazio)
             prontos.size < 2 -> Mensagem.DeRecurso(R.string.erro_dois_agentes)
             validos.size < 2 -> Mensagem.DeRecurso(R.string.erro_dois_prontos)
             redatorInicial !in validos -> Mensagem.DeRecurso(R.string.erro_redator_fora)
+            doManifesto != null -> Mensagem.DeRecurso(doManifesto)
             else -> null
         }
     }
@@ -164,6 +230,8 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
             agentesAtivos = colegiado.filter { it in prontos }.map { it.agente },
             conteudoInicial = textoInicial,
         )
+        val anexo = manifesto
+        var releitura: AnexosViewModel.Manifesto? = null
         ajustes.update { it.copy(iniciando = true) }
         viewModelScope.launch {
             try {
@@ -171,20 +239,47 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
                     val configuracoes = d.configuracoes.carregar()
                     when (val entrada = RepositorioDeConfiguracoes.resolverInicio(pedidoDeInicio, configuracoes, d.cofre.chaves())) {
                         is Resultado.Recusado -> entrada
-                        is Resultado.Ok -> Sincronia.reconciliacao.withLock {
-                            val linha = d.sessoes.criar(entrada.valor)
-                            d.agendador.enfileirar(linha.id)
-                            Resultado.Ok(linha.id)
+                        is Resultado.Ok -> {
+                            // O protocolo pode ter mudado nas configurações depois da escolha: o manifesto
+                            // é lido de novo contra o que a sessão vai receber (achado do Codex na #78).
+                            val lido = anexo?.let {
+                                AnexosViewModel.lerManifesto(listOf(ManifestosDosAnexos.Anexo(it.nome, it.tipo) { it.bytes }), entrada.valor.protocolo)
+                            }
+                            if (lido is AnexosViewModel.Manifesto.Recusado) {
+                                releitura = lido
+                                Resultado.Recusado(lido.motivo)
+                            } else {
+                                Sincronia.reconciliacao.withLock {
+                                    // A sessão e o manifesto são gravados juntos: nenhuma fica na fila sem ele.
+                                    val criada = if (anexo == null) {
+                                        Resultado.Ok(d.sessoes.criar(entrada.valor))
+                                    } else {
+                                        d.anexos.criarSessao(d.sessoes, entrada.valor, anexo.nome, anexo.tipo, anexo.bytes)
+                                    }
+                                    when (criada) {
+                                        is Resultado.Recusado -> criada
+                                        is Resultado.Ok -> {
+                                            d.agendador.enfileirar(criada.valor.id)
+                                            Resultado.Ok(criada.valor.id)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
+                releitura?.let { lido -> if (manifesto === anexo) manifesto = anexo?.copy(leitura = lido) }
                 when (resultado) {
                     is Resultado.Recusado -> eventos.send(Evento.Aviso(Mensagem.Literal(resultado.mensagem)))
                     is Resultado.Ok -> {
+                        // O manifesto escolhido durante o início é para a próxima sessão (achado do Codex na #78).
+                        if (manifesto === anexo) manifesto = null
                         eventos.send(Evento.Aviso(Mensagem.DeRecurso(R.string.iniciada)))
                         eventos.send(Evento.Aberta(resultado.valor))
                     }
                 }
+            } catch (erro: Exception) {
+                eventos.send(Evento.Aviso(Mensagem.DeRecurso(R.string.gravacao_falhou, listOf(motivoDeArmazenamento(erro)))))
             } finally {
                 ajustes.update { it.copy(iniciando = false) }
             }
@@ -197,6 +292,16 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
     }
 
     companion object {
+        /**
+         * Só do aparelho: nada começa enquanto o manifesto escolhido é lido, nem com um arquivo que a
+         * sessão não leria como manifesto. `null` é "pode seguir".
+         */
+        fun motivoDoManifesto(lendo: Boolean, escolhido: ManifestoEscolhido?): Int? = when {
+            lendo -> R.string.manifesto_em_leitura
+            escolhido != null && escolhido.leitura !is AnexosViewModel.Manifesto.Lido -> R.string.erro_manifesto
+            else -> null
+        }
+
         /** O título inicial do formulário do web. */
         const val TITULO_PADRAO = "Artigo acadêmico sem título"
     }
