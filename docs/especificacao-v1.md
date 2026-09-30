@@ -263,7 +263,12 @@ escolheu os cinco. O que a escolha pede, e como fica:
   que ela enviou, e o que se digitou enquanto ela corria fica. A releitura que
   falha por armazenamento mantém a lista que a tela tinha, com o aviso, aqui e
   na tela de anexos, sem passar por falha da gravação que já foi feita
-  (decisão 25). Achados do Codex na #78.
+  (decisão 25), e vale a releitura mais nova que terminou bem: uma anterior que
+  termine depois de outra já aplicada não repõe a lista velha, e uma mais nova
+  que falha não descarta a anterior que deu certo. Montar a busca de propostas
+  e consultar a evidência já guardada, na importação, leem o Room e também
+  passam pelo tratamento de armazenamento. Achados do Codex na #78 e da revisão
+  antes do push da rodada 10.
 - **Decisão 23 do operador (29/09/2026):** todo turno de revisão cujo texto
   atual reprova na auditoria final leva ao revisor o pacote do portão — as
   linhas que falharam e os candidatos de correção. Antes, o pacote só ia numa
@@ -281,7 +286,21 @@ escolheu os cinco. O que a escolha pede, e como fica:
   falha de armazenamento; o resto, inclusive o cancelamento da corrotina,
   segue adiante. A pergunta veio de três rodadas seguidas do Codex na #78 que
   acharam, cada uma, mais uma tela que caía; o trabalho em segundo plano já
-  levava qualquer exceção a `error` da sessão.
+  levava qualquer exceção a `error` da sessão. A regra vale para tudo o que a
+  ação lê e grava, inclusive o que ela lê ao se preparar (as configurações ao
+  abrir a retomada, ao escolher o manifesto e ao testar as chaves; a evidência
+  já guardada, na importação; o e-mail de contato, ao montar a busca), e o
+  aviso diz o que de fato aconteceu: o cancelamento e a retomada releem a
+  linha dentro da própria transação, e uma falha ali desfaz tudo, em vez de
+  deixar gravado o que o aviso diz que não foi; o cofre das chaves devolve o
+  motivo da falha ao guardar e ao remover; a exportação só diz que nada foi
+  salvo quando apagou o documento que o seletor criou; e a passagem cujo
+  resultado não foi anotado diz se o navegador abriu. A varredura de todas as
+  ações de tela, antes do push da rodada 10 da #78, achou esses casos. As
+  leituras de abrir e voltar a uma tela, a observação ao vivo e a
+  reconciliação da abertura entram na regra numa PR própria
+  ([#80](https://github.com/LCV-Ideas-Software/maestro-android/issues/80),
+  MAEANDR-27; decisão do operador de 30/09/2026).
 - **Lacuna medida, fora desta entrega:** no canônico atual (`0e17817`,
   MAESTRO-34), a revisão confere também a URL final e a cadeia de
   redirecionamentos; o motor do Android, portado de `68528f9`, confere a URL e
@@ -1781,22 +1800,30 @@ de teste, porque compra confiança sem entregá-la.
   a recusada que não chega ao navegador, o navegador que não abre e o disparo
   barrado por política; o arquivo importado sob o link, sem mudá-lo, o de
   tipo fora da lista e o escolhido para um link que saiu da lista; o disco que
-  falha na importação e na busca, que avisa sem derrubar o aplicativo; a revisão com a recusa
+  falha na importação, ao consultar a evidência guardada e ao gravar, e na busca, que avisa sem derrubar o aplicativo; a revisão com a recusa
   do motor para nota curta e para aceite de link que não passou; as propostas
   com o provedor escolhido, que sobrevivem à auditoria seguinte na linha
-  decidida, e a busca cancelada quando a tela sai, que não grava as propostas
+  decidida, a busca que não se monta por erro de disco, e a busca cancelada quando a tela sai, que não grava as propostas
   nem quando a resposta já tinha chegado; a aba Links dos autos que
   leva à tela; e, pela decisão 25, o banco cheio em cada ação de tela que
   grava — iniciar, cancelar, retomar, salvar as configurações, anexar,
   remover, a passagem ao navegador, a importação, a decisão e as propostas —,
-  que avisa sem derrubar o aplicativo e sem gravar pela metade. O banco
+  que avisa sem derrubar o aplicativo e sem gravar pela metade; o erro de
+  disco nas leituras que preparam uma ação (abrir a retomada, escolher o
+  manifesto, testar as chaves); a releitura que falha depois de cancelar e de
+  retomar, que não deixa nada gravado; o motivo do cofre que não grava ou não
+  remove; o aviso da exportação, que só diz "nada foi salvo" com o documento
+  apagado; e a passagem cujo resultado não foi anotado, com o navegador
+  aberto ou não. O banco
   cheio é o `SQLiteFullException` do framework, lançado sob demanda por um
   `openHelperFactory` de teste do Room (`BancoCheio`), no ponto em que o
   SQLite o lançaria: um gatilho SQL daria `SQLITE_CONSTRAINT`, e o limite de
   páginas só falha quando a escrita pede página nova. Na JVM: o renderizador do texto final, o tipo da captura, os
-  rótulos do painel do desktop e a regra do manifesto do formulário, que não
-  deixa começar durante a leitura dele; na tela de anexos, o manifesto de
-  outro protocolo recusado com o hash ativo. No `:core:provedores`, na JVM, a
+  rótulos do painel do desktop, a regra do manifesto do formulário, que não
+  deixa começar durante a leitura dele, e a ordem das releituras das telas de
+  anexos e de links (`OrdemDasLeituras`); na tela de anexos, o manifesto de
+  outro protocolo recusado com o hash ativo e a releitura antiga que termina
+  depois de outra já aplicada, que não repõe a lista velha. No `:core:provedores`, na JVM, a
   captura assistida (as regras de nome, tipo, tamanho e bytes mágicos, a ordem
   das recusas, os dois registros) e a busca que guarda cada resultado,
   devolve a falha do armazém, como o `save_stored(...)?` do canônico, e,

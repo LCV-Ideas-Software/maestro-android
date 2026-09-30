@@ -175,6 +175,21 @@ class SessoesScreenTest {
     }
 
     @Test
+    fun oDiscoQueFalhaAoLerAsConfiguracoesNaEscolhaDoManifestoEAvisado() {
+        // Conferir o manifesto lê o protocolo das configurações, e essa leitura falha (decisão 25 do operador).
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        regra.abrir(c, seletor = SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", MANIFESTO_DE_EXEMPLO.toByteArray()))))
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        c.bancoCheio.leituraQuebrada = "configuracoes"
+        regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).performScrollTo().performClick()
+        regra.esperarTexto("Não foi possível ler os dados do aparelho. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}")
+        c.bancoCheio.leituraQuebrada = null
+        regra.onNodeWithTag(Marcas.MANIFESTO_DO_FORMULARIO).assertDoesNotExist()
+        regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).assertExists()
+    }
+
+    @Test
     fun oManifestoEReconferidoContraOProtocoloQueASessaoRecebe() {
         // Achado do Codex na #78: o protocolo mudou nas configurações depois da escolha do manifesto.
         c.configurar()

@@ -37,6 +37,7 @@ import dev.lcv.maestro.provedores.Resultado
 import dev.lcv.maestro.provedores.Uso
 import dev.lcv.maestro.seguranca.Guarda
 import dev.lcv.maestro.seguranca.NivelDoCofre
+import dev.lcv.maestro.seguranca.Remocao
 import dev.lcv.maestro.sessao.Agendador
 import dev.lcv.maestro.sessao.AnexosDaSessao
 import dev.lcv.maestro.sessao.ArmazemDeEvidenciasEmArquivo
@@ -99,9 +100,13 @@ internal class CofreFalso : CofreDaTela {
         return resposta
     }
 
-    override suspend fun apagar(provedor: Provedor): Boolean {
+    /** Posto, a remoção falha com este motivo, como o disco que não grava. */
+    @Volatile var falhaAoApagar: String? = null
+
+    override suspend fun apagar(provedor: Provedor): Remocao {
+        falhaAoApagar?.let { return Remocao.Falhou(it) }
         presentes[provedor] = false
-        return true
+        return Remocao.Removida
     }
 
     override suspend fun nivel(): NivelDoCofre? = nivel
@@ -234,6 +239,8 @@ internal class Cenario {
         evidencias = evidencias,
         importacao = importacao,
         busca = {
+            // Como a `Fabrica.buscaDeEvidencias`, que lê o e-mail de contato do agente no Room ao montar a busca.
+            configuracoes.carregar()
             BuscaDaTela(
                 IntegridadeDeLinks.BuscadorDeEvidencia { consulta, provedor, _ ->
                     buscas += consulta to provedor

@@ -191,6 +191,39 @@ class ConfiguracoesScreenTest {
         Provedor.entries.forEach { regra.onNodeWithTag(Marcas.resultadoDoTeste(it)).assertExists() }
     }
 
+    // Revisão antes do push da rodada 10 na #78 (decisão 25 do operador).
+
+    @Test
+    fun oDiscoQueFalhaAoLerAsTarifasDoTesteEAvisado() {
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        abrirConfiguracoes()
+        c.bancoCheio.leituraQuebrada = "configuracoes"
+        regra.onNodeWithTag(Marcas.TESTAR_CHAVES).performScrollTo().performClick()
+        regra.onNodeWithTag(Marcas.CONFIRMAR_TESTE).performClick()
+        regra.esperarTexto("Não foi possível ler os dados do aparelho. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}")
+        c.bancoCheio.leituraQuebrada = null
+        assertEquals(emptyList<Provedor>(), c.testadas.toList())
+    }
+
+    @Test
+    fun oCofreQueNaoGravaDizOMotivo() {
+        c.cofre.respostas += Guarda.Falhou("disco que não grava")
+        abrirConfiguracoes()
+        digitar(Marcas.chave(Provedor.CLAUDE), "sk-teste-1")
+        regra.onNodeWithTag(Marcas.salvarChave(Provedor.CLAUDE)).performScrollTo().performClick()
+        regra.esperarTexto("O cofre de chaves não gravou a chave; tente de novo. Motivo: disco que não grava")
+    }
+
+    @Test
+    fun aRemocaoQueFalhaDizOMotivo() {
+        c.chaves(Provedor.CLAUDE)
+        c.cofre.falhaAoApagar = "disco que não grava"
+        abrirConfiguracoes()
+        regra.onNodeWithTag(Marcas.removerChave(Provedor.CLAUDE)).performScrollTo().performClick()
+        regra.esperarTexto("Não foi possível remover a chave agora; tente de novo. Motivo: disco que não grava")
+        esperarPilula(Provedor.CLAUDE, "configurada")
+    }
+
     @Test
     fun testarChavesSemAutenticacaoNaoChamaNinguem() {
         c.chaves(Provedor.CLAUDE, Provedor.CODEX)

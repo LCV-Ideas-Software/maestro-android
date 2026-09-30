@@ -188,10 +188,12 @@ public class RepositorioDeSessoes(
         val linha = carregar(id) ?: return Resultado.Recusado(MENSAGEM_NAO_ENCONTRADA)
         if (linha.status !in Estados.ATIVOS) return Resultado.Recusado("Sessao ja finalizada; nada a cancelar.")
         val evento = EventoDaSessao(em = agora(), status = EventoDaSessao.BLOQUEADO, mensagem = MENSAGEM_CANCELADA)
-        if (!transicionar(id, Estados.CANCELADA, MENSAGEM_CANCELADA, evento)) {
-            return Resultado.Recusado("Sessao mudou de estado durante o cancelamento.")
-        }
-        return Resultado.Ok(carregar(id) ?: linha)
+        // Relida na mesma transação: uma releitura que falhasse depois do commit diria que nada foi gravado,
+        // com o cancelamento já feito e o trabalho sem ser cancelado (revisão antes do push da rodada 10 na #78).
+        val cancelada = banco.runInTransaction<SessaoEntidade?> {
+            if (transicionar(id, Estados.CANCELADA, MENSAGEM_CANCELADA, evento)) carregar(id) ?: linha else null
+        } ?: return Resultado.Recusado("Sessao mudou de estado durante o cancelamento.")
+        return Resultado.Ok(cancelada)
     }
 
     /**

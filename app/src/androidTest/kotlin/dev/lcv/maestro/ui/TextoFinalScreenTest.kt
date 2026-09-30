@@ -192,7 +192,8 @@ class TextoFinalScreenTest {
         val impossivel = File(c.contexto.cacheDir, "nao-existe-${System.nanoTime()}/texto.md")
         seletor.resposta = Uri.fromFile(impossivel)
         regra.onNodeWithTag(Marcas.EXPORTAR_TXT).performClick()
-        regra.esperarTexto("Não foi possível gravar o arquivo; nada foi salvo.")
+        // O endereço `file:` não é documento de provedor e não se apaga: o aviso manda conferir o destino, com o motivo.
+        regra.esperarTexto("Não foi possível gravar o arquivo; confira o destino, onde o documento pode ter ficado vazio ou pela metade. Motivo: ", substring = true)
         assertFalse(impossivel.exists())
     }
 
@@ -204,8 +205,24 @@ class TextoFinalScreenTest {
     fun umaGravacaoQueFalhaApagaODocumentoQueOSeletorCriou() {
         val impossivel = Uri.fromFile(File(c.contexto.cacheDir, "nao-existe-${System.nanoTime()}/texto.md"))
         val apagados = mutableListOf<Uri>()
-        assertFalse(TextoFinalViewModel.gravar(c.contexto.contentResolver, impossivel, "texto".toByteArray()) { _, uri -> apagados += uri })
+        val falha = TextoFinalViewModel.gravar(c.contexto.contentResolver, impossivel, "texto".toByteArray()) { _, uri -> apagados.add(uri) }
         assertEquals(listOf(impossivel), apagados)
+        // O motivo vem da exceção e vai ao aviso (decisão 25 do operador).
+        assertTrue(falha!!.apagou)
+        assertTrue(falha.motivo, falha.motivo.contains("ENOENT"))
+    }
+
+    @Test
+    fun oAvisoDaExportacaoQueFalhaSoDizQueNadaFoiSalvoComODocumentoApagado() {
+        val id = c.sessao(Estados.CONVERGIDA, textoFinal = textoFinal, textoAtual = textoFinal)
+        val impossivel = Uri.fromFile(File(c.contexto.cacheDir, "nao-existe-${System.nanoTime()}/texto.md"))
+        for ((apagou, aviso) in listOf(true to R.string.exportacao_falhou, false to R.string.exportacao_falhou_sem_apagar)) {
+            val vm = TextoFinalViewModel(c.dependencias, id)
+            vm.exportar(TextoFinalViewModel.Formato.MARKDOWN, impossivel, c.contexto.contentResolver) { _, _ -> apagou }
+            val mensagem = runBlocking { withTimeout(10_000) { vm.avisos.first() } } as Mensagem.DeRecurso
+            assertEquals(aviso, mensagem.id)
+            assertTrue(mensagem.argumentos.single().toString().contains("ENOENT"))
+        }
     }
 
     /**
@@ -229,8 +246,11 @@ class TextoFinalScreenTest {
         val destino = Uri.fromFile(c.arquivo("texto.md", ByteArray(0)))
         val apagados = mutableListOf<Uri>()
         val vm = TextoFinalViewModel(c.dependencias, id)
-        vm.exportar(TextoFinalViewModel.Formato.MARKDOWN, destino, c.contexto.contentResolver) { _, uri -> apagados += uri }
-        assertEquals(Mensagem.DeRecurso(R.string.exportacao_falhou), runBlocking { withTimeout(10_000) { vm.avisos.first() } })
+        vm.exportar(TextoFinalViewModel.Formato.MARKDOWN, destino, c.contexto.contentResolver) { _, uri -> apagados.add(uri) }
+        assertEquals(
+            Mensagem.DeRecurso(R.string.exportacao_falhou, listOf(TextoFinalViewModel.MOTIVO_SEM_TEXTO)),
+            runBlocking { withTimeout(10_000) { vm.avisos.first() } },
+        )
         assertEquals(listOf(destino), apagados)
     }
 }

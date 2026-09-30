@@ -283,7 +283,7 @@ class CofreDeChavesTest {
             assertTrue(primeiro.guardar(Provedor.CLAUDE, chave) is Guarda.Guardada)
             assertTrue(CofreDeChaves.arquivoDoCofre(contexto).isFile)
             assertEquals(chave, (primeiro.chaveDe(Provedor.CLAUDE) as LeituraDaChave.Presente).valor)
-            assertTrue(primeiro.apagar(Provedor.CLAUDE))
+            assertEquals(Remocao.Removida, primeiro.apagar(Provedor.CLAUDE))
         } finally {
             KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry("maestro_chaves_de_api")
         }
@@ -604,7 +604,7 @@ class CofreDeChavesTest {
         assertEquals(LeituraDaChave.Ausente, cofre.chaveDe(Provedor.CLAUDE))
         assertEquals(1, armazem.data.first().asMap().keys.count { it.name.startsWith("afastado_claude_") })
 
-        assertTrue(cofre.apagar(Provedor.CLAUDE))
+        assertEquals(Remocao.Removida, cofre.apagar(Provedor.CLAUDE))
 
         assertEquals(0, armazem.data.first().asMap().keys.count { it.name.startsWith("afastado_claude_") })
     }
@@ -767,8 +767,9 @@ class CofreDeChavesTest {
         val semGravacao = CofreDeChaves(trava, ArmazemQueFalha(armazem, falhaAoGravar = true), JANELA, alias, temStrongBox())
         autenticar()
 
-        assertEquals(Guarda.Falhou, semGravacao.guardar(Provedor.GEMINI, "valor-novo"))
-        assertFalse(semGravacao.apagar(Provedor.CLAUDE))
+        // O motivo chega à tela (decisão 25 do operador).
+        assertEquals(Guarda.Falhou("disco que não grava"), semGravacao.guardar(Provedor.GEMINI, "valor-novo"))
+        assertEquals(Remocao.Falhou("disco que não grava"), semGravacao.apagar(Provedor.CLAUDE))
         assertEquals(chave, (cofre.chaveDe(Provedor.CLAUDE) as LeituraDaChave.Presente).valor)
     }
 
@@ -920,7 +921,7 @@ class CofreDeChavesTest {
         guardar(Provedor.GEMINI, "valor-dois")
         autenticar()
 
-        assertTrue(cofre.apagar(Provedor.CLAUDE))
+        assertEquals(Remocao.Removida, cofre.apagar(Provedor.CLAUDE))
 
         assertEquals(LeituraDaChave.Ausente, cofre.chaveDe(Provedor.CLAUDE))
         assertEquals("valor-dois", (cofre.chaveDe(Provedor.GEMINI) as LeituraDaChave.Presente).valor)

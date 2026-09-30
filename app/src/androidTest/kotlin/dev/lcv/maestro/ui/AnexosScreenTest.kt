@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.lifecycle.Lifecycle
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.lcv.maestro.protocolo.FormatoDoRegistro
 import dev.lcv.maestro.sessao.AnexosDaSessao
@@ -17,6 +18,7 @@ import dev.lcv.maestro.sessao.RepositorioDeConfiguracoes
 import dev.lcv.maestro.sessao.Resultado
 import dev.lcv.maestro.ui.anexos.AnexosViewModel
 import java.io.File
+import java.util.concurrent.CountDownLatch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -164,6 +166,27 @@ class AnexosScreenTest {
         regra.esperarTexto("Anexo adicionado.")
         c.bancoCheio.leituraQuebrada = null
         assertEquals(1, c.anexos.daSessao(id).size)
+    }
+
+    @Test
+    fun umaReleituraAntigaQueTerminaDepoisNaoRepoeAListaVelha() {
+        // Achado do Codex na #78: a releitura da volta à tela corria junto com a de um anexo novo.
+        val id = c.sessao(Estados.ERRO, erro = "Falha qualquer.")
+        abrirNosAnexos(id, SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", MANIFESTO_DE_EXEMPLO.toByteArray()))))
+        // A releitura da volta à tela lê a lista de anexos e fica presa antes da leitura do manifesto.
+        val trava = CountDownLatch(1)
+        c.bancoCheio.prenderLeitura("anexos", depoisDe = 1, trava)
+        regra.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
+        regra.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        regra.waitUntil(5_000) { c.bancoCheio.leituraPresa == null }
+
+        regra.onNodeWithTag(Marcas.ANEXAR_MANIFESTO).performClick()
+        regra.esperarTexto("Anexo adicionado.")
+        val anexo = c.anexos.daSessao(id).single()
+        trava.countDown()
+        Thread.sleep(1_000)
+        regra.waitForIdle()
+        regra.onNodeWithTag(Marcas.removerAnexo(anexo.id)).assertExists()
     }
 
     @Test

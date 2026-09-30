@@ -15,6 +15,7 @@ import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.seguranca.CofreDeChaves
 import dev.lcv.maestro.seguranca.Guarda
 import dev.lcv.maestro.seguranca.NivelDoCofre
+import dev.lcv.maestro.seguranca.Remocao
 import dev.lcv.maestro.sessao.Agendador
 import dev.lcv.maestro.sessao.AnexosDaSessao
 import dev.lcv.maestro.sessao.ArmazemDeEvidenciasEmArquivo
@@ -47,7 +48,7 @@ object Sincronia {
 interface CofreDaTela {
     suspend fun chaves(): Map<Provedor, Boolean?>
     suspend fun guardar(provedor: Provedor, chave: String): Guarda
-    suspend fun apagar(provedor: Provedor): Boolean
+    suspend fun apagar(provedor: Provedor): Remocao
     suspend fun nivel(): NivelDoCofre?
 
     /** `KeyguardManager.isDeviceSecure`: sem trava, a chave do Keystore não existe, e uma chave perdida foi por isso (seção 4.2). */
@@ -61,7 +62,7 @@ class CofreReal(
 ) : CofreDaTela {
     override suspend fun chaves(): Map<Provedor, Boolean?> = configuracoes.chaves()
     override suspend fun guardar(provedor: Provedor, chave: String): Guarda = cofre.guardar(provedor, chave)
-    override suspend fun apagar(provedor: Provedor): Boolean = cofre.apagar(provedor)
+    override suspend fun apagar(provedor: Provedor): Remocao = cofre.apagar(provedor)
     override suspend fun nivel(): NivelDoCofre? = cofre.nivel()
     override fun travaDeTela(): Boolean = contexto.getSystemService(KeyguardManager::class.java).isDeviceSecure
 }

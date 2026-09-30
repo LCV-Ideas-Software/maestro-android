@@ -216,8 +216,10 @@ the engine refuses it. The artifacts' links tab, which the device never
 fills, now leads there. Every revision turn whose current text fails the
 release audit carries the failing rows and correction candidates to the
 reviewer (operator's decision 23, 29/09/2026). A full database or a disk
-error never crashes a screen: every action that writes reports it as its own
-failure (operator's decision 25, 29/09/2026).
+error never crashes a screen action: every action reports it as its own
+failure, with the reason, and never claims less or more than it wrote
+(operator's decision 25, 29/09/2026). Reads made when a screen opens or
+resumes follow in #80.
 
 The native port is specified in
 [`docs/especificacao-v1.md`](docs/especificacao-v1.md) (in Portuguese), written

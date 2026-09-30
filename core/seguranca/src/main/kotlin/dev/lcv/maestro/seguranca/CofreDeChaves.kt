@@ -156,7 +156,7 @@ public class CofreDeChaves internal constructor(
             // autenticação; é a causa, mesmo que a exceção fale de outra.
             !travado() -> Guarda.SemTravaDeTela
             erro.temNaCadeia<UserNotAuthenticatedException>() -> Guarda.ExigeAutenticacao
-            else -> Guarda.Falhou
+            else -> Guarda.Falhou(erro.message.orEmpty())
         }
     }
 
@@ -185,16 +185,17 @@ public class CofreDeChaves internal constructor(
 
     /**
      * Apaga a chave de API do [provedor], com os registros dele que o cofre
-     * tenha afastado; `false` se o disco falhou e nada foi apagado.
+     * tenha afastado; [Remocao.Falhou], com o motivo, se o disco falhou e nada
+     * foi apagado.
      */
-    public suspend fun apagar(provedor: Provedor): Boolean = exclusivo {
+    public suspend fun apagar(provedor: Provedor): Remocao = exclusivo {
         try {
             armazem.edit { preferencias ->
                 removerOnde(preferencias) { it == nomeNoArmazem(provedor) || it.startsWith(afastadoDe(provedor)) }
             }
-            true
-        } catch (_: IOException) {
-            false
+            Remocao.Removida
+        } catch (erro: IOException) {
+            Remocao.Falhou(erro.message.orEmpty())
         }
     }
 
@@ -728,16 +729,25 @@ public sealed interface Guarda {
     public data object ExigeAutenticacao : Guarda
 
     /**
-     * O Keystore ou o disco falharam. Nada que ainda abria foi apagado; vale
-     * tentar de novo.
+     * O Keystore ou o disco falharam, pelo [motivo] que a exceção trouxe (a
+     * tela o mostra: decisão 25 do operador). Nada que ainda abria foi
+     * apagado; vale tentar de novo.
      */
-    public data object Falhou : Guarda
+    public data class Falhou(val motivo: String) : Guarda
 
     /**
      * A chave tem caractere fora de `0x21..0x7E` e não iria num cabeçalho
      * HTTP; nada foi gravado, e a chave que havia continua.
      */
     public data object ChaveInvalida : Guarda
+}
+
+/** O resultado de [CofreDeChaves.apagar]. */
+public sealed interface Remocao {
+    public data object Removida : Remocao
+
+    /** O disco falhou, pelo [motivo] que a exceção trouxe; nada foi apagado. */
+    public data class Falhou(val motivo: String) : Remocao
 }
 
 /** Onde vive a chave do Keystore que cifra as chaves de API. */

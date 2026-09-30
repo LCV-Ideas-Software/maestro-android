@@ -22,6 +22,7 @@ import dev.lcv.maestro.provedores.ColetaCancelada
 import dev.lcv.maestro.provedores.ImportacaoDoOperador
 import dev.lcv.maestro.ui.Documentos
 import dev.lcv.maestro.ui.Mensagem
+import dev.lcv.maestro.ui.OrdemDasLeituras
 import dev.lcv.maestro.ui.Rotulos
 import dev.lcv.maestro.ui.motivoDeArmazenamento
 import java.util.Locale
@@ -127,6 +128,9 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
         )
     }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Estado())
 
+    /** A ordem das releituras, declarada antes do `init` que começa a primeira. */
+    private val ordem = OrdemDasLeituras()
+
     init {
         // A lista é a do texto que a sessão tem agora: relida quando esse texto muda com a tela aberta,
         // durante a execução, e não só na volta à tela, e também quando a auditoria regrava as linhas
@@ -148,14 +152,17 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
      * operador; achado do Codex na #78).
      */
     private suspend fun reler() {
+        // Vale a releitura mais nova que terminou bem (achado do Codex na #78; ver `OrdemDasLeituras`).
+        val esta = ordem.comecar()
         val relida = try {
             withContext(Dispatchers.IO) { ler() }
         } catch (erro: Exception) {
             eventos.send(Mensagem.DeRecurso(R.string.leitura_falhou, listOf(motivoDeArmazenamento(erro))))
             return
         }
-        aplicar(relida)
+        if (ordem.aplicar(esta)) aplicar(relida)
     }
+
 
     /**
      * A lista relida. Se o link aberto sumiu dela (o texto mudou), abre o primeiro, e o que se
@@ -200,9 +207,21 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                     d.importacao.passagem(linha.urlNormalizada) { d.evidencias.existente(it)?.registro }.also { d.evidencias.guardar(it) }
                 }
                 val falha = d.navegador.abrir(contexto, passagem.registro.url)
-                withContext(Dispatchers.IO) { d.evidencias.guardar(d.importacao.aberta(passagem, falha)) }
+                // O registro já existe e o disparo já foi feito: se a anotação do resultado falha, o aviso diz isso, e
+                // se o navegador abriu, e não que a passagem não foi registrada (decisão 25 do operador).
+                val naoAnotou = try {
+                    withContext(Dispatchers.IO) { d.evidencias.guardar(d.importacao.aberta(passagem, falha)) }
+                    null
+                } catch (erro: Exception) {
+                    motivoDeArmazenamento(erro)
+                }
                 // O desktop dá o mesmo aviso nos dois casos; aqui, sem navegador, o aviso diz o que o registro anotou.
-                if (falha == null) Mensagem.DeRecurso(R.string.passagem_registrada) else Mensagem.DeRecurso(R.string.passagem_sem_navegador, listOf(falha))
+                when {
+                    naoAnotou != null && falha != null -> Mensagem.DeRecurso(R.string.passagem_sem_navegador_sem_anotacao, listOf(falha, naoAnotou))
+                    naoAnotou != null -> Mensagem.DeRecurso(R.string.passagem_sem_anotacao, listOf(naoAnotou))
+                    falha == null -> Mensagem.DeRecurso(R.string.passagem_registrada)
+                    else -> Mensagem.DeRecurso(R.string.passagem_sem_navegador, listOf(falha))
+                }
             } catch (erro: IntegridadeDeLinks.Falha) {
                 Mensagem.DeRecurso(R.string.passagem_falhou, listOf(erro.message.orEmpty()))
             } catch (erro: Exception) {
@@ -243,7 +262,14 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                         url = linha.urlNormalizada,
                         notas = listOfNotNull(notaDoPedido.takeIf { it.isNotEmpty() }),
                     )
-                    when (val importacao = d.importacao.importar(pedido) { d.evidencias.existente(it)?.registro }) {
+                    // A importação consulta a evidência já guardada do endereço (o Room e o corpo em arquivo):
+                    // o armazenamento que falha aí também é a falha dela (decisão 25 do operador).
+                    val importacao = try {
+                        d.importacao.importar(pedido) { d.evidencias.existente(it)?.registro }
+                    } catch (erro: Exception) {
+                        return@agir Saida(Mensagem.DeRecurso(R.string.captura_falhou, listOf(motivoDeArmazenamento(erro))))
+                    }
+                    when (importacao) {
                         is ImportacaoDoOperador.Importacao.Recusada -> Saida(Mensagem.DeRecurso(R.string.captura_falhou, listOf(importacao.motivo)))
                         is ImportacaoDoOperador.Importacao.Importada -> try {
                             d.evidencias.guardar(importacao.coleta)
@@ -307,7 +333,13 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
         val pedido = IntegridadeDeLinks.PedidoDeCorrecao(linha.linkId, provedor, consulta.trim().takeIf { it.isNotEmpty() }, LIMITE_DE_PROPOSTAS)
         viewModelScope.launch {
             try {
-                val busca = withContext(Dispatchers.IO) { d.busca() }
+                // Montar a busca já lê o Room (o e-mail de contato do agente): a falha de armazenamento é a da busca.
+                val busca = try {
+                    withContext(Dispatchers.IO) { d.busca() }
+                } catch (erro: Exception) {
+                    eventos.send(Mensagem.DeRecurso(R.string.propostas_falharam, listOf(motivoDeArmazenamento(erro))))
+                    return@launch
+                }
                 // Sair da tela cancela o escopo, mas não a busca, que bloqueia no HTTP: o vigia chama o
                 // cancelamento dela, e nada é gravado depois (achado do Codex na #78). Como na auditoria
                 // da `Fabrica`, o vigia também fecha a busca que terminou.

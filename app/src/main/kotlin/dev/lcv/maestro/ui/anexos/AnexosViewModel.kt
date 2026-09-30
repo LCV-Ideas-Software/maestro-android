@@ -17,6 +17,7 @@ import dev.lcv.maestro.sessao.CitacoesDaSessao
 import dev.lcv.maestro.sessao.Resultado
 import dev.lcv.maestro.ui.Documentos
 import dev.lcv.maestro.ui.Mensagem
+import dev.lcv.maestro.ui.OrdemDasLeituras
 import dev.lcv.maestro.ui.Rotulos
 import dev.lcv.maestro.ui.motivoDeArmazenamento
 import kotlinx.coroutines.Dispatchers
@@ -80,6 +81,9 @@ class AnexosViewModel(private val d: Dependencias, private val id: String) : Vie
         )
     }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Estado())
 
+    /** A ordem das releituras, declarada antes do `init` que começa a primeira. */
+    private val ordem = OrdemDasLeituras()
+
     init {
         recarregar()
     }
@@ -93,13 +97,17 @@ class AnexosViewModel(private val d: Dependencias, private val id: String) : Vie
      * aviso, e não passa por falha da gravação que já foi feita (decisão 25; achado do Codex na #78).
      */
     private suspend fun reler() {
-        conteudo.value = try {
+        // Vale a releitura mais nova que terminou bem (achado do Codex na #78; ver `OrdemDasLeituras`).
+        val esta = ordem.comecar()
+        val lido = try {
             withContext(Dispatchers.IO) { ler() }
         } catch (erro: Exception) {
             eventos.send(Mensagem.DeRecurso(R.string.anexos_leitura_falhou, listOf(motivoDeArmazenamento(erro))))
             return
         }
+        if (ordem.aplicar(esta)) conteudo.value = lido
     }
+
 
     private fun ler(): Conteudo {
         val protocolo = d.sessoes.carregar(id)?.protocolo.orEmpty()

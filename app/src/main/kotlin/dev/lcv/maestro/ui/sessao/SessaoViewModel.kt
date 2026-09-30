@@ -168,7 +168,13 @@ class SessaoViewModel(private val d: Dependencias, private val id: String) : Vie
     fun abrirRetomada() {
         val sessao = estado.value.sessao ?: return
         viewModelScope.launch {
-            val prontos = withContext(Dispatchers.IO) { lerProntos() }
+            // Os agentes prontos saem das configurações, no Room: o armazenamento que falha é a falha de abrir (decisão 25).
+            val prontos = try {
+                withContext(Dispatchers.IO) { lerProntos() }
+            } catch (erro: Exception) {
+                eventos.send(Mensagem.DeRecurso(R.string.leitura_do_aparelho_falhou, listOf(motivoDeArmazenamento(erro))))
+                return@launch
+            }
             ajustes.update { it.copy(prontos = prontos) }
             lider = Agentes.porChave(sessao.liderDoCiclo)
             painel = sessao.agentesAtivos.filter { it in prontos }

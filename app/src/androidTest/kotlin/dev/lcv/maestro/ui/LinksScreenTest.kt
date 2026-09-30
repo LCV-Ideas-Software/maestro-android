@@ -409,6 +409,18 @@ class LinksScreenTest {
     }
 
     @Test
+    fun oDiscoQueFalhaAoMontarABuscaEAvisado() {
+        // Achado do Codex na #78: montar a busca já lê o Room, fora do tratamento da busca.
+        val id = sessaoComLinks()
+        abrirOLink(id, RELATORIO)
+        c.bancoCheio.leituraQuebrada = "configuracoes"
+
+        regra.onNodeWithTag(Marcas.BUSCAR_PROPOSTAS).performScrollTo().performClick()
+        regra.esperarTexto("A busca de candidatos falhou. O link e o texto permaneceram inalterados. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}")
+        assertTrue(c.buscas.isEmpty())
+    }
+
+    @Test
     fun oRegistroDePassagemJaEstaGravadoQuandoONavegadorAbre() {
         // Achado do Codex na #78: depois do `startActivity`, o Android pode matar o aplicativo.
         val id = sessaoComLinks()
@@ -425,6 +437,39 @@ class LinksScreenTest {
     }
 
     @Test
+    fun oDiscoQueFalhaSoAoAnotarOResultadoDaPassagemDizQueONavegadorAbriu() {
+        // O registro já foi gravado e o navegador já recebeu a URL: só a anotação do resultado falha.
+        val id = sessaoComLinks()
+        abrirOLink(id, RELATORIO)
+        c.navegador.aoAbrir = { c.bancoCheio.cheio = true }
+
+        regra.onNodeWithTag(Marcas.ABRIR_NO_NAVEGADOR).performScrollTo().performClick()
+        regra.esperarTexto("Handoff registrado e navegador aberto, mas o resultado não foi anotado no registro. Motivo: ${BancoCheio.MENSAGEM}")
+        c.bancoCheio.cheio = false
+        assertEquals(1, c.navegador.abertas.size)
+        // O registro de antes do disparo ficou; a anotação do resultado, não.
+        val notas = c.evidencias.existente(ImportacaoDoOperador.idDaPassagem(RELATORIO))!!.registro.notas
+        assertEquals(2, notas.size)
+        assertTrue(notas.none { it == "Default-browser handoff launched" })
+    }
+
+    @Test
+    fun semNavegadorEComAAnotacaoQueFalhaOAvisoDizAsDuasCoisas() {
+        // O navegador não abre e a anotação do resultado também não grava: o aviso não pode dizer que ele abriu.
+        val id = sessaoComLinks()
+        abrirOLink(id, RELATORIO)
+        c.navegador.falha = "no activity found"
+        c.navegador.aoAbrir = { c.bancoCheio.cheio = true }
+
+        regra.onNodeWithTag(Marcas.ABRIR_NO_NAVEGADOR).performScrollTo().performClick()
+        regra.esperarTexto(
+            "Handoff registrado, mas o navegador não abriu (no activity found) e o resultado não foi anotado no registro. " +
+                "Motivo: ${BancoCheio.MENSAGEM}",
+        )
+        c.bancoCheio.cheio = false
+    }
+
+    @Test
     fun oBancoCheioNaImportacaoEAvisado() {
         val id = sessaoComLinks()
         abrirOLink(id, RELATORIO, SeletorDeTeste(Uri.fromFile(c.arquivo("pagina-salva.html", "<html></html>".toByteArray()))))
@@ -432,6 +477,19 @@ class LinksScreenTest {
 
         regra.onNodeWithTag(Marcas.IMPORTAR_CAPTURA).performScrollTo().performClick()
         regra.esperarTexto("A importação falhou. O arquivo local não foi alterado. Motivo: ${BancoCheio.MENSAGEM}")
+        assertTrue(c.evidencias.registrosDe(setOf(RELATORIO)).isEmpty())
+    }
+
+    @Test
+    fun oDiscoQueFalhaAoConsultarAEvidenciaDaImportacaoEAvisado() {
+        // Antes de gravar, a importação consulta a evidência já guardada do endereço, e essa leitura falha.
+        val id = sessaoComLinks()
+        abrirOLink(id, RELATORIO, SeletorDeTeste(Uri.fromFile(c.arquivo("pagina-salva.html", "<html></html>".toByteArray()))))
+        c.bancoCheio.leituraQuebrada = "evidencias"
+
+        regra.onNodeWithTag(Marcas.IMPORTAR_CAPTURA).performScrollTo().performClick()
+        regra.esperarTexto("A importação falhou. O arquivo local não foi alterado. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}")
+        c.bancoCheio.leituraQuebrada = null
         assertTrue(c.evidencias.registrosDe(setOf(RELATORIO)).isEmpty())
     }
 

@@ -77,9 +77,10 @@ class TextoFinalViewModel(private val d: Dependencias, private val id: String) :
      * vazio ou pela metade. Recriada a Activity com o seletor aberto, o
      * resultado chega a um ViewModel que ainda não leu a sessão: a exportação
      * espera essa leitura, e sem texto liberado o documento também é apagado
-     * (achado do Codex na #78). [aoFalhar] é o de [gravar].
+     * (achado do Codex na #78). O aviso traz o motivo, e só diz que nada foi salvo se o documento foi
+     * apagado (decisão 25 do operador). [aoFalhar] é o de [gravar].
      */
-    fun exportar(formato: Formato, uri: Uri?, resolver: ContentResolver, aoFalhar: (ContentResolver, Uri) -> Unit = ::apagar) {
+    fun exportar(formato: Formato, uri: Uri?, resolver: ContentResolver, aoFalhar: (ContentResolver, Uri) -> Boolean = ::apagar) {
         if (uri == null) {
             eventos.trySend(Mensagem.DeRecurso(R.string.exportacao_cancelada))
             return
@@ -87,20 +88,30 @@ class TextoFinalViewModel(private val d: Dependencias, private val id: String) :
         exportando.value = true
         viewModelScope.launch {
             val texto = estado.first { it.carregada }.textoFinal
-            val gravou = withContext(Dispatchers.IO) {
+            val falha = withContext(Dispatchers.IO) {
                 if (texto == null) {
-                    aoFalhar(resolver, uri)
-                    false
+                    FalhaDaExportacao(MOTIVO_SEM_TEXTO, aoFalhar(resolver, uri))
                 } else {
                     gravar(resolver, uri, formato.bytes(texto), aoFalhar)
                 }
             }
             exportando.value = false
-            eventos.send(Mensagem.DeRecurso(if (gravou) formato.sucesso else R.string.exportacao_falhou))
+            eventos.send(
+                when {
+                    falha == null -> Mensagem.DeRecurso(formato.sucesso)
+                    falha.apagou -> Mensagem.DeRecurso(R.string.exportacao_falhou, listOf(falha.motivo))
+                    else -> Mensagem.DeRecurso(R.string.exportacao_falhou_sem_apagar, listOf(falha.motivo))
+                },
+            )
         }
     }
 
+    /** A gravação que falhou: o [motivo] e se o documento que o seletor criou foi [apagou]. */
+    data class FalhaDaExportacao(val motivo: String, val apagou: Boolean)
+
     companion object {
+        const val MOTIVO_SEM_TEXTO: String = "a sessão não tem texto final liberado"
+
         /** Só texto liberado (seção 4.4): a sessão convergiu e a finalização gravou o texto final. */
         fun liberado(status: String, textoFinal: String?): String? =
             textoFinal?.takeIf { status == Estados.CONVERGIDA && it.isNotEmpty() }
@@ -110,32 +121,29 @@ class TextoFinalViewModel(private val d: Dependencias, private val id: String) :
             titulo.replace(Regex("[\\\\/:*?\"<>|\\p{Cc}]"), "-").trim().take(120).ifEmpty { "texto-final" }
 
         /**
-         * O fluxo do `ContentResolver`, nunca um caminho de arquivo; `false` quando não gravou.
-         * [aoFalhar] apaga o documento que o seletor criou; só os testes o trocam, para ver que é chamado.
+         * O fluxo do `ContentResolver`, nunca um caminho de arquivo; `null` quando gravou.
+         * [aoFalhar] apaga o documento que o seletor criou e diz se apagou; só os testes o trocam, para ver que é chamado.
          */
         fun gravar(
             resolver: ContentResolver,
             uri: Uri,
             bytes: ByteArray,
-            aoFalhar: (ContentResolver, Uri) -> Unit = ::apagar,
-        ): Boolean = try {
+            aoFalhar: (ContentResolver, Uri) -> Boolean = ::apagar,
+        ): FalhaDaExportacao? = try {
             val saida = resolver.openOutputStream(uri, "w") ?: throw IOException("o provedor não abriu o documento")
             saida.use { it.write(bytes) }
-            true
+            null
         } catch (erro: IOException) {
-            aoFalhar(resolver, uri)
-            false
+            FalhaDaExportacao(erro.message.orEmpty(), aoFalhar(resolver, uri))
         } catch (erro: SecurityException) {
-            aoFalhar(resolver, uri)
-            false
+            FalhaDaExportacao(erro.message.orEmpty(), aoFalhar(resolver, uri))
         }
 
-        private fun apagar(resolver: ContentResolver, uri: Uri) {
-            try {
-                DocumentsContract.deleteDocument(resolver, uri)
-            } catch (erro: Exception) {
-                // O documento pode não existir, ou o provedor não apagar: não há mais o que fazer.
-            }
+        private fun apagar(resolver: ContentResolver, uri: Uri): Boolean = try {
+            DocumentsContract.deleteDocument(resolver, uri)
+        } catch (erro: Exception) {
+            // O documento pode não existir, ou o provedor não apagar: o aviso manda conferir o destino.
+            false
         }
     }
 }

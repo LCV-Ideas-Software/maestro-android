@@ -169,12 +169,18 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
                     Documentos.Leitura.Falhou -> eventos.send(Evento.Aviso(Mensagem.DeRecurso(R.string.anexo_ilegivel)))
                     is Documentos.Leitura.Lido -> {
                         val tipo = leitura.tipo ?: AnexosViewModel.TIPO_DESCONHECIDO
-                        // O protocolo que a sessão nova vai receber é o das configurações (`resolveStartRequest`).
-                        val lido = withContext(Dispatchers.IO) {
-                            AnexosViewModel.lerManifesto(
-                                listOf(ManifestosDosAnexos.Anexo(leitura.nome, tipo) { leitura.bytes }),
-                                d.configuracoes.carregar().protocolo,
-                            )
+                        // O protocolo que a sessão nova vai receber é o das configurações (`resolveStartRequest`), no Room:
+                        // o armazenamento que falha é a falha da escolha (decisão 25).
+                        val lido = try {
+                            withContext(Dispatchers.IO) {
+                                AnexosViewModel.lerManifesto(
+                                    listOf(ManifestosDosAnexos.Anexo(leitura.nome, tipo) { leitura.bytes }),
+                                    d.configuracoes.carregar().protocolo,
+                                )
+                            }
+                        } catch (erro: Exception) {
+                            eventos.send(Evento.Aviso(Mensagem.DeRecurso(R.string.leitura_do_aparelho_falhou, listOf(motivoDeArmazenamento(erro)))))
+                            return@launch
                         }
                         manifesto = ManifestoEscolhido(leitura.nome, tipo, leitura.bytes, lido)
                     }

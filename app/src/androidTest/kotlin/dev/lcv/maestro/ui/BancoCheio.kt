@@ -36,15 +36,56 @@ class BancoCheio(private val base: SupportSQLiteOpenHelper.Factory = FrameworkSQ
 
     override fun create(configuration: SupportSQLiteOpenHelper.Configuration): SupportSQLiteOpenHelper = Ajudante(base.create(configuration))
 
+    /**
+     * Posta, uma leitura desta tabela feita na mesma thread depois de uma escrita nela falha com erro de disco,
+     * uma vez só: a releitura que confirma o que a ação acabou de gravar. Passam antes dela [releiturasAntes]
+     * leituras, as que a própria gravação faz depois de escrever. As leituras das outras threads, como a
+     * observação da tela, seguem normais.
+     */
+    @Volatile var releituraQuebrada: String? = null
+    @Volatile var releiturasAntes: Int = 0
+    private val lidasDepoisDaEscrita = ThreadLocal<Int?>()
+
     private fun conferir(sql: String) {
         if (!ESCRITA.containsMatchIn(sql) || sql.contains("room_")) return
+        if (releituraQuebrada?.let { sql.contains(it) } == true && lidasDepoisDaEscrita.get() == null) lidasDepoisDaEscrita.set(0)
         tabelaTravada?.takeIf { sql.contains(it) }?.let { trava?.await(10, TimeUnit.SECONDS) }
         val naTabela = soNaTabela?.let { sql.contains(it) } ?: true
         if (cheio && naTabela) throw SQLiteFullException(MENSAGEM)
     }
 
+    /**
+     * Posta, a leitura da tabela [tabelaDaLeituraPresa] depois de [leiturasAntes] outras dela espera a trava, uma
+     * vez só: uma releitura que já leu parte da tela e termina depois de outra.
+     */
+    @Volatile var leituraPresa: CountDownLatch? = null
+    @Volatile var tabelaDaLeituraPresa: String? = null
+    private val leiturasAntes = java.util.concurrent.atomic.AtomicInteger(0)
+
+    fun prenderLeitura(tabela: String, depoisDe: Int, trava: CountDownLatch) {
+        leiturasAntes.set(depoisDe)
+        tabelaDaLeituraPresa = tabela
+        leituraPresa = trava
+    }
+
     private fun conferirLeitura(sql: String) {
         if (leituraQuebrada?.let { sql.contains(it) } == true) throw SQLiteDiskIOException(MENSAGEM_DE_DISCO)
+        val lidas = lidasDepoisDaEscrita.get()
+        if (lidas != null && releituraQuebrada?.let { sql.contains(it) } == true) {
+            if (lidas < releiturasAntes) {
+                lidasDepoisDaEscrita.set(lidas + 1)
+            } else {
+                lidasDepoisDaEscrita.set(null)
+                releituraQuebrada = null
+                throw SQLiteDiskIOException(MENSAGEM_DE_DISCO)
+            }
+        }
+        if (tabelaDaLeituraPresa?.let { sql.contains(it) } == true && leituraPresa != null) {
+            if (leiturasAntes.getAndDecrement() <= 0) {
+                val trava = synchronized(this) { leituraPresa.also { leituraPresa = null } }
+                trava?.await(10, TimeUnit.SECONDS)
+            }
+        }
     }
 
     private inner class Ajudante(private val base: SupportSQLiteOpenHelper) : SupportSQLiteOpenHelper by base {

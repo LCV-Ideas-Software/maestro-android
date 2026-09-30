@@ -37,11 +37,15 @@ All material changes to Maestro Android are recorded here.
   the engine's refusal reason. The list is read again when the session's
   text changes while the screen is open and when the session's audit
   rewrites the rows or the evidence of the same text, a disk failure while
-  storing an imported file or a search result is reported as that action's
+  looking up or storing an imported file, or while building or storing a
+  search, is reported as that action's
   failure instead of crashing the screen, a decision typed for a link that
   left the list, or whose URL or hash changed, is cleared rather than applied
   to other content, an action clears only what it submitted, a list reload
-  that fails keeps the list shown with a notice, and leaving the
+  that fails keeps the list shown with a notice, the newest reload that
+  succeeded wins, so an older one finishing late never restores a stale list
+  and a newer one that fails never discards it (on the attachments screen as
+  well), and leaving the
   screen cancels a running correction search, which then stores nothing
   more, even when the HTTP response had already arrived. While the session is queued or
   running, review and proposals wait (operator's decision 24, 29/09/2026),
@@ -63,8 +67,17 @@ All material changes to Maestro Android are recorded here.
   remove, and the handoff, import, decision and proposals of a link) turns a
   full database, an SQLite disk error or a file that cannot be written into
   that action's failure message instead of crashing the app (operator's
-  decision 25, 29/09/2026); instrumented tests raise the framework's
-  `SQLiteFullException` on demand through a test `openHelperFactory`.
+  decision 25, 29/09/2026), including the reads that prepare an action
+  (opening the resume dialog, picking the manifest, testing the keys), and
+  the message states what actually happened: cancel and resume reread the
+  row inside their own transaction, so a failure there leaves nothing
+  written; the key vault returns the reason it could not store or remove a
+  key; an export only says nothing was saved once the created document was
+  deleted; and a handoff whose outcome could not be noted says whether the
+  browser opened. Instrumented tests raise the framework's `SQLiteFullException`
+  and disk I/O errors on demand through a test `openHelperFactory`. Reads
+  made when a screen opens or resumes, live observation and the reconcile on
+  app start follow in #80.
 - Add `ImportacaoDoOperador` to `:core:provedores`: the operator-assisted
   capture of the desktop (`handoff_record`,
   `open_web_evidence_in_default_browser` and `import_operator_evidence` with

@@ -114,10 +114,12 @@
     <string name="exportado_markdown">Markdown exportado.</string>
     <string name="exportado_txt">TXT exportado.</string>
     <string name="exportacao_cancelada">Exportação cancelada.</string>
-    <string name="exportacao_falhou">Não foi possível gravar o arquivo; nada foi salvo.</string>
+    <string name="exportacao_falhou">Não foi possível gravar o arquivo; nada foi salvo. Motivo: %1$s</string>
+    <string name="exportacao_falhou_sem_apagar">Não foi possível gravar o arquivo; confira o destino, onde o documento pode ter ficado vazio ou pela metade. Motivo: %1$s</string>
     <string name="anexos_leitura_falhou">Não foi possível reler os anexos; a lista ficou como estava. Motivo: %1$s</string>
     <string name="leitura_falhou">Não foi possível reler a lista de links; ela ficou como estava. Motivo: %1$s</string>
     <string name="gravacao_falhou">Não foi possível gravar no aparelho. Motivo: %1$s</string>
+    <string name="leitura_do_aparelho_falhou">Não foi possível ler os dados do aparelho. Motivo: %1$s</string>
 
     <!-- Anexos e manifesto de citações (especificação, seção 2.2) -->
     <string name="anexos">Anexos</string>
@@ -186,6 +188,8 @@
     <string name="passagem_registrada">Handoff registrado. Exporte o artefato no navegador e importe-o abaixo.</string>
     <string name="passagem_sem_navegador">Handoff registrado, mas o navegador não abriu: %1$s</string>
     <string name="passagem_falhou">Não foi possível registrar o handoff para o navegador padrão. Motivo: %1$s</string>
+    <string name="passagem_sem_anotacao">Handoff registrado e navegador aberto, mas o resultado não foi anotado no registro. Motivo: %1$s</string>
+    <string name="passagem_sem_navegador_sem_anotacao">Handoff registrado, mas o navegador não abriu (%1$s) e o resultado não foi anotado no registro. Motivo: %2$s</string>
     <string name="campo_nota_de_proveniencia">Nota de proveniência</string>
     <string name="nota_de_proveniencia_dica">Descreva o acesso legítimo, a etapa manual ou a licença aplicável. Não cole credenciais.</string>
     <string name="importar_captura">Importar com proveniência</string>
@@ -252,9 +256,10 @@
     <string name="acao_testar_chaves">Testar chaves</string>
     <string name="chave_guardada">Chave guardada neste aparelho.</string>
     <string name="chave_removida">Chave removida deste aparelho.</string>
-    <string name="chave_nao_removida">Não foi possível remover a chave agora; tente de novo.</string>
+    <string name="chave_nao_removida">Não foi possível remover a chave agora; tente de novo. Motivo: %1$s</string>
     <string name="chave_invalida">A chave tem caracteres que não vão num cabeçalho HTTP; cole a chave de novo.</string>
     <string name="cofre_falhou">O Keystore não respondeu; tente de novo.</string>
+    <string name="cofre_nao_gravou">O cofre de chaves não gravou a chave; tente de novo. Motivo: %1$s</string>
     <string name="sem_trava_titulo">Defina uma trava de tela</string>
     <string name="sem_trava_texto">Sem trava de tela, o Keystore do Android não gera a chave que cifra as suas chaves de API. Defina um PIN, padrão, senha ou biometria e volte aqui.</string>
     <string name="sem_trava_abrir">Abrir os ajustes de segurança</string>
