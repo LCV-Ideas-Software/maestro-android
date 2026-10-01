@@ -29,6 +29,7 @@ import dev.lcv.maestro.ui.Lida
 import dev.lcv.maestro.ui.Mensagem
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -37,11 +38,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
@@ -83,7 +84,10 @@ class SessaoViewModel(private val d: Dependencias, private val id: String) : Vie
         val falhaDosAutos: String? = null,
     )
 
-    private val escolha = MutableStateFlow<String?>(null)
+    /** Um toque num artefato: [vez] faz de cada toque um valor novo, que o `StateFlow` não descarta (achado na #81). */
+    private data class Pedido(val id: String, val vez: Long)
+
+    private val escolha = MutableStateFlow<Pedido?>(null)
     private val ajustes = MutableStateFlow(Estado())
     private val eventos = Channel<Mensagem>(Channel.BUFFERED)
     val avisos: Flow<Mensagem> = eventos.receiveAsFlow()
@@ -100,10 +104,13 @@ class SessaoViewModel(private val d: Dependencias, private val id: String) : Vie
     /** As leituras da tela sob a decisão 25 estendida (#80): aviso com o motivo, a tela segue, a volta lê de novo. */
     private val leituras = LeiturasDaTela { eventos.send(it) }
 
-    /** O rótulo da parada que a tela mostra, e se um artefato já foi mostrado: uma falha depois não os troca. */
+    /** O rótulo da parada que a tela mostra, e o artefato mostrado: uma falha depois não os troca. */
     @Volatile private var paradaMostrada: String? = null
 
-    @Volatile private var detalheLido = false
+    /** A volta em que a leitura da parada falhou: outra emissão na mesma volta não consulta o WorkManager de novo (#81). */
+    @Volatile private var paradaFalhouNaVolta = -1
+
+    private val detalheMostrado = AtomicReference<Lida<DetalheDoArtefato?>?>(null)
 
     /**
      * Os autos, observados pela tabela de artefatos: o custo e o jornal, que mudam a
@@ -115,7 +122,7 @@ class SessaoViewModel(private val d: Dependencias, private val id: String) : Vie
 
     /** A volta da tela também é fonte: a parada no WorkManager, que o Room não observa, é relida a cada volta. */
     private val lido: Flow<Lida<Lido>> = leituras.observar(
-        combine(d.sessoes.observar(id), d.sessoes.observarEventos(id), resumos, leituras.volta) { linha, eventosDaSessao, autos, _ ->
+        combine(d.sessoes.observar(id), d.sessoes.observarEventos(id), resumos, leituras.volta) { linha, eventosDaSessao, autos, volta ->
             if (linha == null) {
                 Lido(null, emptyList(), null)
             } else {
@@ -123,10 +130,12 @@ class SessaoViewModel(private val d: Dependencias, private val id: String) : Vie
                     sessao = ProjecaoDaSessao.de(linha, eventosDaSessao),
                     artefatos = autos.valor,
                     ultimaParada = if (linha.status == Estados.ERRO) {
-                        paradaDe()
+                        paradaDe(volta)
                     } else {
-                        // O rótulo guardado é o deste erro: fora dele, uma falha depois não traz o de outra execução.
+                        // O rótulo guardado é o deste erro: fora dele, uma falha depois não traz o de outra execução, e
+                        // um erro novo na mesma volta é outra leitura.
                         paradaMostrada = null
+                        paradaFalhouNaVolta = -1
                         null
                     },
                     falhaDosAutos = autos.falha,
@@ -139,39 +148,36 @@ class SessaoViewModel(private val d: Dependencias, private val id: String) : Vie
     /**
      * O rótulo da última parada no WorkManager. O `get()` do futuro embrulha o erro do banco do WorkManager em
      * `ExecutionException`, que o classificador desembrulha; falhando, a tela fica com o rótulo que mostrava e o resto
-     * da sessão segue ao vivo (decisão 25 estendida, #80).
+     * da sessão segue ao vivo (decisão 25 estendida, #80). Uma leitura que falhou espera a volta seguinte: a escrita de
+     * outra sessão, que reemite os fluxos do Room, não a refaz ([volta] é a que o `combine` recebeu; achado do Codex na
+     * #81).
      */
-    private suspend fun paradaDe(): String? = try {
-        d.agendador.ultimaParada(id)?.let(Agendador::rotuloDaParada).also { paradaMostrada = it }
-    } catch (erro: Exception) {
-        leituras.falhou(erro)
-        paradaMostrada
+    private suspend fun paradaDe(volta: Int): String? {
+        if (paradaFalhouNaVolta == volta) return paradaMostrada
+        return try {
+            d.agendador.ultimaParada(id)?.let(Agendador::rotuloDaParada).also { paradaMostrada = it }
+        } catch (erro: Exception) {
+            leituras.falhou(erro)
+            paradaFalhouNaVolta = volta
+            paradaMostrada
+        }
     }
 
     /**
      * `selectedArtifactSummary`: o escolhido, se ainda está na lista; senão o último. O artefato que não se lê é o
      * aviso; a tela fica no artefato que mostrava, ou mostra o motivo no lugar se nenhum foi mostrado, e lê de novo na
-     * volta da tela; outra escolha ou um artefato novo cancelam a espera (decisão 25 estendida, #80).
+     * volta da tela; outra escolha, um toque de novo no mesmo ou um artefato novo cancelam a espera (decisão 25
+     * estendida, #80). A leitura recriada pelo `WhileSubscribed` que falha reentrega o artefato mostrado, para a tela
+     * não congelar (achado do Codex na #81).
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val detalhe: Flow<Lida<DetalheDoArtefato?>> = combine(resumos, escolha) { autos, escolhido ->
-        (autos.valor.firstOrNull { it.id == escolhido } ?: autos.valor.lastOrNull())?.id
-    }.transformLatest<String?, Lida<DetalheDoArtefato?>> { artefatoId ->
-        while (true) {
-            val desde = leituras.volta.value
-            val mostrado = try {
-                artefatoId?.let { d.artefatos.um(id, it) }?.let { linha ->
-                    DetalheDoArtefato.de(linha, linha.artefatoAnteriorId?.let { anterior -> d.artefatos.um(id, anterior) })
-                }
-            } catch (erro: Exception) {
-                val motivo = leituras.falhou(erro)
-                if (!detalheLido) emit(Lida(null, motivo))
-                leituras.esperarVolta(desde)
-                continue
+        (autos.valor.firstOrNull { it.id == escolhido?.id } ?: autos.valor.lastOrNull())?.id
+    }.flatMapLatest { artefatoId ->
+        leituras.ler(null, detalheMostrado, { it != null }) {
+            artefatoId?.let { d.artefatos.um(id, it) }?.let { linha ->
+                DetalheDoArtefato.de(linha, linha.artefatoAnteriorId?.let { anterior -> d.artefatos.um(id, anterior) })
             }
-            if (mostrado != null) detalheLido = true
-            emit(Lida(mostrado))
-            break
         }
     }.flowOn(Dispatchers.IO)
 
@@ -190,7 +196,7 @@ class SessaoViewModel(private val d: Dependencias, private val id: String) : Vie
     fun escolherArtefato(artefatoId: String) {
         // Um toque é um pedido novo: se o artefato não se lê, o aviso sai mesmo que outro já tenha saído nesta volta (#80).
         leituras.pedido()
-        escolha.value = artefatoId
+        escolha.update { Pedido(artefatoId, (it?.vez ?: 0) + 1) }
     }
 
     /**

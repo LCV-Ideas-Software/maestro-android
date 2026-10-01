@@ -85,7 +85,7 @@ class AnexosViewModel(private val d: Dependencias, private val id: String) : Vie
         trabalhando,
     ) { linha, lido, falha, emCurso ->
         Estado(
-            carregada = lido != null || falha != null,
+            carregada = lido != null || falha != null || linha.falha != null,
             existe = linha.valor != null,
             titulo = linha.valor?.titulo.orEmpty(),
             emExecucao = Rotulos.emExecucao(linha.valor?.status),

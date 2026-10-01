@@ -117,6 +117,9 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
 
     private val conteudo = MutableStateFlow<List<Link>?>(null)
 
+    /** A volta em que a releitura da lista falhou; uma ação ou a volta seguinte relê. */
+    @Volatile private var releituraFalhouNaVolta = -1
+
     /** O motivo da última releitura da lista que falhou; só aparece enquanto nada foi lido. */
     private val falhaDoConteudo = MutableStateFlow<String?>(null)
     private val trabalhando = MutableStateFlow(false)
@@ -133,7 +136,7 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
         trabalhando,
     ) { linha, lidos, falha, emCurso ->
         Estado(
-            carregada = lidos != null || falha != null,
+            carregada = lidos != null || falha != null || linha.falha != null,
             existe = linha.valor != null,
             titulo = linha.valor?.titulo.orEmpty(),
             links = lidos.orEmpty(),
@@ -154,7 +157,10 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
         viewModelScope.launch {
             // O armazenamento que falha nesta observação é o aviso, e ela volta na volta da tela (decisão 25 estendida, #80).
             val texto = d.sessoes.observar(id).map { linha -> linha?.let { it.textoFinal ?: it.textoAtual } }.distinctUntilChanged()
-            leituras.observar(combine(texto, d.links.mudancas()) { _, _ -> }, Unit).conflate().collect { reler() }
+            // A releitura que falhou espera a volta: a gravação de outra sessão nas mesmas tabelas não a refaz (#81).
+            leituras.observar(combine(texto, d.links.mudancas()) { _, _ -> }, Unit).conflate().collect {
+                if (releituraFalhouNaVolta != leituras.volta.value) reler()
+            }
         }
     }
 
@@ -182,8 +188,10 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                 { motivo -> Mensagem.DeRecurso(R.string.leitura_falhou, listOf(motivo)) }
             }
             falhaDoConteudo.value = leituras.falhou(erro, mensagem)
+            releituraFalhouNaVolta = leituras.volta.value
             return
         }
+        releituraFalhouNaVolta = -1
         if (ordem.aplicar(esta)) aplicar(relida)
     }
 

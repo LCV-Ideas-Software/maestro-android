@@ -531,6 +531,10 @@ class SessaoScreenTest {
         c.agendador.falhaAoConsultar = ExecutionException(SQLiteDiskIOException(BancoCheio.MENSAGEM_DE_DISCO))
         voltarATela()
         regra.esperarTexto(aviso)
+        // Já na emissão da falha, antes de qualquer outra, a tela fica com o rótulo que mostrava.
+        regra.waitForIdle()
+        Thread.sleep(500)
+        regra.onNodeWithTag(Marcas.PARADA_PELO_SISTEMA).assertTextEquals("Última parada registrada pelo sistema: tempo limite do servico dataSync")
         // A parada que não se lê não congela o resto da sessão: o custo segue ao vivo.
         c.sessoes.somarCusto(id, BigDecimal("0.5"))
         regra.waitUntil(5_000) { regra.onAllNodesWithText("US$ 1.50 / teto US$ 5.00").fetchSemanticsNodes().isNotEmpty() }
@@ -605,6 +609,61 @@ class SessaoScreenTest {
         regra.esperarTexto(aviso)
         regra.waitUntil(5_000) { regra.onAllNodesWithText("Outra parada.").fetchSemanticsNodes().isNotEmpty() }
         regra.onNodeWithTag(Marcas.PARADA_PELO_SISTEMA).assertDoesNotExist()
+        c.agendador.falhaAoConsultar = null
+    }
+
+    // Rodada 1 da revisão da #81.
+
+    @Test
+    fun tocarDeNovoNoArtefatoQueFalhouLeDeNovoEAvisaDeNovo() {
+        val id = c.sessao(Estados.RODANDO)
+        val primeiro = c.artefato(id, 1, Provedor.CLAUDE, "Primeira versão do texto.")
+        val segundo = c.artefato(id, 2, Provedor.CODEX, "Segunda versão do texto.", anterior = primeiro)
+        c.bancoCheio.leituraQuebrada = "AND id = ?"
+        regra.abrir(c, sessaoPedida = id)
+        esperarNaMarca(Marcas.FALHA_DOS_AUTOS, noLugar)
+        regra.esperarTexto(aviso)
+        esperarAvisoSair(aviso)
+        // O artefato que falhou ao abrir (o último), tocado duas vezes: cada toque é um pedido novo e avisa de novo.
+        repeat(2) {
+            regra.onNodeWithTag(Marcas.artefato(segundo)).performScrollTo().performClick()
+            regra.esperarTexto(aviso)
+            esperarAvisoSair(aviso)
+        }
+        // Com o disco de volta, o toque lê sem esperar a volta da tela.
+        c.bancoCheio.leituraQuebrada = null
+        regra.onNodeWithTag(Marcas.artefato(segundo)).performScrollTo().performClick()
+        regra.waitUntil(5_000) {
+            regra.onAllNodes(hasText("Segunda versão do texto.", substring = true) and hasAnyAncestor(hasTestTag(Marcas.CONTEUDO_DA_ABA)))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    @Test
+    fun aParadaQueFalhouSoEConsultadaDeNovoNaVoltaOuNumErroNovo() {
+        c.agendador.parada = WorkInfo.STOP_REASON_TIMEOUT
+        val id = c.sessao(Estados.ERRO, erro = "A execução parou.", teto = "5", custo = "1")
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.PARADA_PELO_SISTEMA)
+        c.agendador.falhaAoConsultar = ExecutionException(SQLiteDiskIOException(BancoCheio.MENSAGEM_DE_DISCO))
+        voltarATela()
+        regra.esperarTexto(aviso)
+        val antes = c.agendador.consultasDaParada.get()
+        // Gravações que reemitem a sessão na mesma volta não consultam de novo o WorkManager quebrado.
+        c.sessoes.somarCusto(id, BigDecimal("0.5"))
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("US$ 1.50 / teto US$ 5.00").fetchSemanticsNodes().isNotEmpty() }
+        c.sessoes.somarCusto(id, BigDecimal("0.5"))
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("US$ 2.00 / teto US$ 5.00").fetchSemanticsNodes().isNotEmpty() }
+        assertEquals(antes, c.agendador.consultasDaParada.get())
+        // A volta seguinte consulta de novo.
+        voltarATela()
+        regra.waitUntil(5_000) { c.agendador.consultasDaParada.get() > antes }
+        // Um erro novo, depois de a sessão sair do erro, é outra leitura, mesmo na mesma volta.
+        val naVolta = c.agendador.consultasDaParada.get()
+        c.banco.sessoes().mudarStatus(id, listOf(Estados.ERRO), Estados.RODANDO, null, c.agora(), null)
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.PARADA_PELO_SISTEMA).fetchSemanticsNodes().isEmpty() }
+        c.banco.sessoes().mudarStatus(id, listOf(Estados.RODANDO), Estados.ERRO, "Outra parada.", c.agora(), null)
+        regra.waitUntil(5_000) { c.agendador.consultasDaParada.get() > naVolta }
         c.agendador.falhaAoConsultar = null
     }
 }

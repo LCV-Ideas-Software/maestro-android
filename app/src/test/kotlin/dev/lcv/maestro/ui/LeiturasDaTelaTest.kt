@@ -1,7 +1,7 @@
 package dev.lcv.maestro.ui
 
 import java.io.IOException
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -73,12 +73,43 @@ class LeiturasDaTelaTest {
 
     @Test
     fun `o que ja foi mostrado vale para a observacao recriada do mesmo conteudo`() = runTest {
-        val leu = AtomicBoolean(true)
+        val mostrado = AtomicReference<Lida<String>?>(Lida("de antes"))
         val lidas = mutableListOf<Lida<String>>()
-        val coleta = launch { leituras.observar(Fonte().fluxo, "vazio", leu).toList(lidas) }
+        val coleta = launch { leituras.observar(Fonte().fluxo, "vazio", mostrado).toList(lidas) }
         advanceUntilIdle()
-        assertTrue(lidas.isEmpty())
+        assertEquals(listOf(Lida("de antes")), lidas)
         coleta.cancel()
+    }
+
+    @Test
+    fun `a assinatura recriada que falha reentrega o que a tela mostrava uma vez sem o motivo`() = runTest {
+        // O mesmo fluxo assinado duas vezes, como o WhileSubscribed que recomeça depois de 5 s fora do primeiro plano.
+        val fonte = Fonte().apply { quebrado = false }
+        val observacao = leituras.observar(fonte.fluxo, "vazio")
+        val primeira = mutableListOf<Lida<String>>()
+        val coleta = launch { observacao.toList(primeira) }
+        fonte.valores.send("primeiro")
+        advanceUntilIdle()
+        coleta.cancel()
+        fonte.quebrado = true
+        val segunda = mutableListOf<Lida<String>>()
+        val recriada = launch { observacao.toList(segunda) }
+        advanceUntilIdle()
+        assertEquals(listOf(Lida("primeiro")), segunda)
+        assertEquals(1, avisos.size)
+        recriada.cancel()
+    }
+
+    @Test
+    fun `o valor que nao conta como mostrado apaga o anterior e a falha seguinte da o motivo`() = runTest {
+        val mostrado = AtomicReference<Lida<String?>?>(null)
+        val lidas = mutableListOf<Lida<String?>>()
+        launch { leituras.ler(null, mostrado, { it != null }) { "artefato" }.toList(lidas) }.join()
+        launch { leituras.ler(null, mostrado, { it != null }) { null }.toList(lidas) }.join()
+        val falha = launch { leituras.ler<String?>(null, mostrado, { it != null }) { throw IOException("disco") }.toList(lidas) }
+        advanceUntilIdle()
+        assertEquals(listOf(Lida("artefato"), Lida(null), Lida(null, "disco")), lidas)
+        falha.cancel()
     }
 
     @Test

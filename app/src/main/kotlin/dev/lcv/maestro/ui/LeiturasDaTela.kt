@@ -6,13 +6,15 @@ package dev.lcv.maestro.ui
 
 import dev.lcv.maestro.R
 import dev.lcv.maestro.sessao.motivoDeArmazenamento
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.update
@@ -70,21 +72,46 @@ internal class LeiturasDaTela(private val avisar: suspend (Mensagem) -> Unit) {
     }
 
     /**
-     * [fluxo] sob a regra: enquanto nada foi lido, a falha entrega [vazio] com o motivo; depois, não entrega nada, e a
-     * tela fica no que mostrava. Em qualquer caso, a observação para até a próxima volta e então lê de novo. [leu] é o
-     * que já foi mostrado; quem recria a observação para o mesmo conteúdo passa o mesmo, para não apagá-lo.
+     * [fluxo] sob a regra: enquanto nada foi mostrado, a falha entrega [vazio] com o motivo; depois, a tela fica no que
+     * mostrava. Em qualquer caso, a observação para até a próxima volta e então lê de novo.
+     *
+     * [mostrado] é o último valor que a tela mostra, e só guarda o que [conta] aceita (o artefato nulo não é um artefato
+     * mostrado). Ele vale também para a assinatura recriada: o `WhileSubscribed` que recomeça depois de 5 s fora do
+     * primeiro plano, ou a mesma sessão que volta ao topo. Se ela falha antes de entregar algo, reentrega o que a tela
+     * mostrava, uma vez, para o `combine` de fora ter o que combinar e não congelar a tela (achado do Codex na #81).
+     * Numa assinatura que já entregou, a falha não entrega nada.
      */
-    fun <T> observar(fluxo: Flow<T>, vazio: T, leu: AtomicBoolean = AtomicBoolean(false)): Flow<Lida<T>> =
-        fluxo.map { valor ->
-            leu.set(true)
-            Lida(valor)
-        }.retryWhen { erro, _ ->
-            val desde = voltas.value
-            val motivo = falhou(erro)
-            if (!leu.get()) emit(Lida(vazio, motivo))
-            esperarVolta(desde)
-            true
-        }
+    fun <T> observar(
+        fluxo: Flow<T>,
+        vazio: T,
+        mostrado: AtomicReference<Lida<T>?> = AtomicReference(null),
+        conta: (T) -> Boolean = { true },
+    ): Flow<Lida<T>> = flow {
+        var entregou = false
+        emitAll(
+            fluxo.map { valor ->
+                Lida(valor).also { lida ->
+                    mostrado.set(lida.takeIf { conta(valor) })
+                    entregou = true
+                }
+            }.retryWhen { erro, _ ->
+                val desde = voltas.value
+                val motivo = falhou(erro)
+                val antes = mostrado.get()
+                when {
+                    antes == null -> emit(Lida(vazio, motivo))
+                    !entregou -> emit(antes)
+                }
+                entregou = true
+                esperarVolta(desde)
+                true
+            },
+        )
+    }
+
+    /** Uma leitura só, não observada, sob a mesma regra de [observar]: falhando, espera a volta e lê de novo. */
+    fun <T> ler(vazio: T, mostrado: AtomicReference<Lida<T>?>, conta: (T) -> Boolean = { true }, leitura: suspend () -> T): Flow<Lida<T>> =
+        observar(flow { emit(leitura()) }, vazio, mostrado, conta)
 
     companion object {
         /** O aviso passageiro da leitura que falhou. O vazio no lugar usa `tela_sem_leitura`. */

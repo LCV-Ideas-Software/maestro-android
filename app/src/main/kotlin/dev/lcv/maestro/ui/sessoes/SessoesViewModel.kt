@@ -20,7 +20,6 @@ import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.sessao.AnexosDaSessao
 import dev.lcv.maestro.sessao.Configuracoes
 import dev.lcv.maestro.sessao.Elegibilidade
-import dev.lcv.maestro.sessao.EventoEntidade
 import dev.lcv.maestro.sessao.Orcamento
 import dev.lcv.maestro.sessao.PedidoDeInicio
 import dev.lcv.maestro.sessao.RepositorioDeConfiguracoes
@@ -35,9 +34,8 @@ import dev.lcv.maestro.ui.Mensagem
 import dev.lcv.maestro.ui.OrdemDasLeituras
 import dev.lcv.maestro.ui.anexos.AnexosViewModel
 import java.time.Duration
-import java.util.Collections
-import java.util.IdentityHashMap
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -52,7 +50,6 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -140,36 +137,43 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
     private val sessoes: StateFlow<Lida<List<SessaoEntidade>>?> = leituras.observar(d.sessoes.observarTodas(), emptyList())
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** O que o cartão "com o trabalho" usa do último evento de uma sessão. */
+    private data class Ativo(val rodando: Boolean, val agente: String?)
+
     /**
-     * Os últimos eventos lidos de cada sessão. A observação recriada para uma sessão já lida (a volta depois de 5 s
-     * fora do primeiro plano, ou a sessão que volta ao topo) que falha mostra os dela, e não os de outra sessão nem um
-     * vazio (#80).
+     * O último evento lido de cada sessão da lista, no que o cartão usa. A observação recriada para uma sessão já lida
+     * (a volta depois de 5 s fora do primeiro plano, ou a sessão que volta ao topo) que falha mostra o dela, e não o de
+     * outra sessão nem um vazio (#80). Só as sessões da lista corrente ficam guardadas (achado do Codex na #81).
      */
-    private val eventosLidos = ConcurrentHashMap<String, List<EventoEntidade>>()
+    private val eventosLidos = ConcurrentHashMap<String, AtomicReference<Lida<Ativo?>?>>()
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val eventosDaRecente = sessoes
-        .map { it?.valor?.firstOrNull()?.id }
+        .map { lista ->
+            lista?.valor?.let { lidas -> eventosLidos.keys.retainAll(lidas.map { it.id }.toSet()) }
+            lista?.valor?.firstOrNull()?.id
+        }
         .distinctUntilChanged()
         .flatMapLatest { id ->
             if (id == null) {
-                flowOf(Lida(emptyList()))
+                flowOf(Lida<Ativo?>(null))
             } else {
-                leituras.observar(d.sessoes.observarEventos(id).onEach { eventosLidos[id] = it }, eventosLidos[id] ?: emptyList())
+                val ultimo = d.sessoes.observarEventos(id).map { eventos -> eventos.lastOrNull()?.let { Ativo(it.status == "running", it.agente) } }
+                leituras.observar(ultimo, null, eventosLidos.getOrPut(id) { AtomicReference(null) })
             }
         }
 
     val estado: StateFlow<Estado> = combine(sessoes.filterNotNull(), eventosDaRecente, ajustes) { lista, eventosDela, base ->
-        val ultimo = eventosDela.valor.lastOrNull()
+        val ativo = eventosDela.valor
         base.copy(
             sessoes = lista.valor,
-            agenteAtivo = if (ultimo?.status == "running") ultimo.agente else lista.valor.firstOrNull()?.autorAtual,
+            agenteAtivo = if (ativo?.rodando == true) ativo.agente else lista.valor.firstOrNull()?.autorAtual,
             motivoDaLista = lista.falha,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Estado())
 
     /** As falhas da abertura já avisadas por esta tela, por identidade: cada tentativa, uma vez. Linha principal. */
-    private val avisadasNaAbertura = Collections.newSetFromMap(IdentityHashMap<ReconciliacaoDaAbertura.Falha, Boolean>())
+    private val avisadasNaAbertura = ConcurrentHashMap<Int, ReconciliacaoDaAbertura.Falha>()
 
     /**
      * Decisão 25 estendida (#80): a reconciliação da abertura e a inicialização do WorkManager que falharam no
@@ -177,7 +181,7 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
      * seguinte já resolveu não é avisada, e a já avisada não volta quando a pessoa retorna à tela.
      */
     val avisosDaAbertura: Flow<Mensagem> = d.falhasDaAbertura
-        .filter { avisadasNaAbertura.add(it) }
+        .filter { avisadasNaAbertura.put(it.mensagem, it) !== it }
         .map { Mensagem.DeRecurso(it.mensagem, listOf(it.motivo)) }
 
     /**

@@ -725,4 +725,26 @@ class LinksScreenTest {
         regra.esperarTexto(releitura)
         c.bancoCheio.leituraQuebrada = null
     }
+
+    @Test
+    fun aReleituraQueFalhouNaoERefeitaACadaGravacaoDaMesmaVolta() {
+        val id = sessaoComLinks()
+        abrirOLink(id, RELATORIO)
+        val releitura = "Não foi possível reler a lista de links; ela ficou como estava. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}"
+        c.bancoCheio.leituraQuebrada = "FROM links"
+        voltarATela()
+        regra.esperarTexto(releitura)
+        Thread.sleep(1_000)
+        regra.waitForIdle()
+        val antes = c.bancoCheio.quebradas.get()
+        // A auditoria de outra sessão grava nas mesmas tabelas: a releitura que falhou espera a volta.
+        c.tocarLinks()
+        c.tocarLinks()
+        Thread.sleep(1_000)
+        regra.waitForIdle()
+        assertEquals(antes, c.bancoCheio.quebradas.get())
+        voltarATela()
+        regra.waitUntil(5_000) { c.bancoCheio.quebradas.get() > antes }
+        c.bancoCheio.leituraQuebrada = null
+    }
 }

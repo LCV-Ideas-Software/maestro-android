@@ -155,7 +155,11 @@ internal class AgendadorFalso(
         return super.viva(sessaoId)
     }
 
+    /** Quantas vezes a parada foi consultada: a que falhou espera a volta da tela (#81). */
+    val consultasDaParada = java.util.concurrent.atomic.AtomicInteger(0)
+
     override fun ultimaParada(sessaoId: String): Int? {
+        consultasDaParada.incrementAndGet()
         falhaAoConsultar?.let { throw it }
         return parada
     }
@@ -383,6 +387,14 @@ internal class Cenario {
         coletor: IntegridadeDeLinks.ColetorDeEvidencia = IntegridadeDeLinks.ColetorDeEvidencia { throw IntegridadeDeLinks.Falha("timeout") },
     ) {
         IntegridadeDeLinks.auditar(texto, AnalisadorDeUrlOkHttp, coletor, links.registro(sessaoId), relogio)
+    }
+
+    /**
+     * Uma gravação nas linhas de link sem lê-las, como a auditoria de outra sessão faz: o `InvalidationTracker` avisa
+     * quem observa a tabela.
+     */
+    fun tocarLinks() {
+        banco.runInTransaction { banco.openHelper.writableDatabase.execSQL("UPDATE links SET linkId = linkId") }
     }
 
     /**

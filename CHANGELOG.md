@@ -1073,7 +1073,11 @@ All material changes to Maestro Android are recorded here.
   showing; if it never read anything, it shows the reason in place instead of
   an empty state that would look real, and it reads again when it returns to
   the foreground, without a loop. One notice per return, and a tap or an
-  action reopens it. The start screen, the session screen (the last
+  action reopens it, including a second tap on the same artifact. A read
+  recreated after more than 5 s in the background that fails delivers what
+  the screen was showing again, so the screen does not freeze, and a failed
+  read that is not observed (the WorkManager stop reason, the link list)
+  waits for the next return instead of being retried on every write. The start screen, the session screen (the last
   WorkManager stop reason keeps its label and does not freeze the rest),
   Settings (read on each return until loaded, never overwriting what was
   typed), Licenses (read off the main thread), Attachments, Links and Final

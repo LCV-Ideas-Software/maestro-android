@@ -308,7 +308,12 @@ escolheu os cinco. O que a escolha pede, e como fica:
   "nenhuma sessão", o formulário de configurações em branco). A volta da
   tela ao primeiro plano lê de novo, sem laço; a abertura não conta como
   volta. Um disco que derruba várias leituras dá um aviso por volta, e um
-  toque ou uma ação são um pedido novo, que reabre o aviso. O classificador
+  toque ou uma ação são um pedido novo, que reabre o aviso, inclusive o toque
+  de novo no mesmo artefato. A observação recriada que falha (a volta depois
+  de mais de 5 s fora do primeiro plano) entrega de novo o que a tela
+  mostrava, para a tela não congelar; e a leitura não observada que falhou (a
+  parada no WorkManager, a lista de links) espera a volta seguinte, e não é
+  refeita a cada gravação de outra sessão (revisão da #81). O classificador
   passa a reconhecer também o banco que não abre e o corrompido
   (`SQLiteCantOpenDatabaseException`, `SQLiteDatabaseCorruptException`) e
   desembrulha a `ExecutionException` com que o `get()` do WorkManager entrega
@@ -1887,8 +1892,8 @@ de teste, porque compra confiança sem entregá-la.
   anexos e de links (`OrdemDasLeituras`); na tela de anexos, o manifesto de
   outro protocolo recusado com o hash ativo e a releitura antiga que termina
   depois de outra já aplicada, que não repõe a lista velha; as leituras da tela
-(`LeiturasDaTelaTest`), a verificação da abertura e a falha do WorkManager
-(`ReconciliacaoDaAberturaTest`) e o classificador (`ArmazenamentoTest`, no `:core:sessao`). No `:core:provedores`, na JVM, a
+  (`LeiturasDaTelaTest`), a verificação da abertura e a falha do WorkManager
+  (`ReconciliacaoDaAberturaTest`) e o classificador (`ArmazenamentoTest`, no `:core:sessao`). No `:core:provedores`, na JVM, a
   captura assistida (as regras de nome, tipo, tamanho e bytes mágicos, a ordem
   das recusas, os dois registros) e a busca que guarda cada resultado,
   devolve a falha do armazém, como o `save_stored(...)?` do canônico, e,
