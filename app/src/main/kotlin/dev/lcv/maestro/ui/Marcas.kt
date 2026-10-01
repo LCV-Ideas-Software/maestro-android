@@ -11,6 +11,8 @@ object Marcas {
     // Casca
     const val IR_PARA_CONFIGURACOES = "ir-para-configuracoes"
     const val VOLTAR = "voltar"
+    /** O vazio no lugar de uma tela cuja leitura falhou (decisão 25 estendida, #80). */
+    const val LEITURA_FALHOU = "leitura-falhou"
 
     // Sessões
     const val METRICA_SESSAO = "metrica-sessao"
@@ -23,8 +25,11 @@ object Marcas {
     const val INICIAR = "iniciar"
     const val AVISO_DE_ORCAMENTO = "aviso-de-orcamento"
     const val RAZAO_DAS_NOTIFICACOES = "razao-das-notificacoes"
+    const val AJUSTES_ILEGIVEIS = "ajustes-ilegiveis"
+    const val RECENTES_VAZIO = "recentes-vazio"
     fun redator(provedor: Provedor) = "redator-${provedor.agente}"
     fun colegiado(provedor: Provedor) = "colegiado-${provedor.agente}"
+    fun legendaDoAgente(provedor: Provedor) = "legenda-do-agente-${provedor.agente}"
     fun sessao(id: String) = "sessao-$id"
 
     // Sessão
@@ -38,6 +43,7 @@ object Marcas {
     const val ERRO_OPERACIONAL = "erro-operacional"
     const val CHAMADA_INDETERMINADA = "chamada-indeterminada"
     const val PARADA_PELO_SISTEMA = "parada-pelo-sistema"
+    const val FALHA_DOS_AUTOS = "falha-dos-autos"
     const val NOVO_TETO = "novo-teto"
     const val CONFIRMAR_RETOMADA = "confirmar-retomada"
     const val ABRIR_TEXTO_FINAL = "abrir-texto-final"

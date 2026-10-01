@@ -25,6 +25,10 @@ import dev.lcv.maestro.sessao.Agentes.rotulo
  */
 public class Notificacao(
     private val contexto: Context,
+    /** Quem posta o aviso do cancelamento; só os testes trocam, para ver a marca e o id sem a permissão de notificações. */
+    private val publicar: (marca: String, id: Int, notificacao: Notification) -> Unit = { marca, id, notificacao ->
+        contexto.getSystemService(NotificationManager::class.java).notify(marca, id, notificacao)
+    },
     /** O destino do toque na notificação: a tela da sessão, que o `:app` sabe abrir. */
     private val abrirSessao: ((sessaoId: String) -> PendingIntent)? = null,
 ) {
@@ -68,8 +72,34 @@ public class Notificacao(
         return ForegroundInfo(idDaNotificacao(sessaoId), notificacao, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
     }
 
+    /**
+     * O cancelamento pela notificação que não gravou (decisão 25 estendida, #80): o motivo, numa notificação à parte
+     * da do serviço, que segue no lugar porque a sessão continua. O toque leva à tela da sessão. Negada
+     * `POST_NOTIFICATIONS`, ela não aparece na gaveta, como a do serviço.
+     */
+    public fun cancelamentoFalhou(sessaoId: String, motivo: String) {
+        canal()
+        publicar(MARCA_DO_CANCELAMENTO, idDaNotificacao(sessaoId), doCancelamentoQueFalhou(sessaoId, motivo))
+    }
+
+    /** A notificação de [cancelamentoFalhou], montada à parte para o teste. */
+    public fun doCancelamentoQueFalhou(sessaoId: String, motivo: String): Notification {
+        val texto = contexto.getString(R.string.maestro_sessao_cancelamento_falhou, motivo)
+        return Notification.Builder(contexto, CANAL)
+            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setContentTitle(contexto.getString(R.string.maestro_sessao_cancelamento_falhou_titulo))
+            .setContentText(texto)
+            .setStyle(Notification.BigTextStyle().bigText(texto))
+            .setAutoCancel(true)
+            .apply { abrirSessao?.let { setContentIntent(it(sessaoId)) } }
+            .build()
+    }
+
     public companion object {
         public const val CANAL: String = "maestro.sessao"
+
+        /** A marca que separa o aviso do cancelamento da notificação do serviço, que tem o mesmo id. */
+        public const val MARCA_DO_CANCELAMENTO: String = "maestro.sessao.cancelamento"
 
         /** Um id por sessão: a notificação é atualizada no lugar a cada checkpoint. */
         public fun idDaNotificacao(sessaoId: String): Int = sessaoId.hashCode()

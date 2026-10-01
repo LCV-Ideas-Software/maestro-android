@@ -13,6 +13,7 @@ import androidx.lifecycle.viewModelScope
 import dev.lcv.maestro.Dependencias
 import dev.lcv.maestro.R
 import dev.lcv.maestro.sessao.Estados
+import dev.lcv.maestro.ui.LeiturasDaTela
 import dev.lcv.maestro.ui.Mensagem
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -42,6 +43,8 @@ class TextoFinalViewModel(private val d: Dependencias, private val id: String) :
         /** O Markdown liberado, ou `null` quando a sessão não tem texto liberado. */
         val textoFinal: String? = null,
         val exportando: Boolean = false,
+        /** O motivo de a sessão nunca ter sido lida (decisão 25 estendida, #80). */
+        val falhaDeLeitura: String? = null,
     )
 
     /** Os dois exportáveis que saem do próprio texto; o PDF é do `WebView`, na tela. */
@@ -63,9 +66,24 @@ class TextoFinalViewModel(private val d: Dependencias, private val id: String) :
     private val eventos = Channel<Mensagem>(Channel.BUFFERED)
     val avisos: Flow<Mensagem> = eventos.receiveAsFlow()
 
-    val estado: StateFlow<Estado> = combine(d.sessoes.observar(id), exportando) { linha, emCurso ->
-        Estado(carregada = true, titulo = linha?.titulo.orEmpty(), textoFinal = linha?.let { liberado(it.status, it.textoFinal) }, exportando = emCurso)
+    /** As leituras da tela sob a decisão 25 estendida (#80): aviso com o motivo, a tela segue, a volta lê de novo. */
+    private val leituras = LeiturasDaTela { eventos.send(it) }
+
+    val estado: StateFlow<Estado> = combine(leituras.observar(d.sessoes.observar(id), null), exportando) { lida, emCurso ->
+        val linha = lida.valor
+        Estado(
+            carregada = true,
+            titulo = linha?.titulo.orEmpty(),
+            textoFinal = linha?.let { liberado(it.status, it.textoFinal) },
+            exportando = emCurso,
+            falhaDeLeitura = lida.falha,
+        )
     }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Estado())
+
+    /** A volta da tela ao primeiro plano: a leitura que falhou lê de novo (decisão 25 estendida, #80). */
+    fun recarregar() {
+        leituras.voltou()
+    }
 
     /** O nome sugerido ao seletor de documentos: o título da sessão, sem o que um nome de arquivo não aceita. */
     fun nomeDoArquivo(formato: Formato): String = "${nomeBase(estado.value.titulo)}.${formato.extensao}"
@@ -87,12 +105,14 @@ class TextoFinalViewModel(private val d: Dependencias, private val id: String) :
         }
         exportando.value = true
         viewModelScope.launch {
-            val texto = estado.first { it.carregada }.textoFinal
+            val lido = estado.first { it.carregada }
+            val texto = lido.textoFinal
             val falha = withContext(Dispatchers.IO) {
-                if (texto == null) {
-                    FalhaDaExportacao(MOTIVO_SEM_TEXTO, aoFalhar(resolver, uri))
-                } else {
-                    gravar(resolver, uri, formato.bytes(texto), aoFalhar)
+                when {
+                    // Sem a sessão lida, o motivo é o do armazenamento, e não "sem texto liberado" (decisão 25 estendida, #80).
+                    lido.falhaDeLeitura != null -> FalhaDaExportacao(lido.falhaDeLeitura, aoFalhar(resolver, uri))
+                    texto == null -> FalhaDaExportacao(MOTIVO_SEM_TEXTO, aoFalhar(resolver, uri))
+                    else -> gravar(resolver, uri, formato.bytes(texto), aoFalhar)
                 }
             }
             exportando.value = false

@@ -14,9 +14,16 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.Hyphens
@@ -24,10 +31,18 @@ import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.lcv.maestro.R
+import dev.lcv.maestro.sessao.motivoDeArmazenamento
 import dev.lcv.maestro.ui.Cartao
+import dev.lcv.maestro.ui.LocalAvisos
+import dev.lcv.maestro.ui.Marcas
 import dev.lcv.maestro.ui.Tema
 import dev.lcv.maestro.ui.TextoPreformatado
+import dev.lcv.maestro.ui.VazioDeResultado
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.commonmark.ext.gfm.tables.TableBlock
 import org.commonmark.ext.gfm.tables.TableBody
 import org.commonmark.ext.gfm.tables.TableHead
@@ -62,17 +77,42 @@ import org.commonmark.parser.Parser
  * texto puro, quebrado a 80 colunas: os parágrafos são os do arquivo
  * (separados por linha em branco), e as quebras de dentro deles viram espaço,
  * para o texto correr na largura do telefone em vez de fazer ziguezague.
+ *
+ * Os arquivos são lidos fora da thread principal. A leitura que falha é o aviso
+ * com o motivo, o motivo fica no lugar dos textos, e a volta da tela ao primeiro
+ * plano lê de novo (decisão 25 estendida, #80). [ler] existe para o teste.
  */
 @Composable
-fun LicencasScreen() {
+fun LicencasScreen(ler: (Context, String) -> String = ::lerAsset) {
     val contexto = LocalContext.current
-    val secoes = remember {
-        listOf(
-            R.string.licencas_aviso to textoPuro(lerAsset(contexto, "NOTICE")),
-            R.string.licencas_terceiros to markdown(lerAsset(contexto, "THIRDPARTY.md")),
-            R.string.licencas_aplicativo to textoPuro(lerAsset(contexto, "LICENSE")),
-            R.string.licencas_apache to textoPuro(lerAsset(contexto, "Apache-2.0.txt")),
-        )
+    val avisos = LocalAvisos.current
+    val recursos = LocalResources.current
+    var tentativa by remember { mutableIntStateOf(0) }
+    var falha by remember { mutableStateOf<String?>(null) }
+    // A primeira retomada é a abertura da tela, não uma volta: não relê o que acabou de falhar.
+    val aberta = remember { AtomicBoolean(false) }
+    LifecycleResumeEffect(Unit) {
+        if (aberta.getAndSet(true) && falha != null) tentativa++
+        onPauseOrDispose { }
+    }
+    val secoes by produceState<List<Pair<Int, List<Bloco>>>?>(null, tentativa) {
+        if (value != null) return@produceState
+        value = try {
+            withContext(Dispatchers.IO) {
+                listOf(
+                    R.string.licencas_aviso to textoPuro(ler(contexto, "NOTICE")),
+                    R.string.licencas_terceiros to markdown(ler(contexto, "THIRDPARTY.md")),
+                    R.string.licencas_aplicativo to textoPuro(ler(contexto, "LICENSE")),
+                    R.string.licencas_apache to textoPuro(ler(contexto, "Apache-2.0.txt")),
+                )
+            }
+        } catch (erro: Exception) {
+            val motivo = motivoDeArmazenamento(erro)
+            falha = motivo
+            avisos.mostrar(recursos.getString(R.string.leitura_do_aparelho_falhou, motivo))
+            return@produceState
+        }
+        falha = null
     }
     Column(
         modifier = Modifier
@@ -81,7 +121,12 @@ fun LicencasScreen() {
             .padding(horizontal = Tema.espacos.lateral, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(Tema.espacos.entreCartoes),
     ) {
-        secoes.forEach { (titulo, blocos) ->
+        val lidas = secoes
+        if (lidas == null) {
+            falha?.let { VazioDeResultado(stringResource(R.string.tela_sem_leitura, it), Modifier.testTag(Marcas.LEITURA_FALHOU)) }
+            return@Column
+        }
+        lidas.forEach { (titulo, blocos) ->
             Column(verticalArrangement = Arrangement.spacedBy(Tema.espacos.entreLinhas)) {
                 Text(stringResource(titulo), fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, color = Tema.cores.texto)
                 HorizontalDivider(color = Tema.cores.cartaoBorda)

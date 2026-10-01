@@ -296,11 +296,44 @@ escolheu os cinco. O que a escolha pede, e como fica:
   motivo da falha ao guardar e ao remover; a exportação só diz que nada foi
   salvo quando apagou o documento que o seletor criou; e a passagem cujo
   resultado não foi anotado diz se o navegador abriu. A varredura de todas as
-  ações de tela, antes do push da rodada 10 da #78, achou esses casos. As
-  leituras de abrir e voltar a uma tela, a observação ao vivo e a
-  reconciliação da abertura entram na regra numa PR própria
-  ([#80](https://github.com/LCV-Ideas-Software/maestro-android/issues/80),
-  MAEANDR-27; decisão do operador de 30/09/2026).
+  ações de tela, antes do push da rodada 10 da #78, achou esses casos.
+- **Decisão 25 estendida (30/09/2026,
+  [#80](https://github.com/LCV-Ideas-Software/maestro-android/issues/80),
+  MAEANDR-27): "aviso e segue".** As leituras de abrir e de voltar a uma tela,
+  a observação ao vivo do Room e a reconciliação da abertura entram na regra.
+  O armazenamento que falha numa leitura é um aviso com o motivo, e a tela
+  fica com o que mostrava; se nunca leu, mostra no lugar o motivo ("Não foi
+  possível ler os dados desta tela; ela tenta de novo quando você voltar a
+  ela"), e não um vazio que pareça o estado real ("Sessão não encontrada",
+  "nenhuma sessão", o formulário de configurações em branco). A volta da
+  tela ao primeiro plano lê de novo, sem laço; a abertura não conta como
+  volta. Um disco que derruba várias leituras dá um aviso por volta, e um
+  toque ou uma ação são um pedido novo, que reabre o aviso. O classificador
+  passa a reconhecer também o banco que não abre e o corrompido
+  (`SQLiteCantOpenDatabaseException`, `SQLiteDatabaseCorruptException`) e
+  desembrulha a `ExecutionException` com que o `get()` do WorkManager entrega
+  o erro do banco dele; mora no `:core:sessao`, e as telas e o núcleo da
+  sessão usam o mesmo (a falha que o WorkManager entrega na inicialização vem
+  filtrada pela própria biblioteca, seção 4.3). Vale em todas as telas: a inicial (a lista, os eventos da sessão do
+  topo e as configurações, o cofre e o orçamento; sem configurações lidas, o
+  Iniciar é recusado com o motivo), a da sessão (a sessão e os eventos, os
+  autos e o artefato escolhido, a última parada no WorkManager, que falhando
+  mantém o rótulo sem parar o resto da tela, e os agentes prontos),
+  Configurações (lidas a cada volta até carregar; depois, nem a volta nem
+  uma segunda leitura que termine depois da primeira sobrescrevem o que se
+  digitou), Licenças (os quatro textos lidos fora da
+  linha principal), Anexos, Links e Texto final (a exportação sem a sessão
+  lida dá o motivo do armazenamento). O que nunca foi lido não aparece como o
+  gravado: os cartões da tela inicial dizem "Não lido" em vez de "Sem
+  sessão", "0 / 6" ou "US$ 0.00". O cancelamento pela notificação cuja
+  gravação falha por armazenamento é uma notificação com o motivo, e o
+  trabalho segue: parar o trabalho sem a transição é o que a emenda A3
+  proíbe. Ficam declarados dois resíduos: a ligação de produção da
+  reconciliação da abertura, que o teste exercita pelo mesmo objeto, mas não
+  com o banco do processo; e a volta depois de mais de 5 s fora do primeiro
+  plano com o disco ainda falhando, em que a leitura recomeçada em ON_START
+  falha antes do ON_RESUME e a volta a relê: dois avisos e duas leituras
+  nessa volta (a corrida do `WhileSubscribed`, aceita no desenho).
 - **Lacuna medida, fora desta entrega:** no canônico atual (`0e17817`,
   MAESTRO-34), a revisão confere também a URL final e a cadeia de
   redirecionamentos; o motor do Android, portado de `68528f9`, confere a URL e
@@ -1085,6 +1118,22 @@ retoma (decisão 16, seção 4.2). Um pedido de retomada recusado (chave que
 sumiu, tarifa zerada) vira evento na sessão, que fica retomável à mão. No fim,
 os arquivos órfãos de evidências e anexos são limpos.
 
+A reconciliação que falha por armazenamento (decisão 25 estendida, #80) não
+derruba o aplicativo: vira um aviso com o motivo na tela inicial, só enquanto
+vale e uma vez por tentativa, e se repete na próxima entrada em primeiro
+plano, que começa apagando a falha da anterior. A falha dentro da
+transição de uma sessão desfaz a transação: a sessão fica como estava, e a
+reconciliação seguinte a trata; a que já passou a `error` fica retomável à
+mão (decisão do operador de 30/09/2026). A falha do banco do próprio
+WorkManager na inicialização chega pelo
+`Configuration.Builder.setInitializationExceptionHandler`, em vez de ser
+lançada: a biblioteca entrega ao gancho, numa `IllegalStateException`, a
+`SQLiteException` que considera acionável (banco que não abre, corrompido,
+cheio, com erro de disco, travado, sem permissão ou com restrição violada),
+no caminho principal depois de três tentativas, e a falha da migração do
+caminho do banco sem tentar de novo. O gancho a leva à tela inicial, com o
+motivo da causa.
+
 ### 4.4 Exibição e exportação do texto final (decisão do operador de 25/09/2026)
 
 Aqui o Android difere dos dois aplicativos internos, e a diferença só foi dita
@@ -1814,7 +1863,21 @@ de teste, porque compra confiança sem entregá-la.
   retomar, que não deixa nada gravado; o motivo do cofre que não grava ou não
   remove; o aviso da exportação, que só diz "nada foi salvo" com o documento
   apagado; e a passagem cujo resultado não foi anotado, com o navegador
-  aberto ou não. O banco
+  aberto ou não. Pela decisão 25 estendida (#80): em cada tela, a leitura que
+  falha ao abrir, com o aviso, o motivo no lugar e a releitura na volta da
+  tela; sem releitura antes da volta, nas telas inicial e da sessão e em
+  Licenças; a que falha depois de lida, que mantém o que a tela mostrava, nas
+  telas inicial e da sessão; um aviso por volta, nas telas inicial e da
+  sessão e na abertura dos Anexos; o aviso reaberto por um toque (o artefato
+  dos autos) ou por uma ação (Anexos e Links); os cartões da tela inicial,
+  que dizem "Não lido"; os eventos da sessão que volta ao topo, que não são
+  os de outra; a parada de uma execução anterior, que não volta; a
+  exportação do texto final sem a sessão lida; a reconciliação da abertura
+  que falha, que espera a trava e se repete na entrada seguinte; o banco do
+  WorkManager que não abre, pelo gancho instalado de fato; o cancelamento
+  pela notificação que não grava e a notificação que ele posta, ao lado da
+  do serviço, e não no lugar dela; e o classificador com as classes reais do
+  SQLite (`ArmazenamentoNoAparelhoTest`). O banco
   cheio é o `SQLiteFullException` do framework, lançado sob demanda por um
   `openHelperFactory` de teste do Room (`BancoCheio`), no ponto em que o
   SQLite o lançaria: um gatilho SQL daria `SQLITE_CONSTRAINT`, e o limite de
@@ -1823,7 +1886,9 @@ de teste, porque compra confiança sem entregá-la.
   deixa começar durante a leitura dele, e a ordem das releituras das telas de
   anexos e de links (`OrdemDasLeituras`); na tela de anexos, o manifesto de
   outro protocolo recusado com o hash ativo e a releitura antiga que termina
-  depois de outra já aplicada, que não repõe a lista velha. No `:core:provedores`, na JVM, a
+  depois de outra já aplicada, que não repõe a lista velha; as leituras da tela
+(`LeiturasDaTelaTest`), a verificação da abertura e a falha do WorkManager
+(`ReconciliacaoDaAberturaTest`) e o classificador (`ArmazenamentoTest`, no `:core:sessao`). No `:core:provedores`, na JVM, a
   captura assistida (as regras de nome, tipo, tamanho e bytes mágicos, a ordem
   das recusas, os dois registros) e a busca que guarda cada resultado,
   devolve a falha do armazém, como o `save_stored(...)?` do canônico, e,

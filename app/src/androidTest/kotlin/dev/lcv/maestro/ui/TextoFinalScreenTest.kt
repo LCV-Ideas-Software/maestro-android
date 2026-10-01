@@ -9,11 +9,14 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.lifecycle.Lifecycle
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.lcv.maestro.R
 import dev.lcv.maestro.sessao.Estados
@@ -22,6 +25,8 @@ import dev.lcv.maestro.ui.textofinal.RenderizadorDoTextoFinal
 import dev.lcv.maestro.ui.textofinal.TextoFinalViewModel
 import java.io.File
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertArrayEquals
@@ -250,6 +255,57 @@ class TextoFinalScreenTest {
         assertEquals(
             Mensagem.DeRecurso(R.string.exportacao_falhou, listOf(TextoFinalViewModel.MOTIVO_SEM_TEXTO)),
             runBlocking { withTimeout(10_000) { vm.avisos.first() } },
+        )
+        assertEquals(listOf(destino), apagados)
+    }
+
+    // Decisão 25 do operador, estendida em 30/09/2026 (#80): as leituras de abrir e voltar à tela e a observação.
+
+    private val avisoGeral = "Não foi possível ler os dados do aparelho. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}"
+    private val noLugar = "Não foi possível ler os dados desta tela; ela tenta de novo quando você voltar a ela. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}"
+
+    /** A tela ao segundo plano e de volta: só o ON_RESUME relê. */
+    private fun voltarATela() {
+        regra.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
+        regra.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+    }
+
+    private fun esperarMotivoNoLugar() {
+        regra.waitUntil(5_000) { regra.onAllNodes(hasTestTag(Marcas.LEITURA_FALHOU) and hasText(noLugar)).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test
+    fun aSessaoQueNaoSeLeNoTextoFinalMostraOMotivoNoLugarEVoltaNaVoltaDaTela() {
+        val id = c.sessao(Estados.CONVERGIDA, textoFinal = textoFinal, textoAtual = textoFinal)
+        regra.abrir(c, sessaoPedida = id, seletor = SeletorDeTeste())
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.ABRIR_TEXTO_FINAL).fetchSemanticsNodes().isNotEmpty() }
+        c.bancoCheio.leituraQuebrada = "FROM sessoes WHERE id"
+        regra.onNodeWithTag(Marcas.ABRIR_TEXTO_FINAL).performScrollTo().performClick()
+        esperarMotivoNoLugar()
+        regra.esperarTexto(avisoGeral)
+        regra.onNodeWithTag(Marcas.TEXTO_NAO_LIBERADO).assertDoesNotExist()
+        c.bancoCheio.leituraQuebrada = null
+        voltarATela()
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.TEXTO_FINAL_PAGINA).fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.LEITURA_FALHOU).assertDoesNotExist()
+    }
+
+    @Test
+    fun aExportacaoSemASessaoLidaDizOMotivoDoArmazenamentoSemTravar() {
+        val id = c.sessao(Estados.CONVERGIDA, textoFinal = textoFinal, textoAtual = textoFinal)
+        val destino = Uri.fromFile(c.arquivo("texto.md", ByteArray(0)))
+        val apagados = mutableListOf<Uri>()
+        c.bancoCheio.leituraQuebrada = "FROM sessoes WHERE id"
+        val vm = TextoFinalViewModel(c.dependencias, id)
+        vm.exportar(TextoFinalViewModel.Formato.MARKDOWN, destino, c.contexto.contentResolver) { _, uri -> apagados.add(uri) }
+        val avisos = runBlocking { withTimeout(10_000) { vm.avisos.take(2).toList() } }
+        c.bancoCheio.leituraQuebrada = null
+        assertEquals(
+            listOf(
+                Mensagem.DeRecurso(R.string.leitura_do_aparelho_falhou, listOf(BancoCheio.MENSAGEM_DE_DISCO)),
+                Mensagem.DeRecurso(R.string.exportacao_falhou, listOf(BancoCheio.MENSAGEM_DE_DISCO)),
+            ),
+            avisos,
         )
         assertEquals(listOf(destino), apagados)
     }

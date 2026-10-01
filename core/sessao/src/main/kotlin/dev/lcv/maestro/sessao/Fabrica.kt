@@ -65,7 +65,7 @@ public class Fabrica(
      * agendador só existe depois de `instalar`, que é quando alguém o usa.
      */
     public val agendador: Agendador by lazy { Agendador(workManager()) }
-    override val notificacao: Notificacao = Notificacao(contexto.applicationContext, abrirSessao)
+    override val notificacao: Notificacao = Notificacao(contexto.applicationContext, abrirSessao = abrirSessao)
     private val resolvedor = ResolvedorPublico.dnsDoGoogle()
 
     /** A captura assistida pelo operador (seção 2.2): a passagem ao navegador e o arquivo importado, sob a mesma regra de rede pública. */

@@ -1,5 +1,6 @@
 package dev.lcv.maestro
 
+import android.database.sqlite.SQLiteCantOpenDatabaseException
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.test.core.app.ActivityScenario
@@ -22,6 +23,7 @@ import java.math.BigDecimal
 import java.time.Instant
 import java.util.UUID
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -44,6 +46,13 @@ class AplicacaoTest {
     fun oApplicationInstalaAFabricaEAConfiguracaoDoWorkManagerEADele() {
         assertSame(aplicativo.grafo, Fabrica.doProcesso)
         assertTrue(WorkManager.getInstance(contexto).configuration.workerFactory is FabricaDeTrabalhos)
+        // Decisão 25 estendida (#80): o banco do WorkManager que não abre chega ao guardião da abertura, e a tela
+        // inicial recebe as falhas dele.
+        val gancho = WorkManager.getInstance(contexto).configuration.initializationExceptionHandler
+        assertNotNull(gancho)
+        gancho!!.accept(IllegalStateException(SQLiteCantOpenDatabaseException("o banco do WorkManager nao abre")))
+        assertEquals("o banco do WorkManager nao abre", aplicativo.abertura.falhaDoWorkManager.value?.motivo)
+        assertSame(aplicativo.abertura.falhas, Dependencias.de(aplicativo).falhasDaAbertura)
     }
 
     /**

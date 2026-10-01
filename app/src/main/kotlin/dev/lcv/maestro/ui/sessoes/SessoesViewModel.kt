@@ -13,23 +13,31 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.lcv.maestro.Dependencias
 import dev.lcv.maestro.R
+import dev.lcv.maestro.ReconciliacaoDaAbertura
 import dev.lcv.maestro.Sincronia
 import dev.lcv.maestro.protocolo.ManifestosDosAnexos
 import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.sessao.AnexosDaSessao
 import dev.lcv.maestro.sessao.Configuracoes
 import dev.lcv.maestro.sessao.Elegibilidade
+import dev.lcv.maestro.sessao.EventoEntidade
 import dev.lcv.maestro.sessao.Orcamento
 import dev.lcv.maestro.sessao.PedidoDeInicio
 import dev.lcv.maestro.sessao.RepositorioDeConfiguracoes
 import dev.lcv.maestro.sessao.Resultado
 import dev.lcv.maestro.sessao.SessaoEntidade
 import dev.lcv.maestro.sessao.TrimJs
+import dev.lcv.maestro.sessao.motivoDeArmazenamento
 import dev.lcv.maestro.ui.Documentos
+import dev.lcv.maestro.ui.LeiturasDaTela
+import dev.lcv.maestro.ui.Lida
 import dev.lcv.maestro.ui.Mensagem
+import dev.lcv.maestro.ui.OrdemDasLeituras
 import dev.lcv.maestro.ui.anexos.AnexosViewModel
-import dev.lcv.maestro.ui.motivoDeArmazenamento
 import java.time.Duration
+import java.util.Collections
+import java.util.IdentityHashMap
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -39,9 +47,12 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -69,9 +80,16 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
         /** O que resta do orçamento de seis horas nas últimas 24 h, pela conta deste aplicativo. */
         val restante: Duration? = null,
         val iniciando: Boolean = false,
+        /** O motivo de a lista nunca ter sido lida (decisão 25 estendida, #80). */
+        val motivoDaLista: String? = null,
+        /** O motivo da última leitura de configurações, cofre e orçamento que falhou. */
+        val motivoDosAjustes: String? = null,
     ) {
         /** `readyAgents`: chave e tarifas. */
         val prontos: List<Provedor> get() = Provedor.entries.filter { elegibilidade[it] == Elegibilidade.ELEGIVEL }
+
+        /** Configurações, cofre e orçamento que nunca foram lidos: o formulário mostra o motivo, não padrões que pareceriam lidos. */
+        val ajustesIlegiveis: String? get() = motivoDosAjustes.takeIf { configuracoes == null }
     }
 
     sealed interface Evento {
@@ -112,31 +130,77 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
     private val eventos = Channel<Evento>(Channel.BUFFERED)
     val avisos: Flow<Evento> = eventos.receiveAsFlow()
 
-    private val sessoes = d.sessoes.observarTodas()
+    /** As leituras da tela sob a decisão 25 estendida (#80): aviso com o motivo, a tela segue, a volta lê de novo. */
+    private val leituras = LeiturasDaTela { eventos.send(Evento.Aviso(it)) }
+
+    /** A ordem das releituras de [recarregar] (ver `OrdemDasLeituras`). */
+    private val ordem = OrdemDasLeituras()
+
+    /** A lista observada numa assinatura só, que a observação dos eventos também lê; `null` até a primeira entrega. */
+    private val sessoes: StateFlow<Lida<List<SessaoEntidade>>?> = leituras.observar(d.sessoes.observarTodas(), emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * Os últimos eventos lidos de cada sessão. A observação recriada para uma sessão já lida (a volta depois de 5 s
+     * fora do primeiro plano, ou a sessão que volta ao topo) que falha mostra os dela, e não os de outra sessão nem um
+     * vazio (#80).
+     */
+    private val eventosLidos = ConcurrentHashMap<String, List<EventoEntidade>>()
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val eventosDaRecente = sessoes
-        .map { it.firstOrNull()?.id }
+        .map { it?.valor?.firstOrNull()?.id }
         .distinctUntilChanged()
-        .flatMapLatest { id -> if (id == null) flowOf(emptyList()) else d.sessoes.observarEventos(id) }
+        .flatMapLatest { id ->
+            if (id == null) {
+                flowOf(Lida(emptyList()))
+            } else {
+                leituras.observar(d.sessoes.observarEventos(id).onEach { eventosLidos[id] = it }, eventosLidos[id] ?: emptyList())
+            }
+        }
 
-    val estado: StateFlow<Estado> = combine(sessoes, eventosDaRecente, ajustes) { lista, eventosDela, base ->
-        val ultimo = eventosDela.lastOrNull()
+    val estado: StateFlow<Estado> = combine(sessoes.filterNotNull(), eventosDaRecente, ajustes) { lista, eventosDela, base ->
+        val ultimo = eventosDela.valor.lastOrNull()
         base.copy(
-            sessoes = lista,
-            agenteAtivo = if (ultimo?.status == "running") ultimo.agente else lista.firstOrNull()?.autorAtual,
+            sessoes = lista.valor,
+            agenteAtivo = if (ultimo?.status == "running") ultimo.agente else lista.valor.firstOrNull()?.autorAtual,
+            motivoDaLista = lista.falha,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Estado())
 
-    /** Configurações, cofre e orçamento, relidos; na primeira leitura e quando os prontos mudam, os padrões do web. */
+    /** As falhas da abertura já avisadas por esta tela, por identidade: cada tentativa, uma vez. Linha principal. */
+    private val avisadasNaAbertura = Collections.newSetFromMap(IdentityHashMap<ReconciliacaoDaAbertura.Falha, Boolean>())
+
+    /**
+     * Decisão 25 estendida (#80): a reconciliação da abertura e a inicialização do WorkManager que falharam no
+     * armazenamento, avisadas na tela inicial. A tela coleta isto só enquanto está composta: a falha que a tentativa
+     * seguinte já resolveu não é avisada, e a já avisada não volta quando a pessoa retorna à tela.
+     */
+    val avisosDaAbertura: Flow<Mensagem> = d.falhasDaAbertura
+        .filter { avisadasNaAbertura.add(it) }
+        .map { Mensagem.DeRecurso(it.mensagem, listOf(it.motivo)) }
+
+    /**
+     * Configurações, cofre e orçamento, relidos a cada volta da tela; na primeira leitura e quando os prontos mudam, os
+     * padrões do web. O armazenamento que falha é aviso, e a tela fica com o que tinha (decisão 25 estendida, #80).
+     */
     fun recarregar() {
+        leituras.voltou()
         viewModelScope.launch {
-            val lidos = withContext(Dispatchers.IO) {
-                val configuracoes = d.configuracoes.carregar()
-                val elegibilidade = RepositorioDeConfiguracoes.elegibilidade(configuracoes.taxas, d.cofre.chaves())
-                val agora = d.relogio()
-                Triple(configuracoes, elegibilidade, Orcamento.restanteNaJanela(d.sessoes.execucoesNaJanela(agora), agora))
+            val esta = ordem.comecar()
+            val lidos = try {
+                withContext(Dispatchers.IO) {
+                    val configuracoes = d.configuracoes.carregar()
+                    val elegibilidade = RepositorioDeConfiguracoes.elegibilidade(configuracoes.taxas, d.cofre.chaves())
+                    val agora = d.relogio()
+                    Triple(configuracoes, elegibilidade, Orcamento.restanteNaJanela(d.sessoes.execucoesNaJanela(agora), agora))
+                }
+            } catch (erro: Exception) {
+                val motivo = leituras.falhou(erro)
+                ajustes.update { it.copy(motivoDosAjustes = motivo) }
+                return@launch
             }
+            if (!ordem.aplicar(esta)) return@launch
             val antes = ajustes.value.prontos
             ajustes.update { it.copy(configuracoes = lidos.first, elegibilidade = lidos.second, restante = lidos.third) }
             val prontos = ajustes.value.prontos
@@ -200,8 +264,11 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
         val prontos = ajustes.value.prontos
         val validos = colegiado.filter { it in prontos }
         val doManifesto = motivoDoManifesto(lendoManifesto, manifesto)
+        val ilegiveis = ajustes.value.ajustesIlegiveis
         return when {
             TrimJs.aparar(pedido).isEmpty() -> Mensagem.DeRecurso(R.string.erro_pedido_vazio)
+            // Sem as configurações lidas, "configure dois agentes" seria falso: a recusa diz o motivo (#80).
+            ilegiveis != null -> LeiturasDaTela.avisoDeLeitura(ilegiveis)
             prontos.size < 2 -> Mensagem.DeRecurso(R.string.erro_dois_agentes)
             validos.size < 2 -> Mensagem.DeRecurso(R.string.erro_dois_prontos)
             redatorInicial !in validos -> Mensagem.DeRecurso(R.string.erro_redator_fora)

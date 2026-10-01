@@ -2,11 +2,15 @@ package dev.lcv.maestro.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.database.sqlite.SQLiteCantOpenDatabaseException
+import android.database.sqlite.SQLiteDiskIOException
 import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -24,17 +28,23 @@ import dev.lcv.maestro.sessao.Estados
 import dev.lcv.maestro.sessao.ExecucaoEntidade
 import dev.lcv.maestro.sessao.FormatoDeInstante
 import dev.lcv.maestro.sessao.PedidoDeConfiguracoes
+import java.math.BigDecimal
 import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.ExecutionException
+import kotlin.concurrent.thread
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
-import org.junit.rules.RuleChain
 import org.junit.Test
+import org.junit.rules.RuleChain
 import org.junit.runner.RunWith
 
 /**
@@ -391,5 +401,300 @@ class SessoesScreenTest {
         regra.waitForIdle()
         regra.onNodeWithTag(Marcas.AVISO_DE_ORCAMENTO).assertDoesNotExist()
         regra.onNodeWithTag(Marcas.redator(Provedor.CLAUDE)).assertIsNotEnabled()
+    }
+
+    // Decisão 25 do operador, estendida em 30/09/2026 (#80): as leituras de abrir e voltar à tela, a observação e a
+    // reconciliação da abertura. "Aviso e segue": o aviso com o motivo, a tela fica com o que mostrava (ou o motivo no
+    // lugar, se nunca leu), e a volta da tela ao primeiro plano lê de novo.
+
+    private val aviso = "Não foi possível ler os dados do aparelho. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}"
+    private val noLugar = "Não foi possível ler os dados desta tela; ela tenta de novo quando você voltar a ela. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}"
+
+    private fun avisoDaAbertura(motivo: String) =
+        "Não foi possível concluir a conferência da abertura do aplicativo; ela se repete na próxima vez que o aplicativo voltar ao primeiro plano. Motivo: $motivo"
+
+    /** A tela ao segundo plano e de volta: STARTED mantém a coleta viva, e só o ON_RESUME relê. */
+    private fun voltarATela() {
+        regra.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
+        regra.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+    }
+
+    private fun esperarNaMarca(marca: String, texto: String) {
+        regra.waitUntil(5_000) { regra.onAllNodes(hasTestTag(marca) and hasText(texto)).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    private fun esperarMarca(marca: String) {
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(marca).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    /** Espera o aviso passageiro sair da tela: a fila do Snackbar mostra um de cada vez. */
+    private fun esperarAvisoSair(texto: String) {
+        regra.waitUntil(15_000) { regra.onAllNodesWithText(texto).fetchSemanticsNodes().isEmpty() }
+    }
+
+    @Test
+    fun asConfiguracoesQueNaoSeLeemAoAbrirSaoAvisadasTemOMotivoNoFormularioESaoRelidasNaVolta() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        c.bancoCheio.leituraQuebrada = "FROM configuracoes"
+        regra.abrir(c)
+        regra.esperarTexto(aviso)
+        esperarNaMarca(Marcas.AJUSTES_ILEGIVEIS, noLugar)
+        // O que não foi lido não aparece como o gravado: nem "0 / 6", nem "US$ 0.00", nem "configure".
+        regra.onNodeWithTag(Marcas.METRICA_AGENTES_PRONTOS).assertTextEquals("Não lido")
+        regra.onNodeWithTag(Marcas.METRICA_TETO).assertTextEquals("Não lido")
+        regra.onNodeWithTag(Marcas.legendaDoAgente(Provedor.CLAUDE)).assertTextEquals("configuração não lida")
+        // Sem as configurações lidas, a recusa do Iniciar diz o motivo, e não "configure pelo menos dois agentes".
+        esperarAvisoSair(aviso)
+        iniciar()
+        regra.esperarTexto(aviso)
+        assertTrue(c.sessoes.listar().isEmpty())
+        c.bancoCheio.leituraQuebrada = null
+        voltarATela()
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.AJUSTES_ILEGIVEIS).assertDoesNotExist()
+    }
+
+    @Test
+    fun asConfiguracoesQueNaoSeLeemNaVoltaFicamComoEstavam() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        regra.abrir(c)
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        c.bancoCheio.leituraQuebrada = "FROM configuracoes"
+        voltarATela()
+        regra.esperarTexto(aviso)
+        c.bancoCheio.leituraQuebrada = null
+        regra.onNodeWithText("2 / 6").assertExists()
+        regra.onNodeWithTag(Marcas.AJUSTES_ILEGIVEIS).assertDoesNotExist()
+    }
+
+    @Test
+    fun aListaQueNaoSeLeAoAbrirMostraOMotivoNoLugarESoVoltaNaVoltaDaTela() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        val id = c.sessao(Estados.ERRO)
+        c.bancoCheio.leituraQuebrada = "FROM sessoes ORDER BY atualizadaEm"
+        regra.abrir(c)
+        esperarNaMarca(Marcas.RECENTES_VAZIO, noLugar)
+        regra.esperarTexto(aviso)
+        regra.onNodeWithTag(Marcas.METRICA_SESSAO).assertTextEquals("Não lido")
+        regra.onNodeWithTag(Marcas.METRICA_COM_O_TRABALHO).assertTextEquals("Não lido")
+        // O resto da tela segue: os cartões leram as configurações.
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        c.bancoCheio.leituraQuebrada = null
+        // Sem a volta da tela, a lista não é relida: nada de laço.
+        Thread.sleep(1_000)
+        regra.waitForIdle()
+        regra.onNodeWithTag(Marcas.sessao(id)).assertDoesNotExist()
+        voltarATela()
+        esperarMarca(Marcas.sessao(id))
+        regra.onNodeWithTag(Marcas.RECENTES_VAZIO).assertDoesNotExist()
+    }
+
+    @Test
+    fun aListaQueCaiDepoisDeLidaFicaComoEstavaEVoltaNaVoltaDaTela() {
+        val primeira = c.sessao(Estados.ERRO, titulo = "Primeira")
+        regra.abrir(c)
+        esperarMarca(Marcas.sessao(primeira))
+        c.bancoCheio.leituraQuebrada = "FROM sessoes ORDER BY atualizadaEm"
+        val segunda = c.sessao(Estados.LIMITE_DE_CUSTO, titulo = "Segunda")
+        regra.esperarTexto(aviso)
+        regra.onNodeWithTag(Marcas.sessao(primeira)).assertExists()
+        regra.onNodeWithTag(Marcas.sessao(segunda)).assertDoesNotExist()
+        regra.onNodeWithTag(Marcas.RECENTES_VAZIO).assertDoesNotExist()
+        c.bancoCheio.leituraQuebrada = null
+        voltarATela()
+        esperarMarca(Marcas.sessao(segunda))
+    }
+
+    @Test
+    fun osEventosQueNaoSeLeemAoAbrirNaoApagamAListaEVoltamNaVoltaDaTela() {
+        val id = c.sessao(Estados.ERRO)
+        c.evento(id, "running", "revisando", agente = Provedor.GEMINI)
+        c.bancoCheio.leituraQuebrada = "FROM eventos WHERE sessaoId"
+        regra.abrir(c)
+        regra.esperarTexto(aviso)
+        esperarMarca(Marcas.sessao(id))
+        esperarNaMarca(Marcas.METRICA_COM_O_TRABALHO, "Maestro AI")
+        c.bancoCheio.leituraQuebrada = null
+        voltarATela()
+        esperarNaMarca(Marcas.METRICA_COM_O_TRABALHO, Rotulos.agente(Provedor.GEMINI.agente))
+    }
+
+    @Test
+    fun osEventosQueNaoSeLeemDaNovaSessaoDoTopoNaoMostramOAgenteDaAnterior() {
+        val anterior = c.sessao(Estados.ERRO)
+        c.evento(anterior, "running", "revisando", agente = Provedor.GEMINI)
+        regra.abrir(c)
+        esperarNaMarca(Marcas.METRICA_COM_O_TRABALHO, Rotulos.agente(Provedor.GEMINI.agente))
+        c.bancoCheio.leituraQuebrada = "FROM eventos WHERE sessaoId"
+        // O relógio do cenário anda a cada leitura: a nova fica no topo.
+        val nova = c.sessao(Estados.ERRO, titulo = "Mais nova")
+        esperarMarca(Marcas.sessao(nova))
+        esperarNaMarca(Marcas.METRICA_COM_O_TRABALHO, "Maestro AI")
+        c.bancoCheio.leituraQuebrada = null
+    }
+
+    @Test
+    fun osEventosJaMostradosFicamQuandoAReleituraCai() {
+        val id = c.sessao(Estados.ERRO)
+        c.evento(id, "running", "revisando", agente = Provedor.GEMINI)
+        regra.abrir(c)
+        esperarNaMarca(Marcas.METRICA_COM_O_TRABALHO, Rotulos.agente(Provedor.GEMINI.agente))
+        c.bancoCheio.leituraQuebrada = "FROM eventos WHERE sessaoId"
+        c.evento(id, "blocked", "parado")
+        regra.esperarTexto(aviso)
+        regra.waitForIdle()
+        regra.onNodeWithTag(Marcas.METRICA_COM_O_TRABALHO).assertTextEquals(Rotulos.agente(Provedor.GEMINI.agente))
+        c.bancoCheio.leituraQuebrada = null
+    }
+
+    @Test
+    fun umDiscoQueDerrubaVariasLeiturasDaUmAvisoPorVoltaDaTela() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        c.sessao(Estados.ERRO)
+        // "oes" casa com configuracoes, sessoes e execucoes: a abertura derruba a lista e os ajustes.
+        c.bancoCheio.leituraQuebrada = "oes"
+        regra.abrir(c)
+        regra.esperarTexto(aviso)
+        esperarAvisoSair(aviso)
+        val segundo = runCatching { regra.waitUntil(2_000) { regra.onAllNodesWithText(aviso).fetchSemanticsNodes().isNotEmpty() } }
+        assertTrue("a mesma volta deu um segundo aviso", segundo.isFailure)
+        // Na volta da tela, as leituras falham de novo, e sai um aviso novo.
+        voltarATela()
+        regra.esperarTexto(aviso)
+        c.bancoCheio.leituraQuebrada = null
+    }
+
+    @Test
+    fun aReconciliacaoDaAberturaQueCaiNoArmazenamentoViraAvisoNaTelaInicialEETentadaDeNovo() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        // Rodando, sem execução e sem trabalho vivo: a reconciliação a interrompe e reenfileira.
+        val id = c.sessao(Estados.RODANDO)
+        regra.abrir(c)
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        c.bancoCheio.cheio = true
+        runBlocking(Dispatchers.IO) { c.abertura.executar() }
+        regra.esperarTexto(avisoDaAbertura(BancoCheio.MENSAGEM))
+        c.bancoCheio.cheio = false
+        assertEquals(Estados.RODANDO, c.sessoes.carregar(id)?.status)
+        assertTrue(c.agendador.enfileiradas.isEmpty())
+        // A próxima entrada em primeiro plano tenta de novo.
+        runBlocking(Dispatchers.IO) { c.abertura.executar() }
+        assertNull(c.abertura.falhaDaReconciliacao.value)
+        assertEquals(listOf(id), c.agendador.enfileiradas.toList())
+        assertEquals(Estados.NA_FILA, c.sessoes.carregar(id)?.status)
+    }
+
+    @Test
+    fun aConsultaAoWorkManagerQueFalhaNaReconciliacaoChegaDesembrulhadaNoAviso() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        val id = c.sessao(Estados.RODANDO)
+        regra.abrir(c)
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        c.agendador.falhaAoConsultar = ExecutionException(SQLiteDiskIOException(BancoCheio.MENSAGEM_DE_DISCO))
+        runBlocking(Dispatchers.IO) { c.abertura.executar() }
+        c.agendador.falhaAoConsultar = null
+        regra.esperarTexto(avisoDaAbertura(BancoCheio.MENSAGEM_DE_DISCO))
+        // A consulta vem antes de qualquer escrita.
+        assertEquals(Estados.RODANDO, c.sessoes.carregar(id)?.status)
+    }
+
+    @Test
+    fun aReconciliacaoDaAberturaEsperaATravaEApagaAFalhaAnteriorAoRecomecar() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        val id = c.sessao(Estados.RODANDO)
+        c.bancoCheio.cheio = true
+        runBlocking(Dispatchers.IO) { c.abertura.executar() }
+        c.bancoCheio.cheio = false
+        assertNotNull(c.abertura.falhaDaReconciliacao.value)
+        runBlocking { Sincronia.reconciliacao.lock() }
+        val tentativa = try {
+            thread { runBlocking(Dispatchers.IO) { c.abertura.executar() } }.also {
+                // A tentativa nova apaga a falha anterior antes da trava, e espera a trava para reconciliar.
+                regra.waitUntil(5_000) { c.abertura.falhaDaReconciliacao.value == null }
+                Thread.sleep(1_000)
+                assertTrue(c.agendador.enfileiradas.isEmpty())
+                assertEquals(Estados.RODANDO, c.sessoes.carregar(id)?.status)
+            }
+        } finally {
+            Sincronia.reconciliacao.unlock()
+        }
+        tentativa.join(10_000)
+        assertEquals(listOf(id), c.agendador.enfileiradas.toList())
+    }
+
+    @Test
+    fun oAvisoDaAberturaSoApareceNaTelaInicialEnquantoValeEUmaVezSo() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        val id = c.sessao(Estados.RODANDO)
+        regra.abrir(c, sessaoPedida = id)
+        esperarMarca(Marcas.VOLTAR)
+        val trecho = "Não foi possível concluir a conferência da abertura"
+        // Falha com outra tela por cima: a tela inicial não está composta, e nada é avisado.
+        c.bancoCheio.cheio = true
+        runBlocking(Dispatchers.IO) { c.abertura.executar() }
+        c.bancoCheio.cheio = false
+        assertNotNull(c.abertura.falhaDaReconciliacao.value)
+        regra.waitForIdle()
+        Thread.sleep(1_000)
+        regra.onAllNodesWithText(trecho, substring = true).assertCountEquals(0)
+        // A tentativa seguinte dá certo antes de a pessoa voltar: a falha antiga não é avisada.
+        runBlocking(Dispatchers.IO) { c.abertura.executar() }
+        regra.onNodeWithTag(Marcas.VOLTAR).performClick()
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        Thread.sleep(1_000)
+        regra.onAllNodesWithText(trecho, substring = true).assertCountEquals(0)
+        // A linha ficou na fila sem trabalho de verdade (o dublê não enfileira): a próxima reconciliação a toca de novo.
+        c.bancoCheio.cheio = true
+        runBlocking(Dispatchers.IO) { c.abertura.executar() }
+        c.bancoCheio.cheio = false
+        regra.esperarTexto(avisoDaAbertura(BancoCheio.MENSAGEM))
+        esperarAvisoSair(avisoDaAbertura(BancoCheio.MENSAGEM))
+        // Ir às configurações e voltar não repete o aviso já dado.
+        regra.onNodeWithTag(Marcas.IR_PARA_CONFIGURACOES).performClick()
+        esperarMarca(Marcas.VOLTAR)
+        regra.onNodeWithTag(Marcas.VOLTAR).performClick()
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        Thread.sleep(1_000)
+        regra.onAllNodesWithText(trecho, substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun oBancoDoWorkManagerQueNaoAbreEAvisadoNaTelaInicialUmaVez() {
+        // O `initializationExceptionHandler` recebe a falha do SQLite dentro de uma `IllegalStateException`.
+        c.abertura.falhouNoWorkManager(IllegalStateException("estado ruim", SQLiteCantOpenDatabaseException("não abre")))
+        regra.abrir(c)
+        val texto = "O agendador do Android, que executa as sessões em segundo plano, não conseguiu iniciar o próprio banco de dados. Motivo: não abre"
+        regra.esperarTexto(texto)
+        esperarAvisoSair(texto)
+        regra.onNodeWithTag(Marcas.IR_PARA_CONFIGURACOES).performClick()
+        esperarMarca(Marcas.VOLTAR)
+        regra.onNodeWithTag(Marcas.VOLTAR).performClick()
+        Thread.sleep(1_000)
+        regra.onAllNodesWithText(texto).assertCountEquals(0)
+    }
+
+    @Test
+    fun aSessaoQueVoltaAoTopoSemConseguirLerOsEventosMostraOsDelaENaoOsDaOutra() {
+        val primeira = c.sessao(Estados.ERRO, titulo = "Primeira")
+        c.evento(primeira, "running", "revisando", agente = Provedor.GEMINI)
+        regra.abrir(c)
+        esperarNaMarca(Marcas.METRICA_COM_O_TRABALHO, Rotulos.agente(Provedor.GEMINI.agente))
+        val segunda = c.sessao(Estados.ERRO, titulo = "Segunda")
+        c.evento(segunda, "running", "redigindo", agente = Provedor.CLAUDE)
+        esperarNaMarca(Marcas.METRICA_COM_O_TRABALHO, Rotulos.agente(Provedor.CLAUDE.agente))
+        c.bancoCheio.leituraQuebrada = "FROM eventos WHERE sessaoId"
+        // O custo toca a linha da primeira, que volta ao topo; os eventos dela não se leem, e ficam os lidos antes.
+        c.sessoes.somarCusto(primeira, BigDecimal("0.1"))
+        regra.esperarTexto(aviso)
+        esperarNaMarca(Marcas.METRICA_COM_O_TRABALHO, Rotulos.agente(Provedor.GEMINI.agente))
+        c.bancoCheio.leituraQuebrada = null
     }
 }

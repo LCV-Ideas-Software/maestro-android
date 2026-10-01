@@ -218,8 +218,10 @@ release audit carries the failing rows and correction candidates to the
 reviewer (operator's decision 23, 29/09/2026). A full database or a disk
 error never crashes a screen action: every action reports it as its own
 failure, with the reason, and never claims less or more than it wrote
-(operator's decision 25, 29/09/2026). Reads made when a screen opens or
-resumes follow in #80.
+(operator's decision 25, 29/09/2026), and neither does a failed read when a
+screen opens, resumes or observes live data, nor the reconcile on app start:
+the screen warns with the reason and goes on, and reads again when it
+returns to the foreground (decision 25 extended, 30/09/2026).
 
 The native port is specified in
 [`docs/especificacao-v1.md`](docs/especificacao-v1.md) (in Portuguese), written

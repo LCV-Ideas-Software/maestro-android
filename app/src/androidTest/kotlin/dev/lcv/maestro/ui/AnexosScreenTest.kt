@@ -4,9 +4,13 @@ import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.lifecycle.Lifecycle
@@ -215,5 +219,69 @@ class AnexosScreenTest {
         assertEquals(Mensagem.Literal(AnexosDaSessao.MENSAGEM_EM_EXECUCAO), runBlocking { withTimeout(10_000) { vm.avisos.first() } })
         assertTrue(c.anexos.daSessao(id).isEmpty())
         assertEquals(0, c.pastaDosAnexos.listFiles()?.size ?: 0)
+    }
+
+    // Decisão 25 do operador, estendida em 30/09/2026 (#80): as leituras de abrir e voltar à tela e a observação.
+
+    private val avisoGeral = "Não foi possível ler os dados do aparelho. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}"
+    private val noLugar = "Não foi possível ler os dados desta tela; ela tenta de novo quando você voltar a ela. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}"
+
+    /** A tela ao segundo plano e de volta: só o ON_RESUME relê. */
+    private fun voltarATela() {
+        regra.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
+        regra.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+    }
+
+    private fun esperarMotivoNoLugar() {
+        regra.waitUntil(5_000) { regra.onAllNodes(hasTestTag(Marcas.LEITURA_FALHOU) and hasText(noLugar)).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test
+    fun aSessaoQueNaoSeLeNosAnexosMostraOMotivoNoLugarEVoltaNaVoltaDaTela() {
+        val id = c.sessao(Estados.ERRO, erro = "Falha qualquer.")
+        regra.abrir(c, sessaoPedida = id)
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.ABRIR_ANEXOS).fetchSemanticsNodes().isNotEmpty() }
+        c.bancoCheio.leituraQuebrada = "FROM sessoes WHERE id"
+        regra.onNodeWithTag(Marcas.ABRIR_ANEXOS).performScrollTo().performClick()
+        esperarMotivoNoLugar()
+        regra.esperarTexto(avisoGeral)
+        regra.onNodeWithText("Sessão não encontrada.").assertDoesNotExist()
+        c.bancoCheio.leituraQuebrada = null
+        voltarATela()
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.MANIFESTO_RESULTADO).fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.LEITURA_FALHOU).assertDoesNotExist()
+    }
+
+    @Test
+    fun osAnexosQueNaoSeLeemAoAbrirDaoUmAvisoSoEOMotivoNoLugar() {
+        val id = c.sessao(Estados.ERRO, erro = "Falha qualquer.")
+        regra.abrir(c, sessaoPedida = id)
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.ABRIR_ANEXOS).fetchSemanticsNodes().isNotEmpty() }
+        c.bancoCheio.leituraQuebrada = "FROM anexos WHERE sessaoId"
+        regra.onNodeWithTag(Marcas.ABRIR_ANEXOS).performScrollTo().performClick()
+        // A leitura do `init` e a da primeira retomada falham na mesma volta: um aviso, e o geral, porque não há lista.
+        esperarMotivoNoLugar()
+        regra.esperarTexto(avisoGeral)
+        regra.waitUntil(15_000) { regra.onAllNodesWithText(avisoGeral).fetchSemanticsNodes().isEmpty() }
+        val segundo = runCatching { regra.waitUntil(2_000) { regra.onAllNodesWithText(avisoGeral).fetchSemanticsNodes().isNotEmpty() } }
+        assertTrue("a abertura deu um segundo aviso", segundo.isFailure)
+        c.bancoCheio.leituraQuebrada = null
+        voltarATela()
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.MANIFESTO_RESULTADO).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test
+    fun aAcaoReabreOAvisoDaReleituraQueFalhaNaMesmaVolta() {
+        val id = c.sessao(Estados.ERRO, erro = "Falha qualquer.")
+        abrirNosAnexos(id, SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", MANIFESTO_DE_EXEMPLO.toByteArray()))))
+        val releitura = "Não foi possível reler os anexos; a lista ficou como estava. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}"
+        c.bancoCheio.leituraQuebrada = "anexos"
+        voltarATela()
+        regra.esperarTexto(releitura)
+        regra.waitUntil(15_000) { regra.onAllNodesWithText(releitura).fetchSemanticsNodes().isEmpty() }
+        regra.onNodeWithTag(Marcas.ANEXAR_MANIFESTO).performClick()
+        regra.esperarTexto(releitura)
+        regra.esperarTexto("Anexo adicionado.")
+        c.bancoCheio.leituraQuebrada = null
     }
 }

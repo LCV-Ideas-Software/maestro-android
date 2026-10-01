@@ -1,16 +1,31 @@
 package dev.lcv.maestro.ui
 
-import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.lifecycle.Lifecycle
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.lcv.maestro.ui.licencas.LicencasScreen
+import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
-import org.junit.rules.RuleChain
 import org.junit.Test
+import org.junit.rules.RuleChain
 import org.junit.runner.RunWith
 
 /**
@@ -21,7 +36,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class LicencasScreenTest {
 
-    val regra = createComposeRule()
+    val regra = createAndroidComposeRule<ComponentActivity>()
 
     private val c = Cenario()
 
@@ -60,5 +75,73 @@ class LicencasScreenTest {
         regra.onNodeWithText("Licença Apache, versão 2.0 (componentes de terceiros)").assertExists()
         // Uma linha de tabela do inventário vira um cartão com o nome em destaque.
         regra.onNodeWithText("androidx.navigation3:navigation3-runtime and -ui (-android)").assertExists()
+    }
+
+    // Decisão 25 do operador, estendida em 30/09/2026 (#80), com as Licenças por decisão expressa: o arquivo que não
+    // se lê é o aviso com o motivo, o motivo no lugar dos textos, e a volta da tela lê de novo.
+
+    @Test
+    fun oArquivoQueNaoSeLeEAvisadoTemOMotivoNoLugarEVoltaNaVoltaDaTela() {
+        val motivo = "asset ilegivel"
+        val quebrado = AtomicBoolean(true)
+        regra.setContent {
+            MaestroTheme {
+                val estado = remember { SnackbarHostState() }
+                val escopo = rememberCoroutineScope()
+                CompositionLocalProvider(LocalAvisos provides Avisos(estado, escopo)) {
+                    Column {
+                        SnackbarHost(estado)
+                        LicencasScreen(ler = { contexto, nome ->
+                            if (quebrado.get()) throw IOException(motivo)
+                            contexto.assets.open(nome).bufferedReader().use { it.readText() }
+                        })
+                    }
+                }
+            }
+        }
+        regra.esperarTexto("Não foi possível ler os dados do aparelho. Motivo: $motivo")
+        regra.waitUntil(5_000) {
+            regra.onAllNodes(
+                hasTestTag(Marcas.LEITURA_FALHOU) and
+                    hasText("Não foi possível ler os dados desta tela; ela tenta de novo quando você voltar a ela. Motivo: $motivo"),
+            ).fetchSemanticsNodes().isNotEmpty()
+        }
+        quebrado.set(false)
+        // Sem a volta da tela, os arquivos não são relidos: nada de laço.
+        Thread.sleep(1_000)
+        regra.waitForIdle()
+        regra.onNodeWithText("Componentes de terceiros").assertDoesNotExist()
+        regra.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
+        regra.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("Componentes de terceiros").fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.LEITURA_FALHOU).assertDoesNotExist()
+    }
+
+    @Test
+    fun aLeituraQueFalhaAntesDaPrimeiraRetomadaNaoERelidaPorElaQueEAAbertura() {
+        val leituras = AtomicInteger(0)
+        regra.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
+        regra.setContent {
+            MaestroTheme {
+                val estado = remember { SnackbarHostState() }
+                val escopo = rememberCoroutineScope()
+                CompositionLocalProvider(LocalAvisos provides Avisos(estado, escopo)) {
+                    LicencasScreen(ler = { _, _ ->
+                        leituras.incrementAndGet()
+                        throw IOException("asset ilegivel")
+                    })
+                }
+            }
+        }
+        // Em STARTED, o teste do Compose não enxerga a tela: a prova é o contador de leituras do dublê.
+        val prazo = System.currentTimeMillis() + 5_000
+        while (leituras.get() == 0 && System.currentTimeMillis() < prazo) Thread.sleep(50)
+        Thread.sleep(500)
+        val naAbertura = leituras.get()
+        assertEquals(1, naAbertura)
+        regra.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        Thread.sleep(1_000)
+        regra.waitForIdle()
+        assertEquals(naAbertura, leituras.get())
     }
 }

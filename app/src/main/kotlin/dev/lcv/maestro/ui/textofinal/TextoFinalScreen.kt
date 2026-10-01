@@ -36,6 +36,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.lcv.maestro.R
 import dev.lcv.maestro.ui.BotaoFantasma
@@ -63,6 +64,10 @@ fun TextoFinalScreen(vm: TextoFinalViewModel) {
     val resolver = LocalContext.current.contentResolver
     val atividade = LocalActivity.current
     LaunchedEffect(vm) { vm.avisos.collect { avisos.mostrar(it.em(recursos)) } }
+    LifecycleResumeEffect(vm) {
+        vm.recarregar()
+        onPauseOrDispose { }
+    }
 
     val salvarMarkdown = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) {
         vm.exportar(TextoFinalViewModel.Formato.MARKDOWN, it, resolver)
@@ -82,8 +87,11 @@ fun TextoFinalScreen(vm: TextoFinalViewModel) {
         verticalArrangement = Arrangement.spacedBy(Tema.espacos.entreCartoes),
     ) {
         val texto = estado.textoFinal
+        val falhaDeLeitura = estado.falhaDeLeitura
         when {
             !estado.carregada -> Unit
+            // A sessão que nunca foi lida não é "sem texto liberado": o motivo fica no lugar (decisão 25 estendida, #80).
+            falhaDeLeitura != null -> VazioDeResultado(stringResource(R.string.tela_sem_leitura, falhaDeLeitura), Modifier.testTag(Marcas.LEITURA_FALHOU))
             texto == null -> VazioDeResultado(stringResource(R.string.texto_nao_liberado), Modifier.testTag(Marcas.TEXTO_NAO_LIBERADO))
             else -> {
                 Cabecalho(R.drawable.simbolo_check_circle, stringResource(R.string.texto_final), estado.titulo)

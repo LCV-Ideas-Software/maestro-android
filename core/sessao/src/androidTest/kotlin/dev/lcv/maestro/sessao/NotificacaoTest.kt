@@ -1,5 +1,6 @@
 package dev.lcv.maestro.sessao
 
+import android.app.Notification
 import android.app.PendingIntent
 import android.content.Intent
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -42,5 +43,30 @@ class NotificacaoTest {
     @Test
     fun semDestinoANotificacaoNaoTemToque() {
         assertNull(Notificacao(contexto).primeiroPlano("android-x", progresso).notification.contentIntent)
+    }
+
+    @Test
+    fun oCancelamentoQueNaoGravouDizOMotivoELevaATelaDaSessao() {
+        val intencao = PendingIntent.getActivity(
+            contexto,
+            8,
+            Intent("dev.lcv.maestro.TESTE").setPackage(contexto.packageName),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notificacao = Notificacao(contexto) { intencao }.doCancelamentoQueFalhou("android-x", "database or disk is full")
+        assertEquals("Cancelamento não gravado", notificacao.extras.getString(Notification.EXTRA_TITLE))
+        assertEquals(
+            "O cancelamento pedido pela notificação não foi gravado, e a sessão seguiu como estava. Motivo: database or disk is full",
+            notificacao.extras.getCharSequence(Notification.EXTRA_TEXT).toString(),
+        )
+        assertSame(intencao, notificacao.contentIntent)
+    }
+
+    @Test
+    fun oAvisoDoCancelamentoTemMarcaPropriaAoLadoDaNotificacaoDoServico() {
+        // Sem a marca, o aviso usaria o id da notificação do serviço e a substituiria, com a sessão ainda em execução.
+        val publicadas = mutableListOf<Pair<String, Int>>()
+        Notificacao(contexto, publicar = { marca, id, _ -> publicadas += marca to id }).cancelamentoFalhou("android-x", "motivo")
+        assertEquals(listOf(Notificacao.MARCA_DO_CANCELAMENTO to Notificacao.idDaNotificacao("android-x")), publicadas)
     }
 }

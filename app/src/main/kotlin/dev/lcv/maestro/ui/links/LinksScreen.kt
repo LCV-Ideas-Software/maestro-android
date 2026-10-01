@@ -93,8 +93,11 @@ fun LinksScreen(vm: LinksViewModel) {
             .padding(horizontal = Tema.espacos.lateral, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(Tema.espacos.entreCartoes),
     ) {
+        val falhaDeLeitura = estado.falhaDeLeitura
         when {
             !estado.carregada -> Unit
+            // A sessão ou a lista que nunca foram lidas não são "não encontrada": o motivo fica no lugar (decisão 25 estendida, #80).
+            falhaDeLeitura != null -> VazioDeResultado(stringResource(R.string.tela_sem_leitura, falhaDeLeitura), Modifier.testTag(Marcas.LEITURA_FALHOU))
             !estado.existe -> VazioDeResultado(stringResource(R.string.sessao_nao_encontrada))
             else -> {
                 Cabecalho(R.drawable.simbolo_link, stringResource(R.string.links_auditados), estado.titulo)

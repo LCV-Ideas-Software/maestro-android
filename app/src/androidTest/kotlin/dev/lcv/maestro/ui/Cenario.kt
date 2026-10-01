@@ -17,6 +17,7 @@ import dev.lcv.maestro.BuscaDaTela
 import dev.lcv.maestro.CofreDaTela
 import dev.lcv.maestro.Dependencias
 import dev.lcv.maestro.Navegador
+import dev.lcv.maestro.ReconciliacaoDaAbertura
 import dev.lcv.maestro.maestro
 import dev.lcv.maestro.protocolo.EstadoDaEvidencia
 import dev.lcv.maestro.protocolo.EstadoDeInteracao
@@ -49,6 +50,7 @@ import dev.lcv.maestro.sessao.EventoEntidade
 import dev.lcv.maestro.sessao.FormatoDeInstante
 import dev.lcv.maestro.sessao.LinksDaSessao
 import dev.lcv.maestro.sessao.PedidoDeConfiguracoes
+import dev.lcv.maestro.sessao.Reconciliacao
 import dev.lcv.maestro.sessao.RepositorioDeArtefatos
 import dev.lcv.maestro.sessao.RepositorioDeConfiguracoes
 import dev.lcv.maestro.sessao.RepositorioDeSessoes
@@ -142,7 +144,21 @@ internal class AgendadorFalso(
         canceladas += sessaoId to sessoes().carregar(sessaoId)?.status
     }
 
-    override fun ultimaParada(sessaoId: String): Int? = parada
+    /**
+     * Posta, a consulta ao WorkManager falha como o `get()` do futuro entrega a falha do banco dele: embrulhada em
+     * `ExecutionException`. O `BancoCheio` não alcança o banco do WorkManager (#80).
+     */
+    @Volatile var falhaAoConsultar: Exception? = null
+
+    override fun viva(sessaoId: String): Boolean {
+        falhaAoConsultar?.let { throw it }
+        return super.viva(sessaoId)
+    }
+
+    override fun ultimaParada(sessaoId: String): Int? {
+        falhaAoConsultar?.let { throw it }
+        return parada
+    }
 }
 
 /** O navegador do sistema nos testes: anota a URL e responde [falha]; nenhum teste abre navegador. */
@@ -233,6 +249,10 @@ internal class Cenario {
     @Volatile var discoDaBusca: IOException? = null
     val buscasCanceladas = AtomicInteger()
     val navegador = NavegadorFalso()
+
+    /** A reconciliação da abertura sobre este banco, como a do `MaestroApplication` sobre o do processo (#80). */
+    val reconciliacao = Reconciliacao(banco, sessoes, retomada, agendador, { cofre.chaves() }, evidencias, anexos, relogio)
+    val abertura = ReconciliacaoDaAbertura { reconciliacao.naAbertura() }
     val dependencias = Dependencias(
         sessoes, artefatos, retomada, configuracoes, agendador, cofre, testeDeChaves, anexos,
         links = links,
@@ -258,6 +278,7 @@ internal class Cenario {
             )
         },
         navegador = navegador,
+        falhasDaAbertura = abertura.falhas,
         relogio = relogio,
     )
 

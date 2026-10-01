@@ -24,8 +24,8 @@ import dev.lcv.maestro.sessao.RepositorioDeConfiguracoes
 import dev.lcv.maestro.sessao.Resultado
 import dev.lcv.maestro.sessao.ResultadoDoTeste
 import dev.lcv.maestro.sessao.TrimJs
+import dev.lcv.maestro.sessao.motivoDeArmazenamento
 import dev.lcv.maestro.ui.Mensagem
-import dev.lcv.maestro.ui.motivoDeArmazenamento
 import java.math.BigDecimal
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -58,6 +58,8 @@ class ConfiguracoesViewModel(private val d: Dependencias) : ViewModel() {
         val resultados: List<ResultadoDoTeste> = emptyList(),
         /** O cofre respondeu que não há trava de tela: a tela oferece os ajustes de segurança. */
         val semTrava: Boolean = false,
+        /** A leitura das configurações que falhou antes de o formulário ter o que mostrar (decisão 25 estendida, #80). */
+        val falhaDaLeitura: String? = null,
     )
 
     sealed interface Evento {
@@ -83,8 +85,26 @@ class ConfiguracoesViewModel(private val d: Dependencias) : ViewModel() {
     var protocolo by mutableStateOf("")
     var email by mutableStateOf("")
 
-    init {
-        viewModelScope.launch { aplicar(withContext(Dispatchers.IO) { d.configuracoes.carregar() }) }
+    /**
+     * `loadSettings`, a cada volta da tela ao primeiro plano até o formulário receber o que está gravado. O
+     * armazenamento que falha é aviso, e o motivo fica no lugar do formulário; a volta seguinte lê de novo
+     * (decisão 25 estendida, #80). Depois de lido, o formulário é o que a pessoa digita: a volta não o sobrescreve.
+     */
+    fun carregar() {
+        if (_estado.value.carregado) return
+        viewModelScope.launch {
+            val lidas = try {
+                withContext(Dispatchers.IO) { d.configuracoes.carregar() }
+            } catch (erro: Exception) {
+                val motivo = motivoDeArmazenamento(erro)
+                _estado.update { it.copy(falhaDaLeitura = motivo) }
+                avisar(Mensagem.DeRecurso(R.string.leitura_do_aparelho_falhou, listOf(motivo)))
+                return@launch
+            }
+            // Outra retomada pode ter lido e aplicado enquanto esta lia: o formulário já é o que a pessoa digita.
+            if (_estado.value.carregado) return@launch
+            aplicar(lidas)
+        }
     }
 
     /** `applySettings`: o formulário volta ao que está gravado. */

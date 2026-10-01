@@ -4,6 +4,7 @@
  */
 package dev.lcv.maestro.ui.sessao
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -115,8 +116,12 @@ fun SessaoScreen(vm: SessaoViewModel, aoAbrirTextoFinal: () -> Unit, aoAbrirAnex
         verticalArrangement = Arrangement.spacedBy(Tema.espacos.entreCartoes),
     ) {
         val sessao = estado.sessao
+        val falhaDeLeitura = estado.falhaDeLeitura
         when {
             !estado.carregada -> Unit
+            // A sessão que nunca foi lida não é "não encontrada": o motivo fica no lugar (decisão 25 estendida, #80).
+            sessao == null && falhaDeLeitura != null ->
+                VazioDeResultado(stringResource(R.string.tela_sem_leitura, falhaDeLeitura), Modifier.testTag(Marcas.LEITURA_FALHOU))
             sessao == null -> VazioDeResultado(stringResource(R.string.sessao_nao_encontrada))
             else -> {
                 Cabecalho(R.drawable.simbolo_smart_toy, stringResource(R.string.secao_sessao), sessao.titulo)
@@ -241,6 +246,16 @@ private fun Rastreamento(sessao: ProjecaoDaSessao) {
     }
 }
 
+/** O vazio dos autos; a leitura que falhou mostra o motivo no lugar (decisão 25 estendida, #80). */
+@Composable
+private fun VazioDosAutos(falha: String?, @StringRes vazio: Int) {
+    if (falha != null) {
+        VazioDeResultado(stringResource(R.string.tela_sem_leitura, falha), Modifier.testTag(Marcas.FALHA_DOS_AUTOS))
+    } else {
+        VazioDeResultado(stringResource(vazio))
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Autos(estado: SessaoViewModel.Estado, aoEscolher: (String) -> Unit, aoAbrirLinks: () -> Unit) {
@@ -248,7 +263,7 @@ private fun Autos(estado: SessaoViewModel.Estado, aoEscolher: (String) -> Unit, 
     Cartao {
         Cabecalho(R.drawable.simbolo_description, stringResource(R.string.autos), stringResource(R.string.cadeia_viva))
         if (estado.artefatos.isEmpty()) {
-            VazioDeResultado(stringResource(R.string.sem_artefatos))
+            VazioDosAutos(estado.falhaDosAutos, R.string.sem_artefatos)
             return@Cartao
         }
         val escolhido = estado.detalhe?.resumo?.id
@@ -279,7 +294,7 @@ private fun Autos(estado: SessaoViewModel.Estado, aoEscolher: (String) -> Unit, 
         }
         val detalhe = estado.detalhe
         if (detalhe == null) {
-            VazioDeResultado(stringResource(R.string.selecione_artefato))
+            VazioDosAutos(estado.falhaDosAutos, R.string.selecione_artefato)
             return@Cartao
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
