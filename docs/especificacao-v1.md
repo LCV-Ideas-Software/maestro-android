@@ -313,15 +313,20 @@ escolheu os cinco. O que a escolha pede, e como fica:
   de mais de 5 s fora do primeiro plano) entrega de novo o que a tela
   mostrava, para a tela não congelar; e a leitura não observada que falhou (a
   parada no WorkManager, a lista de links) espera a volta seguinte, e não é
-  refeita a cada gravação de outra sessão; a falha de uma releitura já
-  superada por outra mais nova que deu certo não decide nada, nem aviso, nem
-  motivo, nem essa espera (revisão da #81). O classificador
+  refeita a cada gravação de outra sessão. Toda releitura que pode se
+  sobrepor a outra é ordenada (a lista dos anexos e a dos links, as
+  configurações da tela inicial e as das Configurações, os agentes prontos da
+  sessão, o cofre, as Licenças): a que termina bem depois de uma mais nova já
+  aplicada não repõe o que ela trouxe, e a falha de uma já superada por outra
+  mais nova que deu certo não decide nada, nem aviso, nem motivo, nem essa
+  espera; um toque em Retomar durante a abertura não abre outra (revisão da
+  #81). O classificador
   passa a reconhecer também o banco que não abre e o corrompido
   (`SQLiteCantOpenDatabaseException`, `SQLiteDatabaseCorruptException`) e
   desembrulha a `ExecutionException` com que o `get()` do WorkManager entrega
   o erro do banco dele; mora no `:core:sessao`, e as telas e o núcleo da
-  sessão usam o mesmo (a falha que o WorkManager entrega na inicialização vem
-  filtrada pela própria biblioteca, seção 4.3). Vale em todas as telas: a inicial (a lista, os eventos da sessão do
+  sessão usam o mesmo, inclusive para a falha que o WorkManager entrega na
+  inicialização (seção 4.3). Vale em todas as telas: a inicial (a lista, os eventos da sessão do
   topo e as configurações, o cofre e o orçamento; sem configurações lidas, o
   Iniciar é recusado com o motivo), a da sessão (a sessão e os eventos, os
   autos e o artefato escolhido, a última parada no WorkManager, que falhando
@@ -1128,18 +1133,20 @@ os arquivos órfãos de evidências e anexos são limpos.
 A reconciliação que falha por armazenamento (decisão 25 estendida, #80) não
 derruba o aplicativo: vira um aviso com o motivo na tela inicial, só enquanto
 vale e uma vez por tentativa, e se repete na próxima entrada em primeiro
-plano, que começa apagando a falha da anterior. A falha dentro da
+plano, que começa apagando a falha da anterior; o desfecho de cada tentativa
+é gravado ainda sob a trava, para o da seguinte vir por cima. A falha dentro da
 transição de uma sessão desfaz a transação: a sessão fica como estava, e a
 reconciliação seguinte a trata; a que já passou a `error` fica retomável à
 mão (decisão do operador de 30/09/2026). A falha do banco do próprio
 WorkManager na inicialização chega pelo
 `Configuration.Builder.setInitializationExceptionHandler`, em vez de ser
 lançada: a biblioteca entrega ao gancho, numa `IllegalStateException`, a
-`SQLiteException` que considera acionável (banco que não abre, corrompido,
-cheio, com erro de disco, travado, sem permissão ou com restrição violada),
-no caminho principal depois de três tentativas, e a falha da migração do
-caminho do banco sem tentar de novo. O gancho a leva à tela inicial, com o
-motivo da causa.
+falha que a impediu de iniciar o banco dela (no caminho principal depois de
+três tentativas, na migração do caminho do banco sem tentar de novo, e, sem
+causa, com o usuário ainda bloqueado). Quem decide é o classificador único:
+a causa de armazenamento vai à tela inicial, com o motivo dela; o resto,
+inclusive a falha sem causa, é relançado, como a biblioteca faria sem o
+gancho (revisão da #81).
 
 ### 4.4 Exibição e exportação do texto final (decisão do operador de 25/09/2026)
 

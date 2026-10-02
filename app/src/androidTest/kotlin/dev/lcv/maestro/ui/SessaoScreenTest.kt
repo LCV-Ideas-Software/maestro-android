@@ -29,6 +29,7 @@ import dev.lcv.maestro.sessao.Dinheiro
 import dev.lcv.maestro.sessao.Estados
 import dev.lcv.maestro.sessao.RepositorioDeSessoes
 import java.math.BigDecimal
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -665,5 +666,53 @@ class SessaoScreenTest {
         c.banco.sessoes().mudarStatus(id, listOf(Estados.RODANDO), Estados.ERRO, "Outra parada.", c.agora(), null)
         regra.waitUntil(5_000) { c.agendador.consultasDaParada.get() > naVolta }
         c.agendador.falhaAoConsultar = null
+    }
+
+    // Rodada 3 da revisão da #81: os agentes prontos, lidos na volta e na abertura da retomada, em ordem.
+
+    @Test
+    fun aFalhaDeUmaReleituraDosProntosJaSuperadaNaoAvisa() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        val id = c.sessao(Estados.RODANDO)
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.CANCELAR)
+        val trava = CountDownLatch(1)
+        c.bancoCheio.prenderLeitura("FROM configuracoes", depoisDe = 0, trava)
+        voltarATela()
+        regra.waitUntil(5_000) { c.bancoCheio.leituraPresa == null }
+        // A releitura da volta seguinte termina bem e é aplicada; a antiga, solta, falha.
+        voltarATela()
+        Thread.sleep(1_000)
+        regra.waitForIdle()
+        val antes = c.bancoCheio.quebradas.get()
+        c.bancoCheio.leituraQuebrada = "FROM configuracoes"
+        trava.countDown()
+        regra.waitUntil(5_000) { c.bancoCheio.quebradas.get() > antes }
+        c.bancoCheio.leituraQuebrada = null
+        val avisou = runCatching { regra.waitUntil(3_000) { regra.onAllNodesWithText(aviso).fetchSemanticsNodes().isNotEmpty() } }
+        assertTrue("a releitura superada avisou", avisou.isFailure)
+    }
+
+    @Test
+    fun doisToquesEmRetomarAbremADialogoUmaVez() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        val id = c.sessao(Estados.LIMITE_DE_CUSTO, teto = "5", custo = "5")
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.RETOMAR)
+        Thread.sleep(1_000)
+        regra.waitForIdle()
+        // A abertura fica presa na leitura das configurações; o segundo toque não abre outra.
+        val trava = CountDownLatch(1)
+        c.bancoCheio.prenderLeitura("FROM configuracoes", depoisDe = 0, trava)
+        regra.onNodeWithTag(Marcas.RETOMAR).performClick()
+        regra.waitUntil(5_000) { c.bancoCheio.leituraPresa == null }
+        regra.onNodeWithTag(Marcas.RETOMAR).performClick()
+        Thread.sleep(1_000)
+        regra.waitForIdle()
+        regra.onNodeWithTag(Marcas.CONFIRMAR_RETOMADA).assertDoesNotExist()
+        trava.countDown()
+        esperarTag(Marcas.CONFIRMAR_RETOMADA)
     }
 }

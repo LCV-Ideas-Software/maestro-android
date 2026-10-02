@@ -1077,9 +1077,11 @@ All material changes to Maestro Android are recorded here.
   recreated after more than 5 s in the background that fails delivers what
   the screen was showing again, so the screen does not freeze, and a failed
   read that is not observed (the WorkManager stop reason, the link list)
-  waits for the next return instead of being retried on every write; the
-  failure of a reread already superseded by a newer one that succeeded
-  decides nothing. The start screen, the session screen (the last
+  waits for the next return instead of being retried on every write. Every
+  reread that can overlap another is ordered: an older one that finishes
+  after a newer one was applied does not overwrite it, and the failure of a
+  reread already superseded by a newer one that succeeded decides nothing; a
+  second tap on Resume while it opens does not open it again. The start screen, the session screen (the last
   WorkManager stop reason keeps its label and does not freeze the rest),
   Settings (read on each return until loaded, never overwriting what was
   typed), Licenses (read off the main thread), Attachments, Links and Final
@@ -1089,7 +1091,9 @@ All material changes to Maestro Android are recorded here.
   screen and runs again the next time the app returns to the foreground; a
   failure of WorkManager's own database at initialization, which the library
   hands to `Configuration.Builder.setInitializationExceptionHandler` instead
-  of throwing, becomes a notice on the same start screen. A cancel from the
+  of throwing, becomes a notice on the same start screen when the storage
+  classifier recognizes its cause; anything else is rethrown, as without the
+  handler. A cancel from the
   notification whose write fails on storage posts a notification with the
   reason and leaves the work running. The storage classifier moves to `:core:sessao`,
   also recognizes a database that cannot open or is corrupt, and unwraps the

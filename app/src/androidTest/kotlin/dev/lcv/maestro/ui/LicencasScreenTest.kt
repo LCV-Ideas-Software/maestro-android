@@ -19,6 +19,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.lcv.maestro.ui.licencas.LicencasScreen
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
@@ -143,5 +145,48 @@ class LicencasScreenTest {
         Thread.sleep(1_000)
         regra.waitForIdle()
         assertEquals(naAbertura, leituras.get())
+    }
+
+    @Test
+    fun aTentativaCanceladaQueFalhaDepoisDaMaisNovaNaoAvisa() {
+        // Rodada 3 da revisão da #81: a tentativa trocada por uma mais nova, que falha depois, não decide nada. Quem
+        // garante é o `withContext`, que entrega o cancelamento, e não o erro do bloco, à corrotina já cancelada.
+        val chamadas = AtomicInteger(0)
+        val segunda = CountDownLatch(1)
+        regra.setContent {
+            MaestroTheme {
+                val estado = remember { SnackbarHostState() }
+                val escopo = rememberCoroutineScope()
+                CompositionLocalProvider(LocalAvisos provides Avisos(estado, escopo)) {
+                    Column {
+                        SnackbarHost(estado)
+                        LicencasScreen(ler = { contexto, nome ->
+                            when (chamadas.incrementAndGet()) {
+                                1 -> throw IOException("primeira")
+                                2 -> {
+                                    segunda.await(10, TimeUnit.SECONDS)
+                                    throw IOException("cancelada")
+                                }
+                                else -> contexto.assets.open(nome).bufferedReader().use { it.readText() }
+                            }
+                        })
+                    }
+                }
+            }
+        }
+        regra.esperarTexto("Não foi possível ler os dados do aparelho. Motivo: primeira")
+        // A volta relê; a segunda tentativa fica presa; a volta seguinte a troca por uma terceira, que lê.
+        regra.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
+        regra.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        regra.waitUntil(5_000) { chamadas.get() >= 2 }
+        regra.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
+        regra.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("Componentes de terceiros").fetchSemanticsNodes().isNotEmpty() }
+        segunda.countDown()
+        val avisou = runCatching {
+            regra.waitUntil(3_000) { regra.onAllNodesWithText("Motivo: cancelada", substring = true).fetchSemanticsNodes().isNotEmpty() }
+        }
+        assertTrue("a tentativa cancelada avisou", avisou.isFailure)
+        regra.onNodeWithText("Componentes de terceiros").assertExists()
     }
 }

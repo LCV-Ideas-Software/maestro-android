@@ -27,6 +27,7 @@ import dev.lcv.maestro.sessao.motivoDeArmazenamento
 import dev.lcv.maestro.ui.LeiturasDaTela
 import dev.lcv.maestro.ui.Lida
 import dev.lcv.maestro.ui.Mensagem
+import dev.lcv.maestro.ui.OrdemDasLeituras
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.util.concurrent.atomic.AtomicReference
@@ -103,6 +104,12 @@ class SessaoViewModel(private val d: Dependencias, private val id: String) : Vie
 
     /** As leituras da tela sob a decisão 25 estendida (#80): aviso com o motivo, a tela segue, a volta lê de novo. */
     private val leituras = LeiturasDaTela { eventos.send(it) }
+
+    /** A ordem das leituras dos agentes prontos, a da volta e a da abertura da retomada (achado na revisão da #81). */
+    private val ordemDosProntos = OrdemDasLeituras()
+
+    /** Uma abertura da retomada em curso: o toque seguinte não abre outra. Linha principal. */
+    private var abrindoRetomada = false
 
     /** O rótulo da parada que a tela mostra, e o artefato mostrado: uma falha depois não os troca. */
     @Volatile private var paradaMostrada: String? = null
@@ -206,13 +213,20 @@ class SessaoViewModel(private val d: Dependencias, private val id: String) : Vie
     fun recarregar() {
         leituras.voltou()
         viewModelScope.launch {
+            val esta = ordemDosProntos.comecar()
             val prontos = try {
                 withContext(Dispatchers.IO) { lerProntos() }
             } catch (erro: Exception) {
+                // Uma releitura já superada por outra mais nova que deu certo não decide nada: nem aviso, nem o aviso da
+                // volta gasto; o que não é armazenamento segue adiante (achado do Codex na #81).
+                if (!ordemDosProntos.valeAFalha(esta)) {
+                    motivoDeArmazenamento(erro)
+                    return@launch
+                }
                 leituras.falhou(erro)
                 return@launch
             }
-            ajustes.update { it.copy(prontos = prontos) }
+            if (ordemDosProntos.aplicar(esta)) ajustes.update { it.copy(prontos = prontos) }
         }
     }
 
@@ -252,23 +266,38 @@ class SessaoViewModel(private val d: Dependencias, private val id: String) : Vie
      */
     fun abrirRetomada() {
         val sessao = estado.value.sessao ?: return
+        // Um toque durante a abertura não abre outra: ela leria de novo e reporia o que a pessoa já marcou (#81).
+        if (abrindoRetomada) return
+        abrindoRetomada = true
         viewModelScope.launch {
-            // Os agentes prontos saem das configurações, no Room: o armazenamento que falha é a falha de abrir (decisão 25).
-            val prontos = try {
-                withContext(Dispatchers.IO) { lerProntos() }
-            } catch (erro: Exception) {
-                eventos.send(Mensagem.DeRecurso(R.string.leitura_do_aparelho_falhou, listOf(motivoDeArmazenamento(erro))))
-                return@launch
+            try {
+                val esta = ordemDosProntos.comecar()
+                // Os agentes prontos saem das configurações, no Room: o armazenamento que falha é a falha de abrir (decisão 25).
+                val lidos = try {
+                    withContext(Dispatchers.IO) { lerProntos() }
+                } catch (erro: Exception) {
+                    val motivo = motivoDeArmazenamento(erro)
+                    // Superada por uma releitura mais nova que deu certo, a falha não decide: abre com os prontos dela (#81).
+                    if (ordemDosProntos.valeAFalha(esta)) {
+                        eventos.send(Mensagem.DeRecurso(R.string.leitura_do_aparelho_falhou, listOf(motivo)))
+                        return@launch
+                    }
+                    null
+                }
+                // Vale a leitura mais nova: uma da volta que terminou depois desta já pôs os prontos dela.
+                if (lidos != null && ordemDosProntos.aplicar(esta)) ajustes.update { it.copy(prontos = lidos) }
+                val prontos = ajustes.value.prontos
+                lider = Agentes.porChave(sessao.liderDoCiclo)
+                painel = sessao.agentesAtivos.filter { it in prontos }
+                novoTeto = if (sessao.status == Estados.LIMITE_DE_CUSTO) {
+                    sessao.tetoDeCustoUsd.max(sessao.custoObservadoUsd).setScale(0, RoundingMode.FLOOR).add(BigDecimal.ONE).toPlainString()
+                } else {
+                    ""
+                }
+                dialogoAberto = true
+            } finally {
+                abrindoRetomada = false
             }
-            ajustes.update { it.copy(prontos = prontos) }
-            lider = Agentes.porChave(sessao.liderDoCiclo)
-            painel = sessao.agentesAtivos.filter { it in prontos }
-            novoTeto = if (sessao.status == Estados.LIMITE_DE_CUSTO) {
-                sessao.tetoDeCustoUsd.max(sessao.custoObservadoUsd).setScale(0, RoundingMode.FLOOR).add(BigDecimal.ONE).toPlainString()
-            } else {
-                ""
-            }
-            dialogoAberto = true
         }
     }
 

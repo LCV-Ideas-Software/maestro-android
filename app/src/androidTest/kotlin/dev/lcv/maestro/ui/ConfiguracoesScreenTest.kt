@@ -4,6 +4,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
@@ -25,8 +26,10 @@ import dev.lcv.maestro.seguranca.Guarda
 import dev.lcv.maestro.seguranca.NivelDoCofre
 import dev.lcv.maestro.sessao.RepositorioDeConfiguracoes
 import java.math.BigDecimal
+import java.util.concurrent.CountDownLatch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.RuleChain
@@ -284,5 +287,52 @@ class ConfiguracoesScreenTest {
         Thread.sleep(1_000)
         regra.waitForIdle()
         regra.onNodeWithTag(Marcas.CAMPO_TETO).assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("7")))
+    }
+
+    // Rodada 3 da revisão da #81: as releituras desta tela, em ordem.
+
+    @Test
+    fun aFalhaDeUmaLeituraJaSuperadaPorOutraQueCarregouNaoAvisa() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        regra.abrir(c)
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        // A leitura da abertura das Configurações fica presa; a da volta seguinte carrega o formulário.
+        val trava = CountDownLatch(1)
+        c.bancoCheio.prenderLeitura("FROM configuracoes", depoisDe = 0, trava)
+        regra.onNodeWithTag(Marcas.IR_PARA_CONFIGURACOES).performClick()
+        regra.waitUntil(5_000) { c.bancoCheio.leituraPresa == null }
+        voltarATela()
+        regra.waitUntil(5_000) {
+            regra.onAllNodes(hasTestTag(Marcas.SALVAR_CONFIGURACOES) and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+        }
+        // A antiga, solta, falha.
+        val antes = c.bancoCheio.quebradas.get()
+        c.bancoCheio.leituraQuebrada = "FROM configuracoes"
+        trava.countDown()
+        regra.waitUntil(5_000) { c.bancoCheio.quebradas.get() > antes }
+        c.bancoCheio.leituraQuebrada = null
+        val avisou = runCatching { regra.waitUntil(3_000) { regra.onAllNodesWithText(aviso).fetchSemanticsNodes().isNotEmpty() } }
+        assertTrue("a leitura superada avisou", avisou.isFailure)
+    }
+
+    @Test
+    fun aReleituraAntigaDoCofreNaoRepoeAChaveRemovida() {
+        c.chaves(Provedor.CLAUDE)
+        abrirConfiguracoes()
+        esperarPilula(Provedor.CLAUDE, "configurada")
+        // A releitura da volta tira a foto (com a chave) e fica presa; a de depois da remoção vem depois e termina antes.
+        c.cofre.chavesPresas = CountDownLatch(1)
+        val presa = c.cofre.chavesPresas!!
+        voltarATela()
+        regra.waitUntil(5_000) { c.cofre.chavesPresas == null }
+        regra.onNodeWithTag(Marcas.removerChave(Provedor.CLAUDE)).performScrollTo().performClick()
+        esperarPilula(Provedor.CLAUDE, "não configurada")
+        presa.countDown()
+        Thread.sleep(1_000)
+        regra.waitForIdle()
+        esperarPilula(Provedor.CLAUDE, "não configurada")
+        regra.onAllNodes(hasText("configurada") and hasAnyAncestor(hasTestTag(Marcas.pilulaDaChave(Provedor.CLAUDE))))
+            .assertCountEquals(0)
     }
 }

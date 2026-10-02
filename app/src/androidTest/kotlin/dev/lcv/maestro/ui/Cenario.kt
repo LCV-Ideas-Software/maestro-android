@@ -90,7 +90,15 @@ internal class CofreFalso : CofreDaTela {
 
     @Volatile var trava: Boolean = true
 
-    override suspend fun chaves(): Map<Provedor, Boolean?> = synchronized(presentes) { presentes.toMap() }
+    /** Posta, a próxima leitura das chaves tira a foto e espera aqui antes de devolver: a releitura antiga e lenta (#81). */
+    @Volatile var chavesPresas: java.util.concurrent.CountDownLatch? = null
+
+    override suspend fun chaves(): Map<Provedor, Boolean?> {
+        val foto = synchronized(presentes) { presentes.toMap() }
+        val trava = synchronized(this) { chavesPresas.also { chavesPresas = null } }
+        trava?.await(10, java.util.concurrent.TimeUnit.SECONDS)
+        return foto
+    }
 
     override suspend fun guardar(provedor: Provedor, chave: String): Guarda {
         guardadas += provedor to chave

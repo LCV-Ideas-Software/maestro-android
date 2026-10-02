@@ -14,12 +14,16 @@ import kotlinx.coroutines.test.runTest
 class ReconciliacaoDaAberturaTest {
 
     @Test
-    fun `a falha do WorkManager da o motivo da causa, e sem causa o da propria excecao`() {
+    fun `a falha do WorkManager de armazenamento da o motivo da causa, e o resto segue adiante`() {
         val abertura = ReconciliacaoDaAbertura {}
+        // O usuário ainda bloqueado: sem causa. E uma causa que não é armazenamento. As duas seguem adiante (#81).
+        assertFailsWith<IllegalStateException> { abertura.falhouNoWorkManager(IllegalStateException("usuário bloqueado")) }
+        assertFailsWith<IllegalStateException> {
+            abertura.falhouNoWorkManager(IllegalStateException("embrulho", IllegalArgumentException("outra coisa")))
+        }
+        assertNull(abertura.falhaDoWorkManager.value)
         abertura.falhouNoWorkManager(IllegalStateException("embrulho", IOException("disco")))
         assertEquals("disco", abertura.falhaDoWorkManager.value?.motivo)
-        abertura.falhouNoWorkManager(IllegalStateException("sem causa"))
-        assertEquals("sem causa", abertura.falhaDoWorkManager.value?.motivo)
     }
 
     @Test

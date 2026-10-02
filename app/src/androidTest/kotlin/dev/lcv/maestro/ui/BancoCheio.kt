@@ -90,6 +90,11 @@ class BancoCheio(private val base: SupportSQLiteOpenHelper.Factory = FrameworkSQ
             if (leiturasAntes.getAndDecrement() <= 0) {
                 val trava = synchronized(this) { leituraPresa.also { leituraPresa = null } }
                 trava?.await(10, TimeUnit.SECONDS)
+                // Solta, a leitura confere de novo: a releitura antiga que falha depois de outra é o caso a reproduzir (#81).
+                if (leituraQuebrada?.let { sql.contains(it) } == true) {
+                    quebradas.incrementAndGet()
+                    throw SQLiteDiskIOException(MENSAGEM_DE_DISCO)
+                }
             }
         }
     }

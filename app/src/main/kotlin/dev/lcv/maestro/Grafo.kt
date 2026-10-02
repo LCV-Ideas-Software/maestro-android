@@ -74,23 +74,33 @@ class ReconciliacaoDaAbertura(private val reconciliar: suspend () -> Unit) {
     suspend fun executar() {
         // Antes da trava: a tela que nasce nesta entrada em primeiro plano não avisa a falha da entrada anterior.
         daReconciliacao.value = null
-        daReconciliacao.value = try {
-            Sincronia.reconciliacao.withLock { reconciliar() }
-            null
-        } catch (erro: Exception) {
-            Falha(R.string.reconciliacao_falhou, motivoDeArmazenamento(erro))
+        // O desfecho é gravado ainda sob a trava: a tentativa seguinte só começa depois, e o dela vem por cima (#81).
+        Sincronia.reconciliacao.withLock {
+            daReconciliacao.value = try {
+                reconciliar()
+                null
+            } catch (erro: Exception) {
+                Falha(R.string.reconciliacao_falhou, motivoDeArmazenamento(erro))
+            }
         }
     }
 
     /**
      * O `initializationExceptionHandler` do WorkManager: a biblioteca entrega aqui, numa `IllegalStateException`, a
-     * falha do SQLite que ela considera acionável ao iniciar o banco dela (`ForceStopRunnable`: no caminho principal
-     * depois de três tentativas; na migração do caminho do banco, sem tentar de novo); sem ele, a exceção derrubaria o
-     * processo. O filtro é o da biblioteca, não o [motivoDeArmazenamento]. Roda numa linha do WorkManager e nunca
-     * relança: o motivo é o da causa.
+     * falha que a impediu de iniciar o banco dela (`ForceStopRunnable`: no caminho principal depois de três tentativas;
+     * na migração do caminho do banco, sem tentar de novo; e, sem causa, o usuário ainda bloqueado). Quem decide é o
+     * classificador único: a causa de armazenamento vira o aviso, com o motivo dela; o resto, inclusive a falha sem
+     * causa, é relançado, como a biblioteca faria sem o gancho (achado na revisão da #81). Roda numa linha do
+     * WorkManager.
      */
     fun falhouNoWorkManager(erro: Throwable) {
-        doWorkManager.value = Falha(R.string.workmanager_falhou, (erro.cause ?: erro).message.orEmpty())
+        val causa = erro.cause as? Exception ?: throw erro
+        val motivo = try {
+            motivoDeArmazenamento(causa)
+        } catch (outra: Exception) {
+            throw erro
+        }
+        doWorkManager.value = Falha(R.string.workmanager_falhou, motivo)
     }
 }
 
