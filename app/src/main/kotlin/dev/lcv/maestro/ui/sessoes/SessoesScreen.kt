@@ -100,6 +100,10 @@ fun SessoesScreen(vm: SessoesViewModel, aoAbrirSessao: (String) -> Unit) {
             }
         }
     }
+    // Decisão 25 estendida (#80): a falha da abertura, só enquanto esta tela está composta.
+    LaunchedEffect(vm) {
+        vm.avisosDaAbertura.collect { avisos.mostrar(it.em(recursos)) }
+    }
 
     fun autenticarEIniciar() {
         autenticacao.pedir(aoAutenticar = vm::iniciar, aoRecusar = vm::autenticacaoRecusada)
@@ -157,16 +161,20 @@ fun SessoesScreen(vm: SessoesViewModel, aoAbrirSessao: (String) -> Unit) {
 @Composable
 private fun Metricas(estado: SessoesViewModel.Estado) {
     val recente = estado.sessoes.firstOrNull()
+    // O que nunca foi lido não aparece como "sem sessão", "0 / 6" ou "US$ 0.00": aparece como não lido (#80).
+    val naoLido = stringResource(R.string.metrica_nao_lida)
+    val listaIlegivel = estado.motivoDaLista != null && recente == null
+    val ajustesIlegiveis = estado.ajustesIlegiveis != null
     LinhaDeMetricas {
         CartaoDeMetrica(
             stringResource(R.string.metrica_sessao),
-            recente?.let { Rotulos.status(it.status) } ?: stringResource(R.string.metrica_sem_sessao),
+            if (listaIlegivel) naoLido else recente?.let { Rotulos.status(it.status) } ?: stringResource(R.string.metrica_sem_sessao),
             Marcas.METRICA_SESSAO,
             Modifier.weight(1f),
         )
         CartaoDeMetrica(
             stringResource(R.string.metrica_com_o_trabalho),
-            Rotulos.agente(estado.agenteAtivo),
+            if (listaIlegivel) naoLido else Rotulos.agente(estado.agenteAtivo),
             Marcas.METRICA_COM_O_TRABALHO,
             Modifier.weight(1f),
         )
@@ -174,13 +182,13 @@ private fun Metricas(estado: SessoesViewModel.Estado) {
     LinhaDeMetricas {
         CartaoDeMetrica(
             stringResource(R.string.metrica_agentes_prontos),
-            stringResource(R.string.metrica_agentes_prontos_valor, estado.prontos.size, Provedor.entries.size),
+            if (ajustesIlegiveis) naoLido else stringResource(R.string.metrica_agentes_prontos_valor, estado.prontos.size, Provedor.entries.size),
             Marcas.METRICA_AGENTES_PRONTOS,
             Modifier.weight(1f),
         )
         CartaoDeMetrica(
             stringResource(R.string.metrica_teto),
-            stringResource(R.string.valor_usd, Formatos.usd(estado.configuracoes?.tetoDeCustoUsd ?: BigDecimal.ZERO, 2)),
+            if (ajustesIlegiveis) naoLido else stringResource(R.string.valor_usd, Formatos.usd(estado.configuracoes?.tetoDeCustoUsd ?: BigDecimal.ZERO, 2)),
             Marcas.METRICA_TETO,
             Modifier.weight(1f),
         )
@@ -284,7 +292,17 @@ private fun NovaSessao(vm: SessoesViewModel, estado: SessoesViewModel.Estado, au
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(agente.rotulo, fontWeight = FontWeight.Bold, color = Tema.cores.texto)
-                        Legenda(stringResource(if (pronto) R.string.agente_pronto else R.string.agente_configure))
+                        Legenda(
+                            stringResource(
+                                when {
+                                    pronto -> R.string.agente_pronto
+                                    // Sem as configurações lidas, "configure" seria falso (#80).
+                                    estado.ajustesIlegiveis != null -> R.string.agente_nao_lido
+                                    else -> R.string.agente_configure
+                                },
+                            ),
+                            modifier = Modifier.testTag(Marcas.legendaDoAgente(agente)),
+                        )
                     }
                     Checkbox(
                         checked = agente in vm.colegiado,
@@ -311,6 +329,13 @@ private fun NovaSessao(vm: SessoesViewModel, estado: SessoesViewModel.Estado, au
                 )
             }
         }
+        // Decisão 25 estendida (#80): sem as configurações lidas, os cartões e o colegiado não são os gravados; o motivo aqui.
+        estado.ajustesIlegiveis?.let { motivo ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+                Icon(painterResource(R.drawable.simbolo_warning), contentDescription = null, tint = Tema.cores.erro, modifier = Modifier.size(18.dp))
+                Legenda(stringResource(R.string.tela_sem_leitura, motivo), modifier = Modifier.testTag(Marcas.AJUSTES_ILEGIVEIS))
+            }
+        }
         BotaoPrimario(
             stringResource(R.string.acao_iniciar),
             aoIniciar,
@@ -326,7 +351,12 @@ private fun Recentes(estado: SessoesViewModel.Estado, aoAbrirSessao: (String) ->
     Cartao {
         Cabecalho(R.drawable.simbolo_groups, stringResource(R.string.historico), stringResource(R.string.sessoes_recentes))
         if (estado.sessoes.isEmpty()) {
-            VazioDeResultado(stringResource(R.string.nenhuma_sessao))
+            // A lista que nunca se leu não é "nenhuma sessão": o motivo (decisão 25 estendida, #80).
+            val motivo = estado.motivoDaLista
+            VazioDeResultado(
+                if (motivo == null) stringResource(R.string.nenhuma_sessao) else stringResource(R.string.tela_sem_leitura, motivo),
+                modifier = Modifier.testTag(Marcas.RECENTES_VAZIO),
+            )
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(Tema.espacos.entreLinhas)) {
                 estado.sessoes.forEach { sessao ->

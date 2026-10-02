@@ -58,6 +58,9 @@ class BancoCheio(private val base: SupportSQLiteOpenHelper.Factory = FrameworkSQ
      * Posta, a leitura da tabela [tabelaDaLeituraPresa] depois de [leiturasAntes] outras dela espera a trava, uma
      * vez só: uma releitura que já leu parte da tela e termina depois de outra.
      */
+    /** Quantas leituras a [leituraQuebrada] já quebrou: prova que uma leitura que falhou não é refeita antes da volta. */
+    val quebradas = java.util.concurrent.atomic.AtomicInteger(0)
+
     @Volatile var leituraPresa: CountDownLatch? = null
     @Volatile var tabelaDaLeituraPresa: String? = null
     private val leiturasAntes = java.util.concurrent.atomic.AtomicInteger(0)
@@ -69,7 +72,10 @@ class BancoCheio(private val base: SupportSQLiteOpenHelper.Factory = FrameworkSQ
     }
 
     private fun conferirLeitura(sql: String) {
-        if (leituraQuebrada?.let { sql.contains(it) } == true) throw SQLiteDiskIOException(MENSAGEM_DE_DISCO)
+        if (leituraQuebrada?.let { sql.contains(it) } == true) {
+            quebradas.incrementAndGet()
+            throw SQLiteDiskIOException(MENSAGEM_DE_DISCO)
+        }
         val lidas = lidasDepoisDaEscrita.get()
         if (lidas != null && releituraQuebrada?.let { sql.contains(it) } == true) {
             if (lidas < releiturasAntes) {
@@ -84,6 +90,11 @@ class BancoCheio(private val base: SupportSQLiteOpenHelper.Factory = FrameworkSQ
             if (leiturasAntes.getAndDecrement() <= 0) {
                 val trava = synchronized(this) { leituraPresa.also { leituraPresa = null } }
                 trava?.await(10, TimeUnit.SECONDS)
+                // Solta, a leitura confere de novo: a releitura antiga que falha depois de outra é o caso a reproduzir (#81).
+                if (leituraQuebrada?.let { sql.contains(it) } == true) {
+                    quebradas.incrementAndGet()
+                    throw SQLiteDiskIOException(MENSAGEM_DE_DISCO)
+                }
             }
         }
     }

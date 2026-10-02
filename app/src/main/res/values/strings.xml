@@ -21,6 +21,7 @@
     <!-- Cartões de métrica (web) -->
     <string name="metrica_sessao">Sessão</string>
     <string name="metrica_sem_sessao">Sem sessão</string>
+    <string name="metrica_nao_lida">Não lido</string>
     <string name="metrica_com_o_trabalho">Com o trabalho agora</string>
     <string name="metrica_agentes_prontos">Agentes prontos</string>
     <string name="metrica_agentes_prontos_valor">%1$d / %2$d</string>
@@ -43,6 +44,7 @@
     <string name="campo_colegiado">Colegiado participante</string>
     <string name="agente_pronto">pronto</string>
     <string name="agente_configure">configure chave e valores em Configurações</string>
+    <string name="agente_nao_lido">configuração não lida</string>
     <string name="acao_iniciar">Iniciar sessão</string>
     <string name="iniciada">Sessão Maestro AI iniciada.</string>
     <string name="erro_pedido_vazio">Descreva o trabalho editorial antes de iniciar.</string>
@@ -120,6 +122,9 @@
     <string name="leitura_falhou">Não foi possível reler a lista de links; ela ficou como estava. Motivo: %1$s</string>
     <string name="gravacao_falhou">Não foi possível gravar no aparelho. Motivo: %1$s</string>
     <string name="leitura_do_aparelho_falhou">Não foi possível ler os dados do aparelho. Motivo: %1$s</string>
+    <string name="tela_sem_leitura">Não foi possível ler os dados desta tela; ela tenta de novo quando você voltar a ela. Motivo: %1$s</string>
+    <string name="reconciliacao_falhou">Não foi possível concluir a conferência da abertura do aplicativo; ela se repete na próxima vez que o aplicativo voltar ao primeiro plano. Motivo: %1$s</string>
+    <string name="workmanager_falhou">O agendador do Android, que executa as sessões em segundo plano, não conseguiu iniciar o próprio banco de dados. Motivo: %1$s</string>
 
     <!-- Anexos e manifesto de citações (especificação, seção 2.2) -->
     <string name="anexos">Anexos</string>

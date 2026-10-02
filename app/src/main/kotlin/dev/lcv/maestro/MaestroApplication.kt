@@ -18,7 +18,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.withLock
 
 /**
  * A raiz do processo (decisão 18 do operador, 28/09/2026: sem Hilt — a
@@ -42,6 +41,8 @@ class MaestroApplication : Application(), Configuration.Provider {
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(FabricaDeTrabalhos { Fabrica.doProcesso ?: error("a Fabrica ainda nao foi instalada") })
+            // Decisão 25 estendida (#80): o banco do WorkManager que falha ao iniciar é aviso na tela inicial, não queda.
+            .setInitializationExceptionHandler { erro -> abertura.falhouNoWorkManager(erro) }
             .build()
 
     lateinit var cofre: CofreDeChaves
@@ -52,6 +53,9 @@ class MaestroApplication : Application(), Configuration.Provider {
 
     private val escopo = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** A reconciliação a cada entrada em primeiro plano; lê [grafo] só quando roda, depois de [onCreate]. */
+    val abertura = ReconciliacaoDaAbertura { grafo.reconciliacao.naAbertura() }
+
     override fun onCreate() {
         super.onCreate()
         cofre = CofreDeChaves.criar(this, JANELA_DE_AUTENTICACAO)
@@ -60,7 +64,7 @@ class MaestroApplication : Application(), Configuration.Provider {
         ProcessLifecycleOwner.get().lifecycle.addObserver(
             object : DefaultLifecycleObserver {
                 override fun onStart(owner: LifecycleOwner) {
-                    escopo.launch { Sincronia.reconciliacao.withLock { grafo.reconciliacao.naAbertura() } }
+                    escopo.launch { abertura.executar() }
                 }
             },
         )

@@ -8,6 +8,7 @@ import android.app.KeyguardManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import androidx.annotation.StringRes
 import androidx.core.net.toUri
 import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.provedores.ImportacaoDoOperador
@@ -25,8 +26,16 @@ import dev.lcv.maestro.sessao.RepositorioDeConfiguracoes
 import dev.lcv.maestro.sessao.RepositorioDeSessoes
 import dev.lcv.maestro.sessao.Retomada
 import dev.lcv.maestro.sessao.TesteDeChaves
+import dev.lcv.maestro.sessao.motivoDeArmazenamento
 import java.time.Instant
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Uma trava só para a reconciliação da abertura e para o par
@@ -36,6 +45,63 @@ import kotlinx.coroutines.sync.Mutex
  */
 object Sincronia {
     val reconciliacao = Mutex()
+}
+
+/**
+ * A reconciliação da abertura (especificação, seção 4.3), sob a trava da [Sincronia], a cada entrada em primeiro plano,
+ * e a inicialização do WorkManager. Decisão 25 do operador, estendida em 30/09/2026 (#80): o armazenamento que falha
+ * numa ou noutra não derruba o aplicativo. Vira uma [Falha], que a tela inicial avisa, e a próxima entrada em primeiro
+ * plano tenta a reconciliação de novo. Na reconciliação, qualquer outra exceção, inclusive o cancelamento, segue adiante.
+ */
+class ReconciliacaoDaAbertura(private val reconciliar: suspend () -> Unit) {
+
+    /** Uma por tentativa, sem igualdade de valor: duas falhas seguidas com o mesmo motivo são dois avisos. */
+    class Falha(@StringRes val mensagem: Int, val motivo: String)
+
+    private val daReconciliacao = MutableStateFlow<Falha?>(null)
+    private val doWorkManager = MutableStateFlow<Falha?>(null)
+
+    /** O desfecho da tentativa mais recente da reconciliação: `null` enquanto ela corre e quando deu certo. */
+    val falhaDaReconciliacao: StateFlow<Falha?> = daReconciliacao.asStateFlow()
+
+    /** A inicialização do WorkManager que não abriu o banco dele; vale para o processo todo. */
+    val falhaDoWorkManager: StateFlow<Falha?> = doWorkManager.asStateFlow()
+
+    /** As duas, para a tela inicial avisar: quem coleta de novo recebe as que ainda valem. */
+    val falhas: Flow<Falha> = merge(daReconciliacao.filterNotNull(), doWorkManager.filterNotNull())
+
+    /** Bloqueante no Room e no WorkManager: chamar em `Dispatchers.IO`. */
+    suspend fun executar() {
+        // Antes da trava: a tela que nasce nesta entrada em primeiro plano não avisa a falha da entrada anterior.
+        daReconciliacao.value = null
+        // O desfecho é gravado ainda sob a trava: a tentativa seguinte só começa depois, e o dela vem por cima (#81).
+        Sincronia.reconciliacao.withLock {
+            daReconciliacao.value = try {
+                reconciliar()
+                null
+            } catch (erro: Exception) {
+                Falha(R.string.reconciliacao_falhou, motivoDeArmazenamento(erro))
+            }
+        }
+    }
+
+    /**
+     * O `initializationExceptionHandler` do WorkManager: a biblioteca entrega aqui, numa `IllegalStateException`, a
+     * falha que a impediu de iniciar o banco dela (`ForceStopRunnable`: no caminho principal depois de três tentativas;
+     * na migração do caminho do banco, sem tentar de novo; e, sem causa, o usuário ainda bloqueado). Quem decide é o
+     * classificador único: a causa de armazenamento vira o aviso, com o motivo dela; o resto, inclusive a falha sem
+     * causa, é relançado, como a biblioteca faria sem o gancho (achado na revisão da #81). Roda numa linha do
+     * WorkManager.
+     */
+    fun falhouNoWorkManager(erro: Throwable) {
+        val causa = erro.cause as? Exception ?: throw erro
+        val motivo = try {
+            motivoDeArmazenamento(causa)
+        } catch (outra: Exception) {
+            throw erro
+        }
+        doWorkManager.value = Falha(R.string.workmanager_falhou, motivo)
+    }
 }
 
 /**
@@ -128,6 +194,8 @@ class Dependencias(
     /** A busca de evidências (Crossref e OpenAlex) com o e-mail de contato atual; lê o Room, então fora da linha principal. */
     val busca: () -> BuscaDaTela,
     val navegador: Navegador,
+    /** As falhas da reconciliação da abertura e da inicialização do WorkManager, que a tela inicial avisa (#80). */
+    val falhasDaAbertura: Flow<ReconciliacaoDaAbertura.Falha>,
     val relogio: () -> Instant = Instant::now,
 ) {
     companion object {
@@ -146,6 +214,7 @@ class Dependencias(
                 importacao = grafo.importacao,
                 busca = { grafo.buscaDeEvidencias().let { BuscaDaTela(it, it::cancelarTudo) } },
                 navegador = Navegador.DO_SISTEMA,
+                falhasDaAbertura = aplicativo.abertura.falhas,
             )
         }
     }

@@ -6,4 +6,6 @@
     <string name="maestro_sessao_progresso">Rodada %1$d · %2$s · US$ %3$s</string>
     <string name="maestro_sessao_sem_agente">aguardando o primeiro turno</string>
     <string name="maestro_sessao_cancelar">Cancelar sessão</string>
+    <string name="maestro_sessao_cancelamento_falhou_titulo">Cancelamento não gravado</string>
+    <string name="maestro_sessao_cancelamento_falhou">O cancelamento pedido pela notificação não foi gravado, e a sessão seguiu como estava. Motivo: %1$s</string>
 </resources>

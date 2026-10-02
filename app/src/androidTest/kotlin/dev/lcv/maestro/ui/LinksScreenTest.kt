@@ -10,11 +10,14 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
+import androidx.lifecycle.Lifecycle
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.lcv.maestro.protocolo.ClassificacaoDoLink
 import dev.lcv.maestro.protocolo.EstadoDaEvidencia
@@ -660,5 +663,88 @@ class LinksScreenTest {
         const val TEXTO = "Primeira fonte em [Relatório oficial]($RELATORIO) e segunda em [Base interna]($INTERNO)."
         const val NOVA = "https://exemplo.org/nova"
         const val TEXTO_NOVO = "O texto reescrito cita só a [Fonte nova]($NOVA)."
+    }
+
+    // Decisão 25 do operador, estendida em 30/09/2026 (#80): as leituras de abrir e voltar à tela e a observação.
+
+    private val avisoGeral = "Não foi possível ler os dados do aparelho. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}"
+    private val noLugar = "Não foi possível ler os dados desta tela; ela tenta de novo quando você voltar a ela. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}"
+
+    /** A tela ao segundo plano e de volta: só o ON_RESUME relê. */
+    private fun voltarATela() {
+        regra.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
+        regra.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+    }
+
+    private fun esperarMotivoNoLugar() {
+        regra.waitUntil(5_000) { regra.onAllNodes(hasTestTag(Marcas.LEITURA_FALHOU) and hasText(noLugar)).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test
+    fun aListaQueNaoSeLeAoAbrirMostraOMotivoNoLugarEVoltaNaVoltaDaTela() {
+        val id = sessaoComLinks()
+        val alvo = linha(id, RELATORIO)
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.ABRIR_LINKS)
+        c.bancoCheio.leituraQuebrada = "FROM links"
+        regra.onNodeWithTag(Marcas.ABRIR_LINKS).performScrollTo().performClick()
+        esperarMotivoNoLugar()
+        regra.esperarTexto(avisoGeral)
+        c.bancoCheio.leituraQuebrada = null
+        voltarATela()
+        esperarTag(Marcas.link(alvo.linkId))
+        regra.onNodeWithTag(Marcas.LEITURA_FALHOU).assertDoesNotExist()
+    }
+
+    @Test
+    fun aSessaoQueNaoSeLeNosLinksMostraOMotivoNoLugar() {
+        val id = sessaoComLinks()
+        val alvo = linha(id, RELATORIO)
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.ABRIR_LINKS)
+        c.bancoCheio.leituraQuebrada = "FROM sessoes WHERE id"
+        regra.onNodeWithTag(Marcas.ABRIR_LINKS).performScrollTo().performClick()
+        esperarMotivoNoLugar()
+        regra.esperarTexto(avisoGeral)
+        regra.onNodeWithText("Sessão não encontrada.").assertDoesNotExist()
+        c.bancoCheio.leituraQuebrada = null
+        voltarATela()
+        esperarTag(Marcas.link(alvo.linkId))
+    }
+
+    @Test
+    fun aAcaoReabreOAvisoDaReleituraQueFalhaNaMesmaVolta() {
+        val id = sessaoComLinks()
+        abrirOLink(id, RELATORIO)
+        val releitura = "Não foi possível reler a lista de links; ela ficou como estava. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}"
+        c.bancoCheio.leituraQuebrada = "FROM links"
+        voltarATela()
+        regra.esperarTexto(releitura)
+        regra.waitUntil(15_000) { regra.onAllNodesWithText(releitura).fetchSemanticsNodes().isEmpty() }
+        regra.onNodeWithTag(Marcas.ABRIR_NO_NAVEGADOR).performScrollTo().performClick()
+        regra.esperarTexto(releitura)
+        c.bancoCheio.leituraQuebrada = null
+    }
+
+    @Test
+    fun aReleituraQueFalhouNaoERefeitaACadaGravacaoDaMesmaVolta() {
+        val id = sessaoComLinks()
+        abrirOLink(id, RELATORIO)
+        val releitura = "Não foi possível reler a lista de links; ela ficou como estava. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}"
+        c.bancoCheio.leituraQuebrada = "FROM links"
+        voltarATela()
+        regra.esperarTexto(releitura)
+        Thread.sleep(1_000)
+        regra.waitForIdle()
+        val antes = c.bancoCheio.quebradas.get()
+        // A auditoria de outra sessão grava nas mesmas tabelas: a releitura que falhou espera a volta.
+        c.tocarLinks()
+        c.tocarLinks()
+        Thread.sleep(1_000)
+        regra.waitForIdle()
+        assertEquals(antes, c.bancoCheio.quebradas.get())
+        voltarATela()
+        regra.waitUntil(5_000) { c.bancoCheio.quebradas.get() > antes }
+        c.bancoCheio.leituraQuebrada = null
     }
 }

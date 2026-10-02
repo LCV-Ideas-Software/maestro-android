@@ -1,5 +1,7 @@
 package dev.lcv.maestro.ui
 
+import android.database.sqlite.SQLiteDiskIOException
+import androidx.activity.ComponentActivity
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsOff
@@ -8,7 +10,7 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -17,20 +19,24 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
+import androidx.lifecycle.Lifecycle
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.WorkInfo
 import dev.lcv.maestro.Sincronia
 import dev.lcv.maestro.provedores.Provedor
+import dev.lcv.maestro.sessao.CancelamentoDaSessao
 import dev.lcv.maestro.sessao.Dinheiro
 import dev.lcv.maestro.sessao.Estados
 import dev.lcv.maestro.sessao.RepositorioDeSessoes
 import java.math.BigDecimal
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
-import org.junit.rules.RuleChain
 import org.junit.Test
+import org.junit.rules.RuleChain
 import org.junit.runner.RunWith
 
 /**
@@ -42,7 +48,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class SessaoScreenTest {
 
-    val regra = createComposeRule()
+    val regra = createAndroidComposeRule<ComponentActivity>()
 
     private val c = Cenario()
 
@@ -397,5 +403,316 @@ class SessaoScreenTest {
     fun sessaoInexistenteDizQueNaoFoiEncontrada() {
         regra.abrir(c, sessaoPedida = "android-inexistente")
         regra.esperarTexto("Sessão não encontrada.")
+        regra.onNodeWithTag(Marcas.LEITURA_FALHOU).assertDoesNotExist()
+    }
+
+    // Decisão 25 do operador, estendida em 30/09/2026 (#80): as leituras de abrir e voltar à tela e a observação.
+    // "Aviso e segue": o aviso com o motivo, a tela fica com o que mostrava (ou o motivo no lugar, se nunca leu), e a
+    // volta da tela ao primeiro plano lê de novo.
+
+    private val aviso = "Não foi possível ler os dados do aparelho. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}"
+    private val noLugar = "Não foi possível ler os dados desta tela; ela tenta de novo quando você voltar a ela. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}"
+
+    /** A tela ao segundo plano e de volta: STARTED mantém a coleta viva, e só o ON_RESUME relê. */
+    private fun voltarATela() {
+        regra.activityRule.scenario.moveToState(Lifecycle.State.STARTED)
+        regra.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+    }
+
+    private fun esperarNaMarca(marca: String, texto: String) {
+        regra.waitUntil(5_000) { regra.onAllNodes(hasTestTag(marca) and hasText(texto)).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    /** Espera o aviso passageiro sair da tela: a fila do Snackbar mostra um de cada vez. */
+    private fun esperarAvisoSair(texto: String) {
+        regra.waitUntil(15_000) { regra.onAllNodesWithText(texto, substring = true).fetchSemanticsNodes().isEmpty() }
+    }
+
+    @Test
+    fun aSessaoQueNaoSeLeAoAbrirMostraOMotivoNoLugarESoVoltaNaVoltaDaTela() {
+        val id = c.sessao(Estados.RODANDO)
+        c.bancoCheio.leituraQuebrada = "FROM sessoes WHERE id"
+        regra.abrir(c, sessaoPedida = id)
+        esperarNaMarca(Marcas.LEITURA_FALHOU, noLugar)
+        regra.esperarTexto(aviso)
+        regra.onNodeWithText("Sessão não encontrada.").assertDoesNotExist()
+        c.bancoCheio.leituraQuebrada = null
+        // Sem a volta da tela, a sessão não é relida: nada de laço.
+        Thread.sleep(1_000)
+        regra.waitForIdle()
+        regra.onNodeWithTag(Marcas.METRICA_SESSAO).assertDoesNotExist()
+        voltarATela()
+        esperarTag(Marcas.METRICA_SESSAO)
+        regra.onNodeWithTag(Marcas.LEITURA_FALHOU).assertDoesNotExist()
+    }
+
+    @Test
+    fun aSessaoQueCaiDepoisDeLidaFicaComoEstavaEVoltaNaVoltaDaTela() {
+        val id = c.sessao(Estados.RODANDO)
+        c.evento(id, "running", "Evento de antes", Provedor.CODEX)
+        regra.abrir(c, sessaoPedida = id)
+        regra.esperarTexto("Evento de antes", substring = true)
+        c.bancoCheio.leituraQuebrada = "FROM eventos WHERE sessaoId"
+        c.evento(id, "running", "Evento de depois", Provedor.CODEX)
+        regra.esperarTexto(aviso)
+        regra.onNodeWithTag(Marcas.METRICA_SESSAO).assertTextEquals("Em execução")
+        regra.onNodeWithText("Evento de depois", substring = true).assertDoesNotExist()
+        regra.onNodeWithTag(Marcas.LEITURA_FALHOU).assertDoesNotExist()
+        c.bancoCheio.leituraQuebrada = null
+        voltarATela()
+        regra.esperarTexto("Evento de depois", substring = true)
+    }
+
+    @Test
+    fun osAutosQueNaoSeLeemAoAbrirMostramOMotivoNoLugarEORestoDaSessaoSegue() {
+        val id = c.sessao(Estados.RODANDO)
+        c.artefato(id, 1, Provedor.CLAUDE, "Primeira versão do texto.")
+        c.bancoCheio.leituraQuebrada = "bytesDoConteudo"
+        regra.abrir(c, sessaoPedida = id)
+        esperarNaMarca(Marcas.FALHA_DOS_AUTOS, noLugar)
+        regra.esperarTexto(aviso)
+        regra.onNodeWithTag(Marcas.METRICA_SESSAO).assertTextEquals("Em execução")
+        regra.onNodeWithText("Os artefatos aparecerão aqui", substring = true).assertDoesNotExist()
+        c.bancoCheio.leituraQuebrada = null
+        voltarATela()
+        regra.waitUntil(5_000) {
+            regra.onAllNodes(hasText("Primeira versão do texto.", substring = true) and hasAnyAncestor(hasTestTag(Marcas.CONTEUDO_DA_ABA)))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        regra.onNodeWithTag(Marcas.FALHA_DOS_AUTOS).assertDoesNotExist()
+    }
+
+    @Test
+    fun oArtefatoQueNaoSeLeMostraOMotivoNoLugarEOToqueAvisaDeNovo() {
+        val id = c.sessao(Estados.RODANDO)
+        val primeiro = c.artefato(id, 1, Provedor.CLAUDE, "Primeira versão do texto.")
+        c.artefato(id, 2, Provedor.CODEX, "Segunda versão do texto.", anterior = primeiro)
+        c.bancoCheio.leituraQuebrada = "AND id = ?"
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.artefato(primeiro))
+        esperarNaMarca(Marcas.FALHA_DOS_AUTOS, noLugar)
+        regra.esperarTexto(aviso)
+        esperarAvisoSair(aviso)
+        // Um toque é um pedido novo: o aviso sai de novo na mesma volta da tela.
+        regra.onNodeWithTag(Marcas.artefato(primeiro)).performScrollTo().performClick()
+        regra.esperarTexto(aviso)
+        c.bancoCheio.leituraQuebrada = null
+        voltarATela()
+        regra.waitUntil(5_000) {
+            regra.onAllNodes(hasText("Primeira versão do texto.", substring = true) and hasAnyAncestor(hasTestTag(Marcas.CONTEUDO_DA_ABA)))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        regra.onNodeWithTag(Marcas.FALHA_DOS_AUTOS).assertDoesNotExist()
+    }
+
+    @Test
+    fun oArtefatoJaMostradoFicaQuandoOutroNaoSeLe() {
+        val id = c.sessao(Estados.RODANDO)
+        val primeiro = c.artefato(id, 1, Provedor.CLAUDE, "Primeira versão do texto.")
+        c.artefato(id, 2, Provedor.CODEX, "Segunda versão do texto.", anterior = primeiro)
+        regra.abrir(c, sessaoPedida = id)
+        regra.waitUntil(5_000) { regra.onAllNodes(hasText("Segunda versão do texto.", substring = true) and hasAnyAncestor(hasTestTag(Marcas.CONTEUDO_DA_ABA))).fetchSemanticsNodes().isNotEmpty() }
+        c.bancoCheio.leituraQuebrada = "AND id = ?"
+        regra.onNodeWithTag(Marcas.artefato(primeiro)).performScrollTo().performClick()
+        regra.esperarTexto(aviso)
+        naAba("Segunda versão do texto.").assertExists()
+        regra.onNodeWithTag(Marcas.FALHA_DOS_AUTOS).assertDoesNotExist()
+        c.bancoCheio.leituraQuebrada = null
+        voltarATela()
+        regra.waitUntil(5_000) { regra.onAllNodes(hasText("Primeira versão do texto.", substring = true) and hasAnyAncestor(hasTestTag(Marcas.CONTEUDO_DA_ABA))).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test
+    fun aParadaQueNaoSeLeNoWorkManagerFicaComORotuloEAvisaComACausa() {
+        c.agendador.parada = WorkInfo.STOP_REASON_TIMEOUT
+        val id = c.sessao(Estados.ERRO, erro = "A execução parou.", teto = "5", custo = "1")
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.PARADA_PELO_SISTEMA)
+        // O `get()` do futuro do WorkManager embrulha o erro do banco dele: o aviso dá a causa.
+        c.agendador.falhaAoConsultar = ExecutionException(SQLiteDiskIOException(BancoCheio.MENSAGEM_DE_DISCO))
+        voltarATela()
+        regra.esperarTexto(aviso)
+        // Já na emissão da falha, antes de qualquer outra, a tela fica com o rótulo que mostrava.
+        regra.waitForIdle()
+        Thread.sleep(500)
+        regra.onNodeWithTag(Marcas.PARADA_PELO_SISTEMA).assertTextEquals("Última parada registrada pelo sistema: tempo limite do servico dataSync")
+        // A parada que não se lê não congela o resto da sessão: o custo segue ao vivo.
+        c.sessoes.somarCusto(id, BigDecimal("0.5"))
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("US$ 1.50 / teto US$ 5.00").fetchSemanticsNodes().isNotEmpty() }
+        c.agendador.falhaAoConsultar = null
+        regra.onNodeWithTag(Marcas.PARADA_PELO_SISTEMA).assertTextEquals("Última parada registrada pelo sistema: tempo limite do servico dataSync")
+        regra.onNodeWithTag(Marcas.METRICA_SESSAO).assertExists()
+    }
+
+    @Test
+    fun osAgentesProntosQueNaoSeLeemNaVoltaSaoAvisados() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        val id = c.sessao(Estados.RODANDO)
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.CANCELAR)
+        c.bancoCheio.leituraQuebrada = "FROM configuracoes"
+        voltarATela()
+        regra.esperarTexto(aviso)
+        c.bancoCheio.leituraQuebrada = null
+        regra.onNodeWithTag(Marcas.CANCELAR).assertExists()
+    }
+
+    @Test
+    fun umDiscoQueDerrubaVariasLeiturasDaUmAvisoPorVoltaDaTela() {
+        c.configurar()
+        c.agendador.parada = WorkInfo.STOP_REASON_TIMEOUT
+        val id = c.sessao(Estados.ERRO, erro = "A execução parou.")
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.PARADA_PELO_SISTEMA)
+        // A volta relê os prontos (configurações) e a parada (WorkManager): as duas falham, e sai um aviso só.
+        c.bancoCheio.leituraQuebrada = "FROM configuracoes"
+        c.agendador.falhaAoConsultar = ExecutionException(SQLiteDiskIOException(BancoCheio.MENSAGEM_DE_DISCO))
+        voltarATela()
+        regra.esperarTexto(aviso)
+        esperarAvisoSair(aviso)
+        val segundo = runCatching { regra.waitUntil(2_000) { regra.onAllNodesWithText(aviso).fetchSemanticsNodes().isNotEmpty() } }
+        assertTrue("a mesma volta deu um segundo aviso", segundo.isFailure)
+        // Na volta seguinte, as leituras falham de novo, e sai um aviso novo.
+        voltarATela()
+        regra.esperarTexto(aviso)
+        c.bancoCheio.leituraQuebrada = null
+        c.agendador.falhaAoConsultar = null
+    }
+
+    @Test
+    fun oCancelamentoPelaNotificacaoQueNaoGravaAvisaEDeixaOTrabalhoSeguir() {
+        val id = c.sessao(Estados.RODANDO)
+        val motivos = mutableListOf<String>()
+        c.bancoCheio.cheio = true
+        CancelamentoDaSessao.cancelar(id, c.sessoes, c.agendador) { motivos += it }
+        c.bancoCheio.cheio = false
+        assertEquals(listOf(BancoCheio.MENSAGEM), motivos)
+        assertEquals(Estados.RODANDO, c.sessoes.carregar(id)?.status)
+        assertTrue(c.agendador.canceladas.isEmpty())
+        // O controle: gravado o cancelamento, o trabalho é cancelado, e não há aviso.
+        CancelamentoDaSessao.cancelar(id, c.sessoes, c.agendador) { motivos += it }
+        assertEquals(listOf(BancoCheio.MENSAGEM), motivos)
+        assertEquals(listOf(id to Estados.CANCELADA), c.agendador.canceladas.toList())
+    }
+
+    @Test
+    fun aParadaDeUmaExecucaoAnteriorNaoVoltaQuandoADoNovoErroNaoSeLe() {
+        c.agendador.parada = WorkInfo.STOP_REASON_TIMEOUT
+        val id = c.sessao(Estados.ERRO, erro = "A execução parou.")
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.PARADA_PELO_SISTEMA)
+        // Retomada, a sessão sai do erro; depois cai de novo, e a parada no WorkManager não se lê.
+        c.banco.sessoes().mudarStatus(id, listOf(Estados.ERRO), Estados.RODANDO, null, c.agora(), null)
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.PARADA_PELO_SISTEMA).fetchSemanticsNodes().isEmpty() }
+        c.agendador.falhaAoConsultar = ExecutionException(SQLiteDiskIOException(BancoCheio.MENSAGEM_DE_DISCO))
+        c.banco.sessoes().mudarStatus(id, listOf(Estados.RODANDO), Estados.ERRO, "Outra parada.", c.agora(), null)
+        regra.esperarTexto(aviso)
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("Outra parada.").fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.PARADA_PELO_SISTEMA).assertDoesNotExist()
+        c.agendador.falhaAoConsultar = null
+    }
+
+    // Rodada 1 da revisão da #81.
+
+    @Test
+    fun tocarDeNovoNoArtefatoQueFalhouLeDeNovoEAvisaDeNovo() {
+        val id = c.sessao(Estados.RODANDO)
+        val primeiro = c.artefato(id, 1, Provedor.CLAUDE, "Primeira versão do texto.")
+        val segundo = c.artefato(id, 2, Provedor.CODEX, "Segunda versão do texto.", anterior = primeiro)
+        c.bancoCheio.leituraQuebrada = "AND id = ?"
+        regra.abrir(c, sessaoPedida = id)
+        esperarNaMarca(Marcas.FALHA_DOS_AUTOS, noLugar)
+        regra.esperarTexto(aviso)
+        esperarAvisoSair(aviso)
+        // O artefato que falhou ao abrir (o último), tocado duas vezes: cada toque é um pedido novo e avisa de novo.
+        repeat(2) {
+            regra.onNodeWithTag(Marcas.artefato(segundo)).performScrollTo().performClick()
+            regra.esperarTexto(aviso)
+            esperarAvisoSair(aviso)
+        }
+        // Com o disco de volta, o toque lê sem esperar a volta da tela.
+        c.bancoCheio.leituraQuebrada = null
+        regra.onNodeWithTag(Marcas.artefato(segundo)).performScrollTo().performClick()
+        regra.waitUntil(5_000) {
+            regra.onAllNodes(hasText("Segunda versão do texto.", substring = true) and hasAnyAncestor(hasTestTag(Marcas.CONTEUDO_DA_ABA)))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    @Test
+    fun aParadaQueFalhouSoEConsultadaDeNovoNaVoltaOuNumErroNovo() {
+        c.agendador.parada = WorkInfo.STOP_REASON_TIMEOUT
+        val id = c.sessao(Estados.ERRO, erro = "A execução parou.", teto = "5", custo = "1")
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.PARADA_PELO_SISTEMA)
+        c.agendador.falhaAoConsultar = ExecutionException(SQLiteDiskIOException(BancoCheio.MENSAGEM_DE_DISCO))
+        voltarATela()
+        regra.esperarTexto(aviso)
+        val antes = c.agendador.consultasDaParada.get()
+        // Gravações que reemitem a sessão na mesma volta não consultam de novo o WorkManager quebrado.
+        c.sessoes.somarCusto(id, BigDecimal("0.5"))
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("US$ 1.50 / teto US$ 5.00").fetchSemanticsNodes().isNotEmpty() }
+        c.sessoes.somarCusto(id, BigDecimal("0.5"))
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("US$ 2.00 / teto US$ 5.00").fetchSemanticsNodes().isNotEmpty() }
+        assertEquals(antes, c.agendador.consultasDaParada.get())
+        // A volta seguinte consulta de novo.
+        voltarATela()
+        regra.waitUntil(5_000) { c.agendador.consultasDaParada.get() > antes }
+        // Um erro novo, depois de a sessão sair do erro, é outra leitura, mesmo na mesma volta.
+        val naVolta = c.agendador.consultasDaParada.get()
+        c.banco.sessoes().mudarStatus(id, listOf(Estados.ERRO), Estados.RODANDO, null, c.agora(), null)
+        regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.PARADA_PELO_SISTEMA).fetchSemanticsNodes().isEmpty() }
+        c.banco.sessoes().mudarStatus(id, listOf(Estados.RODANDO), Estados.ERRO, "Outra parada.", c.agora(), null)
+        regra.waitUntil(5_000) { c.agendador.consultasDaParada.get() > naVolta }
+        c.agendador.falhaAoConsultar = null
+    }
+
+    // Rodada 3 da revisão da #81: os agentes prontos, lidos na volta e na abertura da retomada, em ordem.
+
+    @Test
+    fun aFalhaDeUmaReleituraDosProntosJaSuperadaNaoAvisa() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        val id = c.sessao(Estados.RODANDO)
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.CANCELAR)
+        val trava = CountDownLatch(1)
+        c.bancoCheio.prenderLeitura("FROM configuracoes", depoisDe = 0, trava)
+        voltarATela()
+        regra.waitUntil(5_000) { c.bancoCheio.leituraPresa == null }
+        // A releitura da volta seguinte termina bem e é aplicada; a antiga, solta, falha.
+        voltarATela()
+        Thread.sleep(1_000)
+        regra.waitForIdle()
+        val antes = c.bancoCheio.quebradas.get()
+        c.bancoCheio.leituraQuebrada = "FROM configuracoes"
+        trava.countDown()
+        regra.waitUntil(5_000) { c.bancoCheio.quebradas.get() > antes }
+        c.bancoCheio.leituraQuebrada = null
+        val avisou = runCatching { regra.waitUntil(3_000) { regra.onAllNodesWithText(aviso).fetchSemanticsNodes().isNotEmpty() } }
+        assertTrue("a releitura superada avisou", avisou.isFailure)
+    }
+
+    @Test
+    fun doisToquesEmRetomarAbremADialogoUmaVez() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        val id = c.sessao(Estados.LIMITE_DE_CUSTO, teto = "5", custo = "5")
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.RETOMAR)
+        Thread.sleep(1_000)
+        regra.waitForIdle()
+        // A abertura fica presa na leitura das configurações; o segundo toque não abre outra.
+        val trava = CountDownLatch(1)
+        c.bancoCheio.prenderLeitura("FROM configuracoes", depoisDe = 0, trava)
+        regra.onNodeWithTag(Marcas.RETOMAR).performClick()
+        regra.waitUntil(5_000) { c.bancoCheio.leituraPresa == null }
+        regra.onNodeWithTag(Marcas.RETOMAR).performClick()
+        Thread.sleep(1_000)
+        regra.waitForIdle()
+        regra.onNodeWithTag(Marcas.CONFIRMAR_RETOMADA).assertDoesNotExist()
+        trava.countDown()
+        esperarTag(Marcas.CONFIRMAR_RETOMADA)
     }
 }

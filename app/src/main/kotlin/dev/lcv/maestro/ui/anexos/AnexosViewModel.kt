@@ -15,11 +15,12 @@ import dev.lcv.maestro.sessao.AnexoEntidade
 import dev.lcv.maestro.sessao.AnexosDaSessao
 import dev.lcv.maestro.sessao.CitacoesDaSessao
 import dev.lcv.maestro.sessao.Resultado
+import dev.lcv.maestro.sessao.motivoDeArmazenamento
 import dev.lcv.maestro.ui.Documentos
+import dev.lcv.maestro.ui.LeiturasDaTela
 import dev.lcv.maestro.ui.Mensagem
 import dev.lcv.maestro.ui.OrdemDasLeituras
 import dev.lcv.maestro.ui.Rotulos
-import dev.lcv.maestro.ui.motivoDeArmazenamento
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -60,24 +61,38 @@ class AnexosViewModel(private val d: Dependencias, private val id: String) : Vie
         val anexos: List<AnexoEntidade> = emptyList(),
         val manifesto: Manifesto = Manifesto.Ausente,
         val trabalhando: Boolean = false,
+        /** O motivo de a sessão ou os anexos nunca terem sido lidos (decisão 25 estendida, #80). */
+        val falhaDeLeitura: String? = null,
     )
 
     private data class Conteudo(val anexos: List<AnexoEntidade>, val manifesto: Manifesto)
 
     private val conteudo = MutableStateFlow<Conteudo?>(null)
+
+    /** O motivo da última releitura dos anexos que falhou; só aparece enquanto nada foi lido. */
+    private val falhaDoConteudo = MutableStateFlow<String?>(null)
     private val trabalhando = MutableStateFlow(false)
     private val eventos = Channel<Mensagem>(Channel.BUFFERED)
     val avisos: Flow<Mensagem> = eventos.receiveAsFlow()
 
-    val estado: StateFlow<Estado> = combine(d.sessoes.observar(id), conteudo, trabalhando) { linha, lido, emCurso ->
+    /** As leituras da tela sob a decisão 25 estendida (#80): aviso com o motivo, a tela segue, a volta lê de novo. */
+    private val leituras = LeiturasDaTela { eventos.send(it) }
+
+    val estado: StateFlow<Estado> = combine(
+        leituras.observar(d.sessoes.observar(id), null),
+        conteudo,
+        falhaDoConteudo,
+        trabalhando,
+    ) { linha, lido, falha, emCurso ->
         Estado(
-            carregada = lido != null,
-            existe = linha != null,
-            titulo = linha?.titulo.orEmpty(),
-            emExecucao = Rotulos.emExecucao(linha?.status),
+            carregada = lido != null || falha != null || linha.falha != null,
+            existe = linha.valor != null,
+            titulo = linha.valor?.titulo.orEmpty(),
+            emExecucao = Rotulos.emExecucao(linha.valor?.status),
             anexos = lido?.anexos.orEmpty(),
             manifesto = lido?.manifesto ?: Manifesto.Ausente,
             trabalhando = emCurso,
+            falhaDeLeitura = linha.falha ?: falha.takeIf { lido == null },
         )
     }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Estado())
 
@@ -85,10 +100,15 @@ class AnexosViewModel(private val d: Dependencias, private val id: String) : Vie
     private val ordem = OrdemDasLeituras()
 
     init {
-        recarregar()
+        viewModelScope.launch { reler() }
     }
 
+    /**
+     * A volta da tela ao primeiro plano. A primeira chamada é a abertura, e a leitura dela e a do `init` falham na
+     * mesma volta: um aviso só (decisão 25 estendida, #80).
+     */
     fun recarregar() {
+        leituras.voltou()
         viewModelScope.launch { reler() }
     }
 
@@ -102,7 +122,19 @@ class AnexosViewModel(private val d: Dependencias, private val id: String) : Vie
         val lido = try {
             withContext(Dispatchers.IO) { ler() }
         } catch (erro: Exception) {
-            eventos.send(Mensagem.DeRecurso(R.string.anexos_leitura_falhou, listOf(motivoDeArmazenamento(erro))))
+            // Uma releitura já superada por outra mais nova que deu certo não decide nada: nem aviso, nem motivo, nem
+            // trava; o que não é armazenamento segue adiante (achado do Codex na #81).
+            if (!ordem.valeAFalha(esta)) {
+                motivoDeArmazenamento(erro)
+                return
+            }
+            // Sem lista lida, "a lista ficou como estava" seria falso: o aviso é o geral, e o motivo fica no lugar (#80).
+            val mensagem: (String) -> Mensagem = if (conteudo.value == null) {
+                LeiturasDaTela::avisoDeLeitura
+            } else {
+                { motivo -> Mensagem.DeRecurso(R.string.anexos_leitura_falhou, listOf(motivo)) }
+            }
+            falhaDoConteudo.value = leituras.falhou(erro, mensagem)
             return
         }
         if (ordem.aplicar(esta)) conteudo.value = lido
@@ -152,6 +184,8 @@ class AnexosViewModel(private val d: Dependencias, private val id: String) : Vie
 
     private fun mexer(acao: () -> Mensagem) {
         trabalhando.value = true
+        // Uma ação é um pedido novo: a releitura dela que falha é avisada mesmo que outra já tenha sido nesta volta (#80).
+        leituras.pedido()
         viewModelScope.launch {
             try {
                 val mensagem = try {

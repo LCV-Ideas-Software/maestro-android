@@ -23,4 +23,11 @@ internal class OrdemDasLeituras {
         aplicada = numero
         return true
     }
+
+    /**
+     * Se a falha da releitura [numero] vale: não vale a de uma releitura já superada por outra mais nova que deu certo,
+     * porque a tela já mostra o resultado dela (achado do Codex na #81). Uma falha não passa a valer como aplicada: a
+     * releitura anterior que termine bem depois dela ainda se aplica.
+     */
+    fun valeAFalha(numero: Int): Boolean = numero > aplicada
 }

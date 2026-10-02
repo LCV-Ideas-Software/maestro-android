@@ -17,6 +17,7 @@ import dev.lcv.maestro.BuscaDaTela
 import dev.lcv.maestro.CofreDaTela
 import dev.lcv.maestro.Dependencias
 import dev.lcv.maestro.Navegador
+import dev.lcv.maestro.ReconciliacaoDaAbertura
 import dev.lcv.maestro.maestro
 import dev.lcv.maestro.protocolo.EstadoDaEvidencia
 import dev.lcv.maestro.protocolo.EstadoDeInteracao
@@ -49,6 +50,7 @@ import dev.lcv.maestro.sessao.EventoEntidade
 import dev.lcv.maestro.sessao.FormatoDeInstante
 import dev.lcv.maestro.sessao.LinksDaSessao
 import dev.lcv.maestro.sessao.PedidoDeConfiguracoes
+import dev.lcv.maestro.sessao.Reconciliacao
 import dev.lcv.maestro.sessao.RepositorioDeArtefatos
 import dev.lcv.maestro.sessao.RepositorioDeConfiguracoes
 import dev.lcv.maestro.sessao.RepositorioDeSessoes
@@ -88,7 +90,15 @@ internal class CofreFalso : CofreDaTela {
 
     @Volatile var trava: Boolean = true
 
-    override suspend fun chaves(): Map<Provedor, Boolean?> = synchronized(presentes) { presentes.toMap() }
+    /** Posta, a próxima leitura das chaves tira a foto e espera aqui antes de devolver: a releitura antiga e lenta (#81). */
+    @Volatile var chavesPresas: java.util.concurrent.CountDownLatch? = null
+
+    override suspend fun chaves(): Map<Provedor, Boolean?> {
+        val foto = synchronized(presentes) { presentes.toMap() }
+        val trava = synchronized(this) { chavesPresas.also { chavesPresas = null } }
+        trava?.await(10, java.util.concurrent.TimeUnit.SECONDS)
+        return foto
+    }
 
     override suspend fun guardar(provedor: Provedor, chave: String): Guarda {
         guardadas += provedor to chave
@@ -142,7 +152,25 @@ internal class AgendadorFalso(
         canceladas += sessaoId to sessoes().carregar(sessaoId)?.status
     }
 
-    override fun ultimaParada(sessaoId: String): Int? = parada
+    /**
+     * Posta, a consulta ao WorkManager falha como o `get()` do futuro entrega a falha do banco dele: embrulhada em
+     * `ExecutionException`. O `BancoCheio` não alcança o banco do WorkManager (#80).
+     */
+    @Volatile var falhaAoConsultar: Exception? = null
+
+    override fun viva(sessaoId: String): Boolean {
+        falhaAoConsultar?.let { throw it }
+        return super.viva(sessaoId)
+    }
+
+    /** Quantas vezes a parada foi consultada: a que falhou espera a volta da tela (#81). */
+    val consultasDaParada = java.util.concurrent.atomic.AtomicInteger(0)
+
+    override fun ultimaParada(sessaoId: String): Int? {
+        consultasDaParada.incrementAndGet()
+        falhaAoConsultar?.let { throw it }
+        return parada
+    }
 }
 
 /** O navegador do sistema nos testes: anota a URL e responde [falha]; nenhum teste abre navegador. */
@@ -233,6 +261,10 @@ internal class Cenario {
     @Volatile var discoDaBusca: IOException? = null
     val buscasCanceladas = AtomicInteger()
     val navegador = NavegadorFalso()
+
+    /** A reconciliação da abertura sobre este banco, como a do `MaestroApplication` sobre o do processo (#80). */
+    val reconciliacao = Reconciliacao(banco, sessoes, retomada, agendador, { cofre.chaves() }, evidencias, anexos, relogio)
+    val abertura = ReconciliacaoDaAbertura { reconciliacao.naAbertura() }
     val dependencias = Dependencias(
         sessoes, artefatos, retomada, configuracoes, agendador, cofre, testeDeChaves, anexos,
         links = links,
@@ -258,6 +290,7 @@ internal class Cenario {
             )
         },
         navegador = navegador,
+        falhasDaAbertura = abertura.falhas,
         relogio = relogio,
     )
 
@@ -362,6 +395,14 @@ internal class Cenario {
         coletor: IntegridadeDeLinks.ColetorDeEvidencia = IntegridadeDeLinks.ColetorDeEvidencia { throw IntegridadeDeLinks.Falha("timeout") },
     ) {
         IntegridadeDeLinks.auditar(texto, AnalisadorDeUrlOkHttp, coletor, links.registro(sessaoId), relogio)
+    }
+
+    /**
+     * Uma gravação nas linhas de link sem lê-las, como a auditoria de outra sessão faz: o `InvalidationTracker` avisa
+     * quem observa a tabela.
+     */
+    fun tocarLinks() {
+        banco.runInTransaction { banco.openHelper.writableDatabase.execSQL("UPDATE links SET linkId = linkId") }
     }
 
     /**

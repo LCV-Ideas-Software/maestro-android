@@ -52,6 +52,7 @@ import dev.lcv.maestro.ui.LocalAvisos
 import dev.lcv.maestro.ui.Marcas
 import dev.lcv.maestro.ui.Pilula
 import dev.lcv.maestro.ui.Tema
+import dev.lcv.maestro.ui.VazioDeResultado
 import dev.lcv.maestro.ui.rememberAutenticacaoDaTela
 
 @Composable
@@ -72,6 +73,7 @@ fun ConfiguracoesScreen(vm: ConfiguracoesViewModel, versao: String, aoAbrirLicen
     var notificacoesPermitidas by rememberSaveable { mutableStateOf(true) }
 
     LifecycleResumeEffect(vm) {
+        vm.carregar()
         vm.recarregarCofre()
         notificacoesPermitidas =
             contexto.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
@@ -131,10 +133,18 @@ fun ConfiguracoesScreen(vm: ConfiguracoesViewModel, versao: String, aoAbrirLicen
     ) {
         Cabecalho(R.drawable.simbolo_key, stringResource(R.string.secao_operacional), stringResource(R.string.configuracoes))
         Chaves(vm, estado, autenticacao.emCurso, aoDescartarPreenchimento = { preenchimento?.cancel() }) { confirmarTeste = true }
-        Custos(vm)
+        // Sem a leitura das configurações, o formulário vazio pareceria o gravado: no lugar dele, o motivo (decisão 25 estendida, #80).
+        val falhaDaLeitura = estado.falhaDaLeitura.takeIf { !estado.carregado }
+        if (falhaDaLeitura != null) {
+            VazioDeResultado(stringResource(R.string.tela_sem_leitura, falhaDaLeitura), Modifier.testTag(Marcas.LEITURA_FALHOU))
+        } else {
+            Custos(vm)
+        }
         Modelos()
-        Contato(vm)
-        Protocolo(vm, estado)
+        if (falhaDaLeitura == null) {
+            Contato(vm)
+            Protocolo(vm, estado)
+        }
         Notificacoes(notificacoesPermitidas) {
             contexto.startActivity(
                 Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, contexto.packageName),

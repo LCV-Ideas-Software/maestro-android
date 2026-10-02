@@ -20,11 +20,12 @@ import dev.lcv.maestro.protocolo.LinhaDeLink
 import dev.lcv.maestro.protocolo.RegistroDeEvidencia
 import dev.lcv.maestro.provedores.ColetaCancelada
 import dev.lcv.maestro.provedores.ImportacaoDoOperador
+import dev.lcv.maestro.sessao.motivoDeArmazenamento
 import dev.lcv.maestro.ui.Documentos
+import dev.lcv.maestro.ui.LeiturasDaTela
 import dev.lcv.maestro.ui.Mensagem
 import dev.lcv.maestro.ui.OrdemDasLeituras
 import dev.lcv.maestro.ui.Rotulos
-import dev.lcv.maestro.ui.motivoDeArmazenamento
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
@@ -70,6 +71,8 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
         val trabalhando: Boolean = false,
         /** Na fila ou em execução: a revisão e as propostas esperam (decisão 24 do operador, 29/09/2026). */
         val emExecucao: Boolean = false,
+        /** O motivo de a sessão ou a lista nunca terem sido lidas (decisão 25 estendida, #80). */
+        val falhaDeLeitura: String? = null,
     )
 
     /**
@@ -113,18 +116,33 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
     private class Saida(val mensagem: Mensagem, val aoGravar: (() -> Unit)? = null)
 
     private val conteudo = MutableStateFlow<List<Link>?>(null)
+
+    /** A volta em que a releitura da lista falhou; uma ação ou a volta seguinte relê. */
+    @Volatile private var releituraFalhouNaVolta = -1
+
+    /** O motivo da última releitura da lista que falhou; só aparece enquanto nada foi lido. */
+    private val falhaDoConteudo = MutableStateFlow<String?>(null)
     private val trabalhando = MutableStateFlow(false)
     private val eventos = Channel<Mensagem>(Channel.BUFFERED)
     val avisos: Flow<Mensagem> = eventos.receiveAsFlow()
 
-    val estado: StateFlow<Estado> = combine(d.sessoes.observar(id), conteudo, trabalhando) { linha, lidos, emCurso ->
+    /** As leituras da tela sob a decisão 25 estendida (#80): aviso com o motivo, a tela segue, a volta lê de novo. */
+    private val leituras = LeiturasDaTela { eventos.send(it) }
+
+    val estado: StateFlow<Estado> = combine(
+        leituras.observar(d.sessoes.observar(id), null),
+        conteudo,
+        falhaDoConteudo,
+        trabalhando,
+    ) { linha, lidos, falha, emCurso ->
         Estado(
-            carregada = lidos != null,
-            existe = linha != null,
-            titulo = linha?.titulo.orEmpty(),
+            carregada = lidos != null || falha != null || linha.falha != null,
+            existe = linha.valor != null,
+            titulo = linha.valor?.titulo.orEmpty(),
             links = lidos.orEmpty(),
             trabalhando = emCurso,
-            emExecucao = Rotulos.emExecucao(linha?.status),
+            emExecucao = Rotulos.emExecucao(linha.valor?.status),
+            falhaDeLeitura = linha.falha ?: falha.takeIf { lidos == null },
         )
     }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Estado())
 
@@ -137,12 +155,18 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
         // ou as evidências do mesmo texto (achados do Codex na #78). Uma auditoria grava link a link:
         // releituras pedidas durante outra viram uma só.
         viewModelScope.launch {
+            // O armazenamento que falha nesta observação é o aviso, e ela volta na volta da tela (decisão 25 estendida, #80).
             val texto = d.sessoes.observar(id).map { linha -> linha?.let { it.textoFinal ?: it.textoAtual } }.distinctUntilChanged()
-            combine(texto, d.links.mudancas()) { _, _ -> }.conflate().collect { reler() }
+            // A releitura que falhou espera a volta: a gravação de outra sessão nas mesmas tabelas não a refaz (#81).
+            leituras.observar(combine(texto, d.links.mudancas()) { _, _ -> }, Unit).conflate().collect {
+                if (releituraFalhouNaVolta != leituras.volta.value) reler()
+            }
         }
     }
 
+    /** A volta da tela ao primeiro plano; a primeira chamada é a abertura (decisão 25 estendida, #80). */
     fun recarregar() {
+        leituras.voltou()
         viewModelScope.launch { reler() }
     }
 
@@ -157,10 +181,27 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
         val relida = try {
             withContext(Dispatchers.IO) { ler() }
         } catch (erro: Exception) {
-            eventos.send(Mensagem.DeRecurso(R.string.leitura_falhou, listOf(motivoDeArmazenamento(erro))))
+            // Uma releitura já superada por outra mais nova que deu certo não decide nada: nem aviso, nem motivo, nem
+            // trava; o que não é armazenamento segue adiante (achado do Codex na #81).
+            if (!ordem.valeAFalha(esta)) {
+                motivoDeArmazenamento(erro)
+                return
+            }
+            // Sem lista lida, "ela ficou como estava" seria falso: o aviso é o geral, e o motivo fica no lugar (#80).
+            val mensagem: (String) -> Mensagem = if (conteudo.value == null) {
+                LeiturasDaTela::avisoDeLeitura
+            } else {
+                { motivo -> Mensagem.DeRecurso(R.string.leitura_falhou, listOf(motivo)) }
+            }
+            falhaDoConteudo.value = leituras.falhou(erro, mensagem)
+            releituraFalhouNaVolta = leituras.volta.value
             return
         }
-        if (ordem.aplicar(esta)) aplicar(relida)
+        // Só a releitura aplicada solta a trava: uma antiga que termine bem depois de outra não decide (#81).
+        if (ordem.aplicar(esta)) {
+            releituraFalhouNaVolta = -1
+            aplicar(relida)
+        }
     }
 
 
@@ -403,6 +444,8 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
     private fun comecar(): Boolean {
         if (trabalhando.value) return false
         trabalhando.value = true
+        // Uma ação é um pedido novo: a releitura dela que falha é avisada mesmo que outra já tenha sido nesta volta (#80).
+        leituras.pedido()
         return true
     }
 

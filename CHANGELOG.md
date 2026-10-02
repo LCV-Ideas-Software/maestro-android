@@ -75,9 +75,7 @@ All material changes to Maestro Android are recorded here.
   key; an export only says nothing was saved once the created document was
   deleted; and a handoff whose outcome could not be noted says whether the
   browser opened. Instrumented tests raise the framework's `SQLiteFullException`
-  and disk I/O errors on demand through a test `openHelperFactory`. Reads
-  made when a screen opens or resumes, live observation and the reconcile on
-  app start follow in #80.
+  and disk I/O errors on demand through a test `openHelperFactory`.
 - Add `ImportacaoDoOperador` to `:core:provedores`: the operator-assisted
   capture of the desktop (`handoff_record`,
   `open_web_evidence_in_default_browser` and `import_operator_evidence` with
@@ -1067,6 +1065,39 @@ All material changes to Maestro Android are recorded here.
 
 ### Changed
 
+- A storage failure while a screen reads, live or when it opens or resumes,
+  or while the app reconciles sessions each time it returns to the
+  foreground, no longer crashes the app
+  (#80, MAEANDR-27; operator's decision 25 extended on 30/09/2026, "warn and
+  go on"). The screen shows a notice with the reason and keeps what it was
+  showing; if it never read anything, it shows the reason in place instead of
+  an empty state that would look real, and it reads again when it returns to
+  the foreground, without a loop. One notice per return, and a tap or an
+  action reopens it, including a second tap on the same artifact. A read
+  recreated after more than 5 s in the background that fails delivers what
+  the screen was showing again, so the screen does not freeze, and a failed
+  read that is not observed (the WorkManager stop reason, the link list)
+  waits for the next return instead of being retried on every write. Every
+  reread that can overlap another is ordered: an older one that finishes
+  after a newer one was applied does not overwrite it, and the failure of a
+  reread already superseded by a newer one that succeeded decides nothing; a
+  second tap on Resume while it opens does not open it again. The start screen, the session screen (the last
+  WorkManager stop reason keeps its label and does not freeze the rest),
+  Settings (read on each return until loaded, never overwriting what was
+  typed), Licenses (read off the main thread), Attachments, Links and Final
+  text (an export without the session read gives the storage reason) all
+  follow it; the start screen's cards say "Não lido" instead of values that
+  would look stored. A reconcile that fails becomes a notice on the start
+  screen and runs again the next time the app returns to the foreground; a
+  failure of WorkManager's own database at initialization, which the library
+  hands to `Configuration.Builder.setInitializationExceptionHandler` instead
+  of throwing, becomes a notice on the same start screen when the storage
+  classifier recognizes its cause; anything else is rethrown, as without the
+  handler. A cancel from the
+  notification whose write fails on storage posts a notification with the
+  reason and leaves the work running. The storage classifier moves to `:core:sessao`,
+  also recognizes a database that cannot open or is corrupt, and unwraps the
+  `ExecutionException` from WorkManager's `get()`.
 - Every revision turn whose current text fails the release audit now carries
   the gate packet — the failing rows and the correction candidates — to the
   reviewer, not only a corrective retry (operator's decision 23,

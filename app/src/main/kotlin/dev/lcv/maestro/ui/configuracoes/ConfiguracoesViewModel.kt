@@ -24,8 +24,9 @@ import dev.lcv.maestro.sessao.RepositorioDeConfiguracoes
 import dev.lcv.maestro.sessao.Resultado
 import dev.lcv.maestro.sessao.ResultadoDoTeste
 import dev.lcv.maestro.sessao.TrimJs
+import dev.lcv.maestro.sessao.motivoDeArmazenamento
 import dev.lcv.maestro.ui.Mensagem
-import dev.lcv.maestro.ui.motivoDeArmazenamento
+import dev.lcv.maestro.ui.OrdemDasLeituras
 import java.math.BigDecimal
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -58,6 +59,8 @@ class ConfiguracoesViewModel(private val d: Dependencias) : ViewModel() {
         val resultados: List<ResultadoDoTeste> = emptyList(),
         /** O cofre respondeu que não há trava de tela: a tela oferece os ajustes de segurança. */
         val semTrava: Boolean = false,
+        /** A leitura das configurações que falhou antes de o formulário ter o que mostrar (decisão 25 estendida, #80). */
+        val falhaDaLeitura: String? = null,
     )
 
     sealed interface Evento {
@@ -83,8 +86,28 @@ class ConfiguracoesViewModel(private val d: Dependencias) : ViewModel() {
     var protocolo by mutableStateOf("")
     var email by mutableStateOf("")
 
-    init {
-        viewModelScope.launch { aplicar(withContext(Dispatchers.IO) { d.configuracoes.carregar() }) }
+    /**
+     * `loadSettings`, a cada volta da tela ao primeiro plano até o formulário receber o que está gravado. O
+     * armazenamento que falha é aviso, e o motivo fica no lugar do formulário; a volta seguinte lê de novo
+     * (decisão 25 estendida, #80). Depois de lido, o formulário é o que a pessoa digita: a volta não o sobrescreve.
+     */
+    fun carregar() {
+        if (_estado.value.carregado) return
+        viewModelScope.launch {
+            val lidas = try {
+                withContext(Dispatchers.IO) { d.configuracoes.carregar() }
+            } catch (erro: Exception) {
+                val motivo = motivoDeArmazenamento(erro)
+                // Outra retomada já carregou o formulário: a falha desta, mais antiga, não decide nada (#81).
+                if (_estado.value.carregado) return@launch
+                _estado.update { it.copy(falhaDaLeitura = motivo) }
+                avisar(Mensagem.DeRecurso(R.string.leitura_do_aparelho_falhou, listOf(motivo)))
+                return@launch
+            }
+            // Outra retomada pode ter lido e aplicado enquanto esta lia: o formulário já é o que a pessoa digita.
+            if (_estado.value.carregado) return@launch
+            aplicar(lidas)
+        }
     }
 
     /** `applySettings`: o formulário volta ao que está gravado. */
@@ -106,12 +129,17 @@ class ConfiguracoesViewModel(private val d: Dependencias) : ViewModel() {
 
     /** O estado do cofre, relido a cada volta da tela ao primeiro plano: a trava de tela pode ter mudado lá fora. */
     fun recarregarCofre() {
+        // Vale a releitura mais nova: uma antiga que termine depois não repõe uma chave já removida (achado na #81).
+        val esta = ordemDoCofre.comecar()
         viewModelScope.launch {
             val chaves = withContext(Dispatchers.IO) { d.cofre.chaves() }
             val nivel = withContext(Dispatchers.IO) { d.cofre.nivel() }
-            _estado.update { it.copy(chaves = chaves, nivel = nivel, travaDeTela = d.cofre.travaDeTela()) }
+            if (ordemDoCofre.aplicar(esta)) _estado.update { it.copy(chaves = chaves, nivel = nivel, travaDeTela = d.cofre.travaDeTela()) }
         }
     }
+
+    /** A ordem das releituras do cofre: a da volta da tela e a de depois de guardar ou remover uma chave. */
+    private val ordemDoCofre = OrdemDasLeituras()
 
     /**
      * Guarda a chave digitada. Se a janela de autenticação venceu, a tela pede

@@ -15,6 +15,12 @@ import android.content.Intent
  *
  * O receptor não é exportado e só age com a [Fabrica] instalada pelo
  * aplicativo; o `Application` é criado antes de qualquer receptor.
+ *
+ * O armazenamento que falha ao gravar o cancelamento é uma notificação com o
+ * motivo, e o trabalho segue (decisão 25 estendida, #80): parar o trabalho sem
+ * a transição é o que a ordem acima proíbe. A recusa sem exceção (a sessão já
+ * finalizada ou que mudou de estado no meio) segue como antes da #80: o
+ * trabalho é cancelado.
  */
 public class CancelamentoDaSessao : BroadcastReceiver() {
 
@@ -25,8 +31,7 @@ public class CancelamentoDaSessao : BroadcastReceiver() {
         val pendente = goAsync()
         Thread {
             try {
-                fabrica.sessoes.cancelar(sessaoId)
-                fabrica.agendador.cancelar(sessaoId)
+                cancelar(sessaoId, fabrica.sessoes, fabrica.agendador) { motivo -> fabrica.notificacao.cancelamentoFalhou(sessaoId, motivo) }
             } finally {
                 pendente.finish()
             }
@@ -39,5 +44,20 @@ public class CancelamentoDaSessao : BroadcastReceiver() {
 
         public fun intencao(contexto: Context, sessaoId: String): Intent =
             Intent(contexto, CancelamentoDaSessao::class.java).setAction(ACAO).putExtra(EXTRA_SESSAO, sessaoId)
+
+        /**
+         * O corpo do receptor, com as dependências à parte para o teste: a transição no Room e, só depois de ela
+         * voltar sem exceção, o cancelamento do trabalho. O armazenamento que falha vai a [avisar] com o motivo, e o
+         * trabalho não é cancelado; o que não é armazenamento segue adiante.
+         */
+        public fun cancelar(sessaoId: String, sessoes: RepositorioDeSessoes, agendador: Agendador, avisar: (motivo: String) -> Unit) {
+            try {
+                sessoes.cancelar(sessaoId)
+            } catch (erro: Exception) {
+                avisar(motivoDeArmazenamento(erro))
+                return
+            }
+            agendador.cancelar(sessaoId)
+        }
     }
 }
