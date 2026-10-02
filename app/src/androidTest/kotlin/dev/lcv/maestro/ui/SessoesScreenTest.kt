@@ -31,6 +31,7 @@ import dev.lcv.maestro.sessao.PedidoDeConfiguracoes
 import java.math.BigDecimal
 import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
 import kotlin.concurrent.thread
 import kotlinx.coroutines.CompletableDeferred
@@ -696,5 +697,32 @@ class SessoesScreenTest {
         regra.esperarTexto(aviso)
         esperarNaMarca(Marcas.METRICA_COM_O_TRABALHO, Rotulos.agente(Provedor.GEMINI.agente))
         c.bancoCheio.leituraQuebrada = null
+    }
+
+    @Test
+    fun aFalhaDeUmaReleituraDosAjustesJaSuperadaNaoAvisa() {
+        // Achado do Codex na #81, na mesma regra: a releitura antiga que falha depois de uma mais nova aplicada não decide.
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        regra.abrir(c)
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        // A releitura de uma volta fica presa na leitura das configurações.
+        val trava = CountDownLatch(1)
+        c.bancoCheio.prenderLeitura("FROM configuracoes", depoisDe = 0, trava)
+        voltarATela()
+        regra.waitUntil(5_000) { c.bancoCheio.leituraPresa == null }
+        // A da volta seguinte termina bem e é aplicada.
+        voltarATela()
+        Thread.sleep(1_000)
+        regra.waitForIdle()
+        // A antiga, solta, falha na leitura do orçamento.
+        val antes = c.bancoCheio.quebradas.get()
+        c.bancoCheio.leituraQuebrada = "FROM execucoes"
+        trava.countDown()
+        regra.waitUntil(5_000) { c.bancoCheio.quebradas.get() > antes }
+        c.bancoCheio.leituraQuebrada = null
+        val avisou = runCatching { regra.waitUntil(3_000) { regra.onAllNodesWithText(aviso).fetchSemanticsNodes().isNotEmpty() } }
+        assertTrue("a releitura superada avisou", avisou.isFailure)
+        regra.onNodeWithText("2 / 6").assertExists()
     }
 }

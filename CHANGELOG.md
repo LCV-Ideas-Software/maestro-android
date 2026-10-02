@@ -1077,7 +1077,9 @@ All material changes to Maestro Android are recorded here.
   recreated after more than 5 s in the background that fails delivers what
   the screen was showing again, so the screen does not freeze, and a failed
   read that is not observed (the WorkManager stop reason, the link list)
-  waits for the next return instead of being retried on every write. The start screen, the session screen (the last
+  waits for the next return instead of being retried on every write; the
+  failure of a reread already superseded by a newer one that succeeded
+  decides nothing. The start screen, the session screen (the last
   WorkManager stop reason keeps its label and does not freeze the rest),
   Settings (read on each return until loaded, never overwriting what was
   typed), Licenses (read off the main thread), Attachments, Links and Final

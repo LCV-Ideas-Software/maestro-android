@@ -313,7 +313,9 @@ escolheu os cinco. O que a escolha pede, e como fica:
   de mais de 5 s fora do primeiro plano) entrega de novo o que a tela
   mostrava, para a tela não congelar; e a leitura não observada que falhou (a
   parada no WorkManager, a lista de links) espera a volta seguinte, e não é
-  refeita a cada gravação de outra sessão (revisão da #81). O classificador
+  refeita a cada gravação de outra sessão; a falha de uma releitura já
+  superada por outra mais nova que deu certo não decide nada, nem aviso, nem
+  motivo, nem essa espera (revisão da #81). O classificador
   passa a reconhecer também o banco que não abre e o corrompido
   (`SQLiteCantOpenDatabaseException`, `SQLiteDatabaseCorruptException`) e
   desembrulha a `ExecutionException` com que o `get()` do WorkManager entrega

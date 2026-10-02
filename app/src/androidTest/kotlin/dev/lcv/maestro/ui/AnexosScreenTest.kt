@@ -284,4 +284,30 @@ class AnexosScreenTest {
         regra.esperarTexto("Anexo adicionado.")
         c.bancoCheio.leituraQuebrada = null
     }
+
+    @Test
+    fun aFalhaDeUmaReleituraJaSuperadaNaoAvisa() {
+        // Achado do Codex na #81: a releitura antiga que falha depois de uma mais nova já aplicada não decide nada.
+        val id = c.sessao(Estados.ERRO, erro = "Falha qualquer.")
+        abrirNosAnexos(id, SeletorDeTeste(Uri.fromFile(c.arquivo("citation-manifest.json", MANIFESTO_DE_EXEMPLO.toByteArray()))))
+        // A releitura da volta à tela fica presa na primeira leitura dos anexos.
+        val trava = CountDownLatch(1)
+        c.bancoCheio.prenderLeitura("anexos", depoisDe = 0, trava)
+        voltarATela()
+        regra.waitUntil(5_000) { c.bancoCheio.leituraPresa == null }
+        // A de depois de anexar começa depois, termina bem e é aplicada.
+        regra.onNodeWithTag(Marcas.ANEXAR_MANIFESTO).performClick()
+        regra.esperarTexto("Anexo adicionado.")
+        // A antiga, solta, falha na leitura seguinte.
+        val antes = c.bancoCheio.quebradas.get()
+        c.bancoCheio.leituraQuebrada = "anexos"
+        trava.countDown()
+        regra.waitUntil(5_000) { c.bancoCheio.quebradas.get() > antes }
+        c.bancoCheio.leituraQuebrada = null
+        regra.waitUntil(15_000) { regra.onAllNodesWithText("Anexo adicionado.").fetchSemanticsNodes().isEmpty() }
+        val releitura = "Não foi possível reler os anexos; a lista ficou como estava. Motivo: ${BancoCheio.MENSAGEM_DE_DISCO}"
+        val avisou = runCatching { regra.waitUntil(3_000) { regra.onAllNodesWithText(releitura).fetchSemanticsNodes().isNotEmpty() } }
+        assertTrue("a releitura superada avisou", avisou.isFailure)
+        regra.onNodeWithTag(Marcas.removerAnexo(c.anexos.daSessao(id).single().id)).assertExists()
+    }
 }

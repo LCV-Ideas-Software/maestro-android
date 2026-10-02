@@ -32,4 +32,19 @@ class OrdemDasLeiturasTest {
         assertFalse(ordem.aplicar(primeira))
         assertTrue(ordem.aplicar(ordem.comecar()))
     }
+
+    @Test
+    fun `a falha de uma releitura ja superada por uma mais nova que deu certo nao vale`() {
+        val ordem = OrdemDasLeituras()
+        val antiga = ordem.comecar()
+        val nova = ordem.comecar()
+        assertTrue(ordem.valeAFalha(antiga))
+        assertTrue(ordem.aplicar(nova))
+        assertFalse(ordem.valeAFalha(antiga))
+        // A mais nova que falha vale, e não impede a anterior de se aplicar se terminar bem depois.
+        val outra = ordem.comecar()
+        val ultima = ordem.comecar()
+        assertTrue(ordem.valeAFalha(ultima))
+        assertTrue(ordem.aplicar(outra))
+    }
 }

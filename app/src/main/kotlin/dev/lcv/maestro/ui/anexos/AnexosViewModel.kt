@@ -122,6 +122,12 @@ class AnexosViewModel(private val d: Dependencias, private val id: String) : Vie
         val lido = try {
             withContext(Dispatchers.IO) { ler() }
         } catch (erro: Exception) {
+            // Uma releitura já superada por outra mais nova que deu certo não decide nada: nem aviso, nem motivo, nem
+            // trava; o que não é armazenamento segue adiante (achado do Codex na #81).
+            if (!ordem.valeAFalha(esta)) {
+                motivoDeArmazenamento(erro)
+                return
+            }
             // Sem lista lida, "a lista ficou como estava" seria falso: o aviso é o geral, e o motivo fica no lugar (#80).
             val mensagem: (String) -> Mensagem = if (conteudo.value == null) {
                 LeiturasDaTela::avisoDeLeitura

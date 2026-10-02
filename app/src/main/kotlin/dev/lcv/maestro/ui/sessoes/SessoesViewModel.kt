@@ -200,6 +200,12 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
                     Triple(configuracoes, elegibilidade, Orcamento.restanteNaJanela(d.sessoes.execucoesNaJanela(agora), agora))
                 }
             } catch (erro: Exception) {
+                // Uma releitura já superada por outra mais nova que deu certo não decide nada: nem aviso, nem motivo, nem
+                // trava; o que não é armazenamento segue adiante (achado do Codex na #81).
+                if (!ordem.valeAFalha(esta)) {
+                    motivoDeArmazenamento(erro)
+                    return@launch
+                }
                 val motivo = leituras.falhou(erro)
                 ajustes.update { it.copy(motivoDosAjustes = motivo) }
                 return@launch
