@@ -294,10 +294,68 @@ analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
   never been published only accepts `draft` on the public track, and that first
   publication is finished in the Play Console. A production publication also
   records a GitHub Release with tag `vXX.XX.XX`, carrying the universal APK that
-  Google Play generated and signed with the app signing key — the same binary the
-  store distributes — plus `SHA256SUMS` and a provenance attestation.
+  Google Play generated and signed with the app signing key — the same binary
+  used by Play — plus `SHA256SUMS` and a provenance attestation. Both entrypoints
+  require the read-only production releases API to report `PUBLISHED` with the
+  exact source versionCode in `activeArtifacts` before downloading/recording.
+  A completed edit alone is not publication: the producer records no GitHub
+  Release while Google review/manual publication remains pending, preserving
+  its committed version for later recording. The native `PUBLISHED` lifecycle
+  also includes halted/resumable releases; Google controls current rollout and
+  availability, which these notes do not independently guarantee. Production
+  recording requires `PLAY_RELEASE_TOKEN` before Google authentication, rejects
+  existing tags/drafts before upload, and atomically creates the tag at this
+  publishing run's exact source SHA. Native tag readbacks precede asset upload
+  and publication. Both Play entrypoints share this repository's `play-release`
+  concurrency group with native `queue: max` (up to 100 pending runs, with no
+  cancellation of the running workflow). Asset uploads use the native URL
+  returned for the created draft ID; publication updates that same ID, never
+  re-resolving a tag to a replacement draft. Fresh native reads check that the
+  identified Release remains a draft for this tag and source before writes.
+  The same-ID publication PATCH explicitly supplies the tag and full source
+  target, and its response must preserve both; omitted fields are not assumed
+  stable merely because the Release ID is unchanged.
+  A failed recording preserves its draft/tag and reports
+  their identity for operator review before retry; recovery must never re-upload
+  an already committed versionCode.
 - `record-play-release.yml`, also dispatched manually, records that GitHub
-  Release for a version **already** on the store, given its `versionCode`,
+  Release for a version **already** on the store, given its `versionCode` and
+  `publish_run_id` (the number at the end of the `publish-play.yml` run URL).
+  The native Actions API must identify this repository, workflow and exact
+  source SHA, and a successful `Publish and verify artifact identity` step in
+  any native attempt of that run. That step ends after the verified Play edit commit;
+  later APK processing or GitHub recording may fail without requiring another
+  upload. A distinct native producer step confirms completed-production intent
+  before polling; this intent is not a substitute for the Google lifecycle read.
+  A legacy successful combined step or a first draft later promoted in the
+  Console can still qualify through the verified producer source and current
+  production `PUBLISHED`/active-version proof. A failed legacy combined
+  upload/download step does not prove a commit
+  and is rejected. The workflow checks out the proven source and validates its
+  version and `applicationId` against `PLAY_PACKAGE_NAME` before contacting Play.
+  A later `main` commit with the same versionCode is not proof of origin.
+  Configure the repository-local `PLAY_RELEASE_TOKEN` secret with a native
+  token with Contents/Workflows write permissions for this repository:
+  GitHub requires Workflows permission for historical targets whose workflow
+  tree differs from the default branch. Actions/checkout/attestation reads use
+  the automatic token. Collision guards use the push-capable dedicated token
+  because the native Release list exposes drafts only to users with push access;
+  ref/Release writes use it as well. Missing configuration stops
+  before Google authentication.
+  Existing tags or drafts are preserved and rejected. Native APIs atomically
+  create the exact source tag and return the owned draft ID. On failure
+  the created tag and draft ID are reported and preserved for operator review
+  before retry. GitHub has no conditional deletion API that can exclude a
+  concurrent maintainer publication or tag update; no Release/ref is deleted.
+  No recorder build attestation is minted: checking out an older source does
+  not change this run's OIDC identity. An existing producer APK attestation is
+  verified with `gh attestation verify --source-digest <producer-sha>` and the
+  `publish-play.yml` signer workflow, and its native bundle is retained when
+  verified. First draft uploads and failed APK polling may have no producer APK
+  attestation; the Release explicitly records that limitation, with source/run,
+  package/version and checksum evidence instead of claiming build provenance.
+  For example: `gh workflow run record-play-release.yml --ref main -f version_code=2 -f publish_run_id=<publishing-run-id>`.
+  This records the existing Play-signed APK
   without rebuilding or re-uploading anything. It is the path after a first
   publication is completed in the Console, when the publishing workflow has
   already finished and re-dispatching it would only re-upload a `versionCode`

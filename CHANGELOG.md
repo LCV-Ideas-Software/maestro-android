@@ -4,6 +4,46 @@ All material changes to Maestro Android are recorded here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Explicitly retain the tag and full source target on the same-ID publication
+  PATCH, validating both in its native response instead of assuming omitted
+  Release fields remain stable.
+
+- Upload assets and publish only the identified draft through its native
+  upload URL and Release ID, preserving any replacement Release rather than
+  resolving a mutable tag again. Retain up to 100 pending Play runs with native
+  `concurrency.queue: max`; running work is not canceled.
+
+- Require native production `PUBLISHED` lifecycle and the exact active artifact
+  version before either workflow records a public Release. Completed edits or
+  generated APKs alone are insufficient; pending Google publication records no
+  GitHub Release and remains recoverable without re-upload. Preserve the first
+  draft/Console promotion path through current published production proof and
+  the exact verified producer source. Use the push-capable token for draft
+  collision visibility; retain a distinct native completed-production marker
+  as producer intent, never as proof of user availability.
+
+- Apply the same exact-source native tag/draft guards to the publishing
+  workflow: refuse existing production tags before upload, require the
+  dedicated Release token before Google authentication, serialize both Play
+  entrypoints locally, and verify the created source tag before assets and
+  publication. Preserve prior releases and any state created by a failed
+  attempt, reporting its tag/draft ID for operator review without deleting it.
+
+- Bind a manually recorded Play Release to the exact source commit whose
+  native publishing step verified and committed the Google upload, identified
+  by `publish_run_id` (MAEANDR-29). Separate that durable step from APK polling
+  so later failures can recover without re-uploading a versionCode. Validate the
+  source applicationId, version and checkout, create the native tag atomically,
+  and preserve this attempt's draft/tag after failure for operator review.
+  Never delete a Release/ref through a non-atomic check/delete. Verify and retain existing
+  producer APK attestations when available; do not mint recorder provenance
+  under the historical producer SHA or claim missing build attestations.
+  Require a repository-local `PLAY_RELEASE_TOKEN` with native Contents/Workflows
+  write for historical targets; fail before Google authentication when absent.
+  A later `main` commit retaining the same versionCode cannot determine the tag.
+
 ### Added
 
 - Add the rest of `:app` (MAEANDR-21, second of two pull requests; MAEANDR-18):

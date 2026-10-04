@@ -32,6 +32,7 @@ name: Publish to Google Play
 #   vars.GCP_QUOTA_PROJECT       project billed for Google Play API quota
 #   secrets.UPLOAD_KEYSTORE_B64       base64 of the upload keystore
 #   secrets.UPLOAD_KEYSTORE_PASSWORD  keystore and key password
+#   secrets.PLAY_RELEASE_TOKEN       Contents/Workflows write for production Releases
 
 on:
   workflow_dispatch:
@@ -60,8 +61,9 @@ on:
 permissions: {}
 
 concurrency:
-  group: publish-play-${{ github.ref }}
+  group: play-release
   cancel-in-progress: false
+  queue: max
 
 jobs:
   publish:
@@ -69,9 +71,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
-      released: ${{ steps.play.outputs.released }}
+      released: ${{ steps.apk.outputs.released }}
       version_code: ${{ steps.play.outputs.version_code }}
-      certificate_sha256: ${{ steps.play.outputs.certificate_sha256 }}
+      certificate_sha256: ${{ steps.apk.outputs.certificate_sha256 }}
       tag: ${{ steps.version.outputs.tag }}
     permissions:
       contents: read # Check out the sources that are built.
@@ -90,6 +92,9 @@ jobs:
           GCP_QUOTA_PROJECT: ${{ vars.GCP_QUOTA_PROJECT }}
           KEYSTORE_B64: ${{ secrets.UPLOAD_KEYSTORE_B64 }}
           KEYSTORE_PASSWORD: ${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}
+          PLAY_RELEASE_TOKEN: ${{ secrets.PLAY_RELEASE_TOKEN }}
+          TRACK: ${{ inputs.track }}
+          RELEASE_STATUS: ${{ inputs.release_status }}
         run: |
           set -euo pipefail
           missing=""
@@ -99,6 +104,9 @@ jobs:
               missing="$missing $name"
             fi
           done
+          if [ "$TRACK" = production ] && [ "$RELEASE_STATUS" = completed ] && [ -z "$PLAY_RELEASE_TOKEN" ]; then
+            missing="$missing PLAY_RELEASE_TOKEN"
+          fi
           if [ -n "$missing" ]; then
             echo "::error::Missing repository configuration:$missing. Variables are set" \
                  "under Settings > Secrets and variables > Actions."
@@ -166,6 +174,25 @@ jobs:
           tag=$(printf 'v%02d.%02d.%02d' "$major" "$minor" "$patch")
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse an existing production Release or tag
+        if: inputs.track == 'production' && inputs.release_status == 'completed'
+        env:
+          GH_TOKEN: ${{ secrets.PLAY_RELEASE_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          refs=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$TAG")
+          count=$(jq -er --arg ref "refs/tags/$TAG" 'map(select(.ref == $ref)) | length' <<< "$refs")
+          if [ "$count" != 0 ]; then
+            echo "::error::The production tag $TAG already exists; preserve it and use a new versionName."
+            exit 1
+          fi
+          releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")
+          if ! jq -e --arg tag "$TAG" 'all(.[][]; .tag_name != $tag)' <<< "$releases" >/dev/null; then
+            echo "::error::A Release or draft already uses $TAG; do not upload this version again."
+            exit 1
+          fi
 
       - name: Build the release bundle
         env:
@@ -326,6 +353,58 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "version_code=$version" >> "$GITHUB_OUTPUT"
 
+      # Native evidence of a completed production edit, distinct from the
+      # generic upload/commit stage that also succeeds for nonpublic tracks.
+      - name: Confirm the committed production release
+        if: success() && inputs.track == 'production' && inputs.release_status == 'completed'
+        env:
+          VERSION_CODE: ${{ steps.play.outputs.version_code }}
+        run: |
+          set -euo pipefail
+          if [ -z "$VERSION_CODE" ]; then
+            echo "::error::The committed production edit has no versionCode."
+            exit 1
+          fi
+          echo "- production/completed Play edit committed for versionCode \`$VERSION_CODE\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # This separate native step preserves the successful upload/commit result
+      # if Play processing or later Release recording fails. Never upload again
+      # to recover an already committed versionCode.
+      - name: Download the Play-signed universal APK
+        id: apk
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ steps.play.outputs.version_code }}
+          TOKEN: ${{ steps.auth.outputs.access_token }}
+          QUOTA_PROJECT: ${{ vars.GCP_QUOTA_PROJECT }}
+          PACKAGE: ${{ vars.PLAY_PACKAGE_NAME }}
+          TRACK: ${{ inputs.track }}
+          RELEASE_STATUS: ${{ inputs.release_status }}
+        run: |
+          set -euo pipefail
+          play() {
+            local rotulo=$1; shift
+            local corpo status
+            corpo=$(mktemp)
+            status=$(curl -sS -o "$corpo" -w '%{http_code}' "$@") || {
+              echo "::error::$rotulo: curl falhou. Resposta do Google Play:" >&2
+              sed 's/^/  /' "$corpo" >&2
+              rm -f "$corpo"
+              return 1
+            }
+            if [ "$status" -ge 400 ]; then
+              echo "::error::$rotulo: o Google Play respondeu HTTP $status." >&2
+              sed 's/^/  /' "$corpo" >&2
+              rm -f "$corpo"
+              return 1
+            fi
+            cat "$corpo"
+            rm -f "$corpo"
+          }
+
+          api=https://androidpublisher.googleapis.com/androidpublisher/v3/applications
+          version=$VERSION_CODE
+
           if [ "$TRACK" != production ]; then
             echo "released=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -349,6 +428,30 @@ jobs:
               echo "binário. Depois que o aplicativo estiver publicado, as próximas publicações"
               echo "usam \`completed\` e gravam a Release normalmente."
             } >> "$GITHUB_STEP_SUMMARY"
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # A committed production edit may still await review/manual publish.
+          # Read the native lifecycle; generated APKs alone do not prove this.
+          lifecycle=$(play "consultar publicação efetiva" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "x-goog-user-project: $QUOTA_PROJECT" \
+            --connect-timeout 10 --max-time 120 \
+            "$api/$PACKAGE/tracks/production/releases")
+          if ! printf '%s' "$lifecycle" | jq -e --argjson code "$version" '
+            type == "object" and (.releases | type == "array") and
+            any(.releases[];
+              .track == "production" and
+              .releaseLifecycleState == "RELEASE_LIFECYCLE_STATE_PUBLISHED" and
+              (.activeArtifacts | type == "array") and
+              any(.activeArtifacts[];
+                (.versionCode | type == "number" and floor == .) and
+                .versionCode == $code
+              )
+            )
+          ' >/dev/null; then
+            echo "- Production publication is not established by the native lifecycle/active artifact proof; no GitHub Release was recorded. After Google publishes this version, use record-play-release without re-uploading it." >> "$GITHUB_STEP_SUMMARY"
             echo "released=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -382,7 +485,7 @@ jobs:
           apk="$RUNNER_TEMP/release/$PACKAGE-$VERSION_NAME.apk"
           play "baixar o APK universal" -H "Authorization: Bearer $TOKEN" \
             -H "x-goog-user-project: $QUOTA_PROJECT" \
-            -o "$apk" "$gen/downloads/$download_id:download?alt=media"
+            "$gen/downloads/$download_id:download?alt=media" > "$apk"
           if [ ! -s "$apk" ]; then
             echo "::error::The universal APK download for version code $version is empty."
             exit 1
@@ -398,7 +501,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the Play-signed APK for the release job
-        if: steps.play.outputs.released == 'true'
+        if: steps.apk.outputs.released == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: play-universal-apk
@@ -421,7 +524,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write # Create the tag and the Release, and upload its assets.
+      contents: read # The dedicated repository token performs Release/ref writes.
       id-token: write # Sign the provenance attestation through Sigstore.
       attestations: write # Store the attestation on this repository.
     steps:
@@ -446,28 +549,115 @@ jobs:
           subject-path: release/*.apk
 
       - name: Create the Release
+        # Create the exact source ref atomically, then an identified draft.
+        # Fresh tag checks precede assets and publication. Failure preserves
+        # the created draft/tag because GitHub has no conditional deletion API.
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PLAY_RELEASE_TOKEN }}
           TAG: ${{ needs.publish.outputs.tag }}
           VERSION_CODE: ${{ needs.publish.outputs.version_code }}
           CERT: ${{ needs.publish.outputs.certificate_sha256 }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          owned_tag=false
+          owned_release_id=""
+          report_unpublished_attempt() {
+            result=$?
+            trap - EXIT
+            if [ "$result" -eq 0 ] || [ "$owned_tag" != true ]; then return "$result"; fi
+            # GitHub has no conditional DELETE that can exclude a concurrent
+            # publication or ref update. Preserve state for operator recovery.
+            echo "::warning::Preserving this attempt's tag $TAG and draft ${owned_release_id:-not-established}; operator review is required before retry."
+            {
+              echo "### Release recording failed; native state preserved"
+              echo ""
+              echo "- source commit: \`$HEAD_SHA\`"
+              echo "- created tag: \`$TAG\`"
+              echo "- created draft ID: \`${owned_release_id:-not-established}\`"
+              echo "- No Release or ref was deleted. Review the native state before recovery; do not re-upload a committed versionCode."
+            } >> "$GITHUB_STEP_SUMMARY"
+            return "$result"
+          }
+          trap report_unpublished_attempt EXIT
           apk=$(find release -name '*.apk' | head -1)
           {
-            echo "Published to the Google Play \`production\` track as version code \`$VERSION_CODE\`."
+            echo "The native Google Play production lifecycle reported PUBLISHED with active version code \`$VERSION_CODE\` before recording."
             echo ""
             echo "The APK below is the universal APK Google Play generated and signed with"
             echo "the app signing key (certificate SHA-256 \`$CERT\`): the same binary the"
-            echo "store distributes, so it installs alongside and updates a Play installation."
+            echo "Play uses, so it installs alongside and updates a Play installation."
+            echo "The native PUBLISHED lifecycle includes halted/resumable releases; Google controls current rollout and availability."
+            echo ""
+            echo "Source commit: \`$HEAD_SHA\`; producer run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID."
             echo ""
             echo "Verify the digest against \`SHA256SUMS\`, and the build provenance with:"
             echo ""
             echo '```'
-            echo "gh attestation verify $(basename "$apk") --repo $GITHUB_REPOSITORY"
+            echo "gh attestation verify $(basename "$apk") --repo $GITHUB_REPOSITORY --signer-workflow $GITHUB_REPOSITORY/.github/workflows/publish-play.yml --source-digest $HEAD_SHA"
             echo '```'
           } > "$RUNNER_TEMP/notes.md"
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --draft --generate-notes --notes-file "$RUNNER_TEMP/notes.md" \
-            "$apk" release/SHA256SUMS
-          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          refs=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$TAG")
+          count=$(jq -er --arg ref "refs/tags/$TAG" 'map(select(.ref == $ref)) | length' <<< "$refs")
+          if [ "$count" != 0 ]; then
+            echo "::error::A tag $TAG apareceu durante o registro; a Release não será criada."
+            exit 1
+          fi
+          releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")
+          if ! jq -e --arg tag "$TAG" 'all(.[][]; .tag_name != $tag)' <<< "$releases" >/dev/null; then
+            echo "::error::Uma Release ou rascunho desta tag apareceu; não alterar registros anteriores."
+            exit 1
+          fi
+          # Uma Release em rascunho ainda não materializa uma tag ausente.
+          # Criar a referência nativa é atômico: uma tag concorrente faz a API
+          # recusar a criação, sem substituir ou mover nenhuma referência.
+          created_ref=$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/$TAG" -f "sha=$HEAD_SHA")
+          owned_tag=true
+          if ! jq -e --arg ref "refs/tags/$TAG" --arg sha "$HEAD_SHA" \
+            '.ref == $ref and .object.type == "commit" and .object.sha == $sha' \
+            <<< "$created_ref" >/dev/null; then
+            echo "::error::A API não comprovou a nova tag no commit publicado; a Release não será criada."
+            exit 1
+          fi
+          # A resposta nativa identifica o rascunho pertencente a esta tentativa.
+          draft=$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
+            -f "tag_name=$TAG" -f "target_commitish=$HEAD_SHA" \
+            -F draft=true -f "name=$TAG" -F generate_release_notes=true -F "body=@$RUNNER_TEMP/notes.md")
+          owned_release_id=$(jq -er '.id | numbers | select(. > 0 and floor == .)' <<< "$draft")
+          if ! jq -e --arg tag "$TAG" '.draft == true and .tag_name == $tag' <<< "$draft" >/dev/null; then
+            echo "::error::A API não comprovou o rascunho desta tentativa."
+            exit 1
+          fi
+          expected_upload_url="https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$owned_release_id/assets{?name,label}"
+          upload_url=$(jq -er --arg expected "$expected_upload_url" '.upload_url | select(. == $expected)' <<< "$draft")
+          upload_url=${upload_url%\{*}
+          verify_owned_draft() {
+            local current
+            current=$(gh api "repos/$GITHUB_REPOSITORY/releases/$owned_release_id") || return 1
+            jq -e --argjson id "$owned_release_id" --arg tag "$TAG" --arg sha "$HEAD_SHA" \
+              '.id == $id and .tag_name == $tag and .draft == true and .target_commitish == $sha' \
+              <<< "$current" >/dev/null
+          }
+          tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/tags/$TAG" --jq '.sha')
+          if [ "$tag_sha" != "$HEAD_SHA" ]; then
+            echo "::error::A tag $TAG não aponta ao commit publicado $HEAD_SHA; o rascunho não será publicado."
+            exit 1
+          fi
+          assets=(release/*.apk release/SHA256SUMS)
+          verify_owned_draft
+          for asset in "${assets[@]}"; do
+            asset_name=$(jq -rn --arg name "$(basename "$asset")" '$name | @uri')
+            gh api --method POST "$upload_url?name=$asset_name" \
+              -H "Content-Type: application/octet-stream" --input "$asset" >/dev/null
+          done
+          final_tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/tags/$TAG" --jq '.sha')
+          if [ "$final_tag_sha" != "$HEAD_SHA" ]; then
+            echo "::error::A tag mudou antes da publicação; preservar a referência alterada."
+            exit 1
+          fi
+          verify_owned_draft
+          published=$(gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$owned_release_id" \
+            -F draft=false -f "tag_name=$TAG" -f "target_commitish=$HEAD_SHA")
+          jq -e --argjson id "$owned_release_id" --arg tag "$TAG" --arg sha "$HEAD_SHA" \
+            '.id == $id and .tag_name == $tag and .target_commitish == $sha and .draft == false' <<< "$published" >/dev/null
