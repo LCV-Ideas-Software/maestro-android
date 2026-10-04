@@ -301,7 +301,7 @@ analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
   `publish_run_id` (the number at the end of the `publish-play.yml` run URL).
   The native Actions API must identify this repository, workflow and exact
   source SHA, and a successful `Publish and verify artifact identity` step in
-  that run's current attempt. That step ends after the verified Play edit commit;
+  any native attempt of that run. That step ends after the verified Play edit commit;
   later APK processing or GitHub recording may fail without requiring another
   upload. A failed legacy combined upload/download step does not prove a commit
   and is rejected. The workflow checks out the proven source and validates its

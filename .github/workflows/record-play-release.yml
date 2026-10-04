@@ -76,13 +76,24 @@ jobs:
             exit 1
           fi
           head_sha=$(printf '%s' "$run" | jq -r '.head_sha')
-          attempt=$(printf '%s' "$run" | jq -r '.run_attempt')
-          jobs=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$PUBLISH_RUN_ID/attempts/$attempt/jobs?per_page=100")
-          if ! printf '%s' "$jobs" | jq -e --arg sha "$head_sha" '
-            [.[].jobs[] | select(.name == "Build, verify and publish" and .head_sha == $sha)] |
-            length == 1 and (.[0].steps | [.[] | select(.name == "Publish and verify artifact identity" and .conclusion == "success")] | length == 1)
+          # Failed-job reruns can consume the latest attempt without repeating
+          # a prior Play commit. Native filter=all preserves that durable proof.
+          jobs=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/runs/$PUBLISH_RUN_ID/jobs?filter=all&per_page=100")
+          if ! printf '%s' "$jobs" | jq -e --arg sha "$head_sha" --arg run_id "$PUBLISH_RUN_ID" '
+            [.[].jobs[] | select(.name == "Build, verify and publish")] |
+            length > 0 and
+            (length == (unique_by(.id) | length)) and
+            all(.[];
+              (.id | type == "number" and . > 0 and floor == .) and
+              (.run_id | type == "number" and tostring == $run_id) and
+              .head_sha == $sha and (.steps | type == "array")
+            ) and
+            any(.[];
+              [.steps[] | select(.name == "Publish and verify artifact identity")] |
+              length == 1 and .[0].conclusion == "success"
+            )
           ' >/dev/null; then
-            echo "::error::O passo nativo de envio e commit à Play não terminou com sucesso nesta tentativa. Não reenviar nem presumir um commit após falha do passo antigo combinado."
+            echo "::error::Nenhuma tentativa comprovou o passo nativo de envio e commit à Play para este run e commit. Não reenviar nem presumir um commit após falha do passo antigo combinado."
             exit 1
           fi
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
