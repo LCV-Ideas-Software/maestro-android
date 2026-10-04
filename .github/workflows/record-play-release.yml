@@ -244,7 +244,16 @@ jobs:
             echo "::error::A tag já existe; não reutilizar nem alterar uma versão gravada."
             exit 1
           fi
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$HEAD_SHA" --draft --title "$VERSION_NAME" --notes-file corpo.md
+          # Um rascunho não materializa uma tag ausente. Criá-la pela API
+          # nativa é atômico e recusa uma tag que surgiu após a conferência.
+          created_ref=$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref="refs/tags/$TAG" -f sha="$HEAD_SHA")
+          if ! printf '%s' "$created_ref" | jq -e --arg ref "refs/tags/$TAG" --arg sha "$HEAD_SHA" \
+            '.ref == $ref and .object.type == "commit" and .object.sha == $sha' >/dev/null; then
+            echo "::error::A referência criada não corresponde à tag e ao commit publicado."
+            exit 1
+          fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$HEAD_SHA" --verify-tag --draft --title "$VERSION_NAME" --notes-file corpo.md
           tagged_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/tags/$TAG" --jq '.sha')
           if [ "$tagged_sha" != "$HEAD_SHA" ]; then
             echo "::error::A tag não aponta ao commit publicado; não anexar assets nem publicar o rascunho."

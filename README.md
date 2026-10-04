@@ -304,7 +304,10 @@ analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
   source commit, checks the version there and creates the tag at that commit;
   a later `main` commit with the same versionCode is not proof of its origin.
   An existing tag is rejected before Google authentication or attestation,
-  and the new draft's tag is checked again before attaching assets or publishing.
+  then the native Git reference API atomically creates the tag at the published
+  source before creating the draft. A conflicting concurrent tag stops the run;
+  the draft requires that tag and its commit is checked again before attaching
+  assets or publishing.
   For example: `gh workflow run record-play-release.yml --ref main -f version_code=2 -f publish_run_id=<successful-run-id>`.
   This records the existing Play-signed APK
   without rebuilding or re-uploading anything. It is the path after a first

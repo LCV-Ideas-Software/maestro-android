@@ -9,8 +9,9 @@ All material changes to Maestro Android are recorded here.
 - Bind a manually recorded Play Release to the exact source commit of a
   successful `publish-play.yml` run, validated through the native Actions API
   with `publish_run_id` (MAEANDR-29). Check out and validate the version at that
-  commit, reject an existing tag, explicitly target the published source SHA
-  and verify the draft's tag before attaching assets or publishing. A later
+  commit, reject an existing tag, atomically create the native Git reference at
+  the published source SHA and require it for the draft. Verify that tag before
+  attaching assets or publishing. A later
   `main` commit retaining the same versionCode no longer determines the tag.
 
 ### Added
