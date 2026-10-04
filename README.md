@@ -298,17 +298,33 @@ analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
   store distributes — plus `SHA256SUMS` and a provenance attestation.
 - `record-play-release.yml`, also dispatched manually, records that GitHub
   Release for a version **already** on the store, given its `versionCode` and
-  `publish_run_id` (the number at the end of the successful
-  `publish-play.yml` run URL). The native Actions API must identify a successful
-  publication in this repository. The workflow checks out that run's exact
-  source commit, checks the version there and creates the tag at that commit;
-  a later `main` commit with the same versionCode is not proof of its origin.
-  An existing tag is rejected before Google authentication or attestation,
-  then the native Git reference API atomically creates the tag at the published
-  source before creating the draft. A conflicting concurrent tag stops the run;
-  the draft requires that tag and its commit is checked again before attaching
-  assets or publishing.
-  For example: `gh workflow run record-play-release.yml --ref main -f version_code=2 -f publish_run_id=<successful-run-id>`.
+  `publish_run_id` (the number at the end of the `publish-play.yml` run URL).
+  The native Actions API must identify this repository, workflow and exact
+  source SHA, and a successful `Publish and verify artifact identity` step in
+  that run's current attempt. That step ends after the verified Play edit commit;
+  later APK processing or GitHub recording may fail without requiring another
+  upload. A failed legacy combined upload/download step does not prove a commit
+  and is rejected. The workflow checks out the proven source and validates its
+  version and `applicationId` against `PLAY_PACKAGE_NAME` before contacting Play.
+  A later `main` commit with the same versionCode is not proof of origin.
+  Configure the repository-local `PLAY_RELEASE_TOKEN` secret with a native
+  fine-grained token limited to this repository and Contents/Workflows write:
+  GitHub requires Workflows permission for historical targets whose workflow
+  tree differs from the default branch. Reads use the automatic GitHub token;
+  only Release/ref writes use this dedicated token. Missing configuration stops
+  before Google authentication.
+  Existing tags or drafts are preserved and rejected. Native APIs atomically
+  create the exact source tag and return the owned draft ID. On failure only
+  that attempt's still-unpublished draft and still-matching tag are cleaned up
+  after fresh native checks; published, changed or unobservable state is kept.
+  No recorder build attestation is minted: checking out an older source does
+  not change this run's OIDC identity. An existing producer APK attestation is
+  verified with `gh attestation verify --source-digest <producer-sha>` and the
+  `publish-play.yml` signer workflow, and its native bundle is retained when
+  verified. First draft uploads and failed APK polling may have no producer APK
+  attestation; the Release explicitly records that limitation, with source/run,
+  package/version and checksum evidence instead of claiming build provenance.
+  For example: `gh workflow run record-play-release.yml --ref main -f version_code=2 -f publish_run_id=<publishing-run-id>`.
   This records the existing Play-signed APK
   without rebuilding or re-uploading anything. It is the path after a first
   publication is completed in the Console, when the publishing workflow has

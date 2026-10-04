@@ -69,9 +69,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
-      released: ${{ steps.play.outputs.released }}
+      released: ${{ steps.apk.outputs.released }}
       version_code: ${{ steps.play.outputs.version_code }}
-      certificate_sha256: ${{ steps.play.outputs.certificate_sha256 }}
+      certificate_sha256: ${{ steps.apk.outputs.certificate_sha256 }}
       tag: ${{ steps.version.outputs.tag }}
     permissions:
       contents: read # Check out the sources that are built.
@@ -326,6 +326,44 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           echo "version_code=$version" >> "$GITHUB_OUTPUT"
 
+      # This separate native step preserves the successful upload/commit result
+      # if Play processing or later Release recording fails. Never upload again
+      # to recover an already committed versionCode.
+      - name: Download the Play-signed universal APK
+        id: apk
+        env:
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          VERSION_CODE: ${{ steps.play.outputs.version_code }}
+          TOKEN: ${{ steps.auth.outputs.access_token }}
+          QUOTA_PROJECT: ${{ vars.GCP_QUOTA_PROJECT }}
+          PACKAGE: ${{ vars.PLAY_PACKAGE_NAME }}
+          TRACK: ${{ inputs.track }}
+          RELEASE_STATUS: ${{ inputs.release_status }}
+        run: |
+          set -euo pipefail
+          play() {
+            local rotulo=$1; shift
+            local corpo status
+            corpo=$(mktemp)
+            status=$(curl -sS -o "$corpo" -w '%{http_code}' "$@") || {
+              echo "::error::$rotulo: curl falhou. Resposta do Google Play:" >&2
+              sed 's/^/  /' "$corpo" >&2
+              rm -f "$corpo"
+              return 1
+            }
+            if [ "$status" -ge 400 ]; then
+              echo "::error::$rotulo: o Google Play respondeu HTTP $status." >&2
+              sed 's/^/  /' "$corpo" >&2
+              rm -f "$corpo"
+              return 1
+            fi
+            cat "$corpo"
+            rm -f "$corpo"
+          }
+
+          api=https://androidpublisher.googleapis.com/androidpublisher/v3/applications
+          version=$VERSION_CODE
+
           if [ "$TRACK" != production ]; then
             echo "released=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -398,7 +436,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the Play-signed APK for the release job
-        if: steps.play.outputs.released == 'true'
+        if: steps.apk.outputs.released == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: play-universal-apk

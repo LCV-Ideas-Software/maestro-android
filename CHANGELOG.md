@@ -6,13 +6,18 @@ All material changes to Maestro Android are recorded here.
 
 ### Fixed
 
-- Bind a manually recorded Play Release to the exact source commit of a
-  successful `publish-play.yml` run, validated through the native Actions API
-  with `publish_run_id` (MAEANDR-29). Check out and validate the version at that
-  commit, reject an existing tag, atomically create the native Git reference at
-  the published source SHA and require it for the draft. Verify that tag before
-  attaching assets or publishing. A later
-  `main` commit retaining the same versionCode no longer determines the tag.
+- Bind a manually recorded Play Release to the exact source commit whose
+  native publishing step verified and committed the Google upload, identified
+  by `publish_run_id` (MAEANDR-29). Separate that durable step from APK polling
+  so later failures can recover without re-uploading a versionCode. Validate the
+  source applicationId, version and checkout, create the native tag atomically,
+  and clean up only this attempt's proven unpublished draft/tag after failure.
+  Preserve published, foreign or unobservable state. Verify and retain existing
+  producer APK attestations when available; do not mint recorder provenance
+  under the historical producer SHA or claim missing build attestations.
+  Require a repository-local `PLAY_RELEASE_TOKEN` with native Contents/Workflows
+  write for historical targets; fail before Google authentication when absent.
+  A later `main` commit retaining the same versionCode cannot determine the tag.
 
 ### Added
 
