@@ -312,6 +312,9 @@ analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
   returned for the created draft ID; publication updates that same ID, never
   re-resolving a tag to a replacement draft. Fresh native reads check that the
   identified Release remains a draft for this tag and source before writes.
+  The same-ID publication PATCH explicitly supplies the tag and full source
+  target, and its response must preserve both; omitted fields are not assumed
+  stable merely because the Release ID is unchanged.
   A failed recording preserves its draft/tag and reports
   their identity for operator review before retry; recovery must never re-upload
   an already committed versionCode.

@@ -657,6 +657,7 @@ jobs:
             exit 1
           fi
           verify_owned_draft
-          published=$(gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$owned_release_id" -F draft=false)
-          jq -e --argjson id "$owned_release_id" --arg tag "$TAG" \
-            '.id == $id and .tag_name == $tag and .draft == false' <<< "$published" >/dev/null
+          published=$(gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$owned_release_id" \
+            -F draft=false -f "tag_name=$TAG" -f "target_commitish=$HEAD_SHA")
+          jq -e --argjson id "$owned_release_id" --arg tag "$TAG" --arg sha "$HEAD_SHA" \
+            '.id == $id and .tag_name == $tag and .target_commitish == $sha and .draft == false' <<< "$published" >/dev/null

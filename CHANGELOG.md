@@ -6,6 +6,10 @@ All material changes to Maestro Android are recorded here.
 
 ### Fixed
 
+- Explicitly retain the tag and full source target on the same-ID publication
+  PATCH, validating both in its native response instead of assuming omitted
+  Release fields remain stable.
+
 - Upload assets and publish only the identified draft through its native
   upload URL and Release ID, preserving any replacement Release rather than
   resolving a mutable tag again. Retain up to 100 pending Play runs with native
