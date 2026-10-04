@@ -6,6 +6,15 @@ All material changes to Maestro Android are recorded here.
 
 ### Fixed
 
+- Require native production `PUBLISHED` lifecycle and the exact active artifact
+  version before either workflow records a public Release. Completed edits or
+  generated APKs alone are insufficient; pending Google publication records no
+  GitHub Release and remains recoverable without re-upload. Preserve the first
+  draft/Console promotion path through current published production proof and
+  the exact verified producer source. Use the push-capable token for draft
+  collision visibility; retain a distinct native completed-production marker
+  as producer intent, never as proof of user availability.
+
 - Apply the same exact-source native tag/draft guards to the publishing
   workflow: refuse existing production tags before upload, require the
   dedicated Release token before Google authentication, serialize both Play
