@@ -297,7 +297,16 @@ analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
   Google Play generated and signed with the app signing key — the same binary the
   store distributes — plus `SHA256SUMS` and a provenance attestation.
 - `record-play-release.yml`, also dispatched manually, records that GitHub
-  Release for a version **already** on the store, given its `versionCode`,
+  Release for a version **already** on the store, given its `versionCode` and
+  `publish_run_id` (the number at the end of the successful
+  `publish-play.yml` run URL). The native Actions API must identify a successful
+  publication in this repository. The workflow checks out that run's exact
+  source commit, checks the version there and creates the tag at that commit;
+  a later `main` commit with the same versionCode is not proof of its origin.
+  An existing tag is rejected before Google authentication or attestation,
+  and the new draft's tag is checked again before attaching assets or publishing.
+  For example: `gh workflow run record-play-release.yml --ref main -f version_code=2 -f publish_run_id=<successful-run-id>`.
+  This records the existing Play-signed APK
   without rebuilding or re-uploading anything. It is the path after a first
   publication is completed in the Console, when the publishing workflow has
   already finished and re-dispatching it would only re-upload a `versionCode`
