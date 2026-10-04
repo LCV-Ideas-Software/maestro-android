@@ -276,31 +276,24 @@ jobs:
           set -euo pipefail
           owned_tag=false
           owned_release_id=""
-          cleanup_unpublished_attempt() {
+          report_unpublished_attempt() {
             result=$?
             trap - EXIT
             if [ "$result" -eq 0 ] || [ "$owned_tag" != true ]; then return "$result"; fi
-            if [ -n "$owned_release_id" ]; then
-              own_release=$(gh api "repos/$GITHUB_REPOSITORY/releases/$owned_release_id") || return "$result"
-              if ! jq -e --arg tag "$TAG" '.draft == true and .tag_name == $tag' <<< "$own_release" >/dev/null; then
-                echo "::warning::A Release já publicada ou alterada será preservada."
-                return "$result"
-              fi
-              gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/$owned_release_id" >/dev/null || return "$result"
-            fi
-            remaining=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100") || return "$result"
-            if ! jq -e --arg tag "$TAG" 'all(.[][]; .tag_name != $tag)' <<< "$remaining" >/dev/null; then
-              echo "::warning::Há uma Release ou rascunho que não foi criado por esta tentativa; preservar a tag."
-              return "$result"
-            fi
-            current_ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG") || return "$result"
-            if jq -e --arg ref "refs/tags/$TAG" --arg sha "$HEAD_SHA" \
-              '.ref == $ref and .object.type == "commit" and .object.sha == $sha' <<< "$current_ref" >/dev/null; then
-              gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null || return "$result"
-            fi
+            # GitHub has no conditional DELETE that can exclude a concurrent
+            # publication or ref update. Preserve state for operator recovery.
+            echo "::warning::Preserving this attempt's tag $TAG and draft ${owned_release_id:-not-established}; operator review is required before retry."
+            {
+              echo "### Release recording failed; native state preserved"
+              echo ""
+              echo "- source commit: \`$HEAD_SHA\`"
+              echo "- created tag: \`$TAG\`"
+              echo "- created draft ID: \`${owned_release_id:-not-established}\`"
+              echo "- No Release or ref was deleted. Review the native state before recovery; do not re-upload a committed versionCode."
+            } >> "$GITHUB_STEP_SUMMARY"
             return "$result"
           }
-          trap cleanup_unpublished_attempt EXIT
+          trap report_unpublished_attempt EXIT
           {
             cat play/release-notes/pt-BR.txt
             echo ""

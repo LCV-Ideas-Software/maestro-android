@@ -6,13 +6,20 @@ All material changes to Maestro Android are recorded here.
 
 ### Fixed
 
+- Apply the same exact-source native tag/draft guards to the publishing
+  workflow: refuse existing production tags before upload, require the
+  dedicated Release token before Google authentication, serialize both Play
+  entrypoints locally, and verify the created source tag before assets and
+  publication. Preserve prior releases and any state created by a failed
+  attempt, reporting its tag/draft ID for operator review without deleting it.
+
 - Bind a manually recorded Play Release to the exact source commit whose
   native publishing step verified and committed the Google upload, identified
   by `publish_run_id` (MAEANDR-29). Separate that durable step from APK polling
   so later failures can recover without re-uploading a versionCode. Validate the
   source applicationId, version and checkout, create the native tag atomically,
-  and clean up only this attempt's proven unpublished draft/tag after failure.
-  Preserve published, foreign or unobservable state. Verify and retain existing
+  and preserve this attempt's draft/tag after failure for operator review.
+  Never delete a Release/ref through a non-atomic check/delete. Verify and retain existing
   producer APK attestations when available; do not mint recorder provenance
   under the historical producer SHA or claim missing build attestations.
   Require a repository-local `PLAY_RELEASE_TOKEN` with native Contents/Workflows

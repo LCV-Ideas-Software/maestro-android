@@ -295,7 +295,14 @@ analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
   publication is finished in the Play Console. A production publication also
   records a GitHub Release with tag `vXX.XX.XX`, carrying the universal APK that
   Google Play generated and signed with the app signing key — the same binary the
-  store distributes — plus `SHA256SUMS` and a provenance attestation.
+  store distributes — plus `SHA256SUMS` and a provenance attestation. Production
+  recording requires `PLAY_RELEASE_TOKEN` before Google authentication, rejects
+  existing tags/drafts before upload, and atomically creates the tag at this
+  publishing run's exact source SHA. Native tag readbacks precede asset upload
+  and publication. Both Play entrypoints share this repository's `play-release`
+  concurrency group. A failed recording preserves its draft/tag and reports
+  their identity for operator review before retry; recovery must never re-upload
+  an already committed versionCode.
 - `record-play-release.yml`, also dispatched manually, records that GitHub
   Release for a version **already** on the store, given its `versionCode` and
   `publish_run_id` (the number at the end of the `publish-play.yml` run URL).
@@ -308,15 +315,16 @@ analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
   version and `applicationId` against `PLAY_PACKAGE_NAME` before contacting Play.
   A later `main` commit with the same versionCode is not proof of origin.
   Configure the repository-local `PLAY_RELEASE_TOKEN` secret with a native
-  native token with Contents/Workflows write permissions for this repository:
+  token with Contents/Workflows write permissions for this repository:
   GitHub requires Workflows permission for historical targets whose workflow
   tree differs from the default branch. Reads use the automatic GitHub token;
   only Release/ref writes use this dedicated token. Missing configuration stops
   before Google authentication.
   Existing tags or drafts are preserved and rejected. Native APIs atomically
   create the exact source tag and return the owned draft ID. On failure only
-  that attempt's still-unpublished draft and still-matching tag are cleaned up
-  after fresh native checks; published, changed or unobservable state is kept.
+  the created tag and draft ID are reported and preserved for operator review
+  before retry. GitHub has no conditional deletion API that can exclude a
+  concurrent maintainer publication or tag update; no Release/ref is deleted.
   No recorder build attestation is minted: checking out an older source does
   not change this run's OIDC identity. An existing producer APK attestation is
   verified with `gh attestation verify --source-digest <producer-sha>` and the

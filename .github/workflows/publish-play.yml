@@ -32,6 +32,7 @@ name: Publish to Google Play
 #   vars.GCP_QUOTA_PROJECT       project billed for Google Play API quota
 #   secrets.UPLOAD_KEYSTORE_B64       base64 of the upload keystore
 #   secrets.UPLOAD_KEYSTORE_PASSWORD  keystore and key password
+#   secrets.PLAY_RELEASE_TOKEN       Contents/Workflows write for production Releases
 
 on:
   workflow_dispatch:
@@ -60,7 +61,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: publish-play-${{ github.ref }}
+  group: play-release
   cancel-in-progress: false
 
 jobs:
@@ -90,6 +91,9 @@ jobs:
           GCP_QUOTA_PROJECT: ${{ vars.GCP_QUOTA_PROJECT }}
           KEYSTORE_B64: ${{ secrets.UPLOAD_KEYSTORE_B64 }}
           KEYSTORE_PASSWORD: ${{ secrets.UPLOAD_KEYSTORE_PASSWORD }}
+          PLAY_RELEASE_TOKEN: ${{ secrets.PLAY_RELEASE_TOKEN }}
+          TRACK: ${{ inputs.track }}
+          RELEASE_STATUS: ${{ inputs.release_status }}
         run: |
           set -euo pipefail
           missing=""
@@ -99,6 +103,9 @@ jobs:
               missing="$missing $name"
             fi
           done
+          if [ "$TRACK" = production ] && [ "$RELEASE_STATUS" = completed ] && [ -z "$PLAY_RELEASE_TOKEN" ]; then
+            missing="$missing PLAY_RELEASE_TOKEN"
+          fi
           if [ -n "$missing" ]; then
             echo "::error::Missing repository configuration:$missing. Variables are set" \
                  "under Settings > Secrets and variables > Actions."
@@ -166,6 +173,25 @@ jobs:
           tag=$(printf 'v%02d.%02d.%02d' "$major" "$minor" "$patch")
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse an existing production Release or tag
+        if: inputs.track == 'production' && inputs.release_status == 'completed'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          refs=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$TAG")
+          count=$(jq -er --arg ref "refs/tags/$TAG" 'map(select(.ref == $ref)) | length' <<< "$refs")
+          if [ "$count" != 0 ]; then
+            echo "::error::The production tag $TAG already exists; preserve it and use a new versionName."
+            exit 1
+          fi
+          releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")
+          if ! jq -e --arg tag "$TAG" 'all(.[][]; .tag_name != $tag)' <<< "$releases" >/dev/null; then
+            echo "::error::A Release or draft already uses $TAG; do not upload this version again."
+            exit 1
+          fi
 
       - name: Build the release bundle
         env:
@@ -459,7 +485,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write # Create the tag and the Release, and upload its assets.
+      contents: read # The dedicated repository token performs Release/ref writes.
       id-token: write # Sign the provenance attestation through Sigstore.
       attestations: write # Store the attestation on this repository.
     steps:
@@ -484,13 +510,37 @@ jobs:
           subject-path: release/*.apk
 
       - name: Create the Release
+        # Create the exact source ref atomically, then an identified draft.
+        # Fresh tag checks precede assets and publication. Failure preserves
+        # the created draft/tag because GitHub has no conditional deletion API.
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PLAY_RELEASE_TOKEN }}
           TAG: ${{ needs.publish.outputs.tag }}
           VERSION_CODE: ${{ needs.publish.outputs.version_code }}
           CERT: ${{ needs.publish.outputs.certificate_sha256 }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          owned_tag=false
+          owned_release_id=""
+          report_unpublished_attempt() {
+            result=$?
+            trap - EXIT
+            if [ "$result" -eq 0 ] || [ "$owned_tag" != true ]; then return "$result"; fi
+            # GitHub has no conditional DELETE that can exclude a concurrent
+            # publication or ref update. Preserve state for operator recovery.
+            echo "::warning::Preserving this attempt's tag $TAG and draft ${owned_release_id:-not-established}; operator review is required before retry."
+            {
+              echo "### Release recording failed; native state preserved"
+              echo ""
+              echo "- source commit: \`$HEAD_SHA\`"
+              echo "- created tag: \`$TAG\`"
+              echo "- created draft ID: \`${owned_release_id:-not-established}\`"
+              echo "- No Release or ref was deleted. Review the native state before recovery; do not re-upload a committed versionCode."
+            } >> "$GITHUB_STEP_SUMMARY"
+            return "$result"
+          }
+          trap report_unpublished_attempt EXIT
           apk=$(find release -name '*.apk' | head -1)
           {
             echo "Published to the Google Play \`production\` track as version code \`$VERSION_CODE\`."
@@ -499,13 +549,56 @@ jobs:
             echo "the app signing key (certificate SHA-256 \`$CERT\`): the same binary the"
             echo "store distributes, so it installs alongside and updates a Play installation."
             echo ""
+            echo "Source commit: \`$HEAD_SHA\`; producer run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID."
+            echo ""
             echo "Verify the digest against \`SHA256SUMS\`, and the build provenance with:"
             echo ""
             echo '```'
-            echo "gh attestation verify $(basename "$apk") --repo $GITHUB_REPOSITORY"
+            echo "gh attestation verify $(basename "$apk") --repo $GITHUB_REPOSITORY --signer-workflow $GITHUB_REPOSITORY/.github/workflows/publish-play.yml --source-digest $HEAD_SHA"
             echo '```'
           } > "$RUNNER_TEMP/notes.md"
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
-            --draft --generate-notes --notes-file "$RUNNER_TEMP/notes.md" \
-            "$apk" release/SHA256SUMS
+          refs=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$TAG")
+          count=$(jq -er --arg ref "refs/tags/$TAG" 'map(select(.ref == $ref)) | length' <<< "$refs")
+          if [ "$count" != 0 ]; then
+            echo "::error::A tag $TAG apareceu durante o registro; a Release não será criada."
+            exit 1
+          fi
+          releases=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100")
+          if ! jq -e --arg tag "$TAG" 'all(.[][]; .tag_name != $tag)' <<< "$releases" >/dev/null; then
+            echo "::error::Uma Release ou rascunho desta tag apareceu; não alterar registros anteriores."
+            exit 1
+          fi
+          # Uma Release em rascunho ainda não materializa uma tag ausente.
+          # Criar a referência nativa é atômico: uma tag concorrente faz a API
+          # recusar a criação, sem substituir ou mover nenhuma referência.
+          created_ref=$(gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/$TAG" -f "sha=$HEAD_SHA")
+          owned_tag=true
+          if ! jq -e --arg ref "refs/tags/$TAG" --arg sha "$HEAD_SHA" \
+            '.ref == $ref and .object.type == "commit" and .object.sha == $sha' \
+            <<< "$created_ref" >/dev/null; then
+            echo "::error::A API não comprovou a nova tag no commit publicado; a Release não será criada."
+            exit 1
+          fi
+          # A resposta nativa identifica o rascunho pertencente a esta tentativa.
+          draft=$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
+            -f "tag_name=$TAG" -f "target_commitish=$HEAD_SHA" \
+            -F draft=true -f "name=$TAG" -F generate_release_notes=true -F "body=@$RUNNER_TEMP/notes.md")
+          owned_release_id=$(jq -er '.id | numbers | select(. > 0)' <<< "$draft")
+          if ! jq -e --arg tag "$TAG" '.draft == true and .tag_name == $tag' <<< "$draft" >/dev/null; then
+            echo "::error::A API não comprovou o rascunho desta tentativa."
+            exit 1
+          fi
+          tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/tags/$TAG" --jq '.sha')
+          if [ "$tag_sha" != "$HEAD_SHA" ]; then
+            echo "::error::A tag $TAG não aponta ao commit publicado $HEAD_SHA; o rascunho não será publicado."
+            exit 1
+          fi
+          assets=(release/*.apk release/SHA256SUMS)
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" "${assets[@]}"
+          final_tag_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/tags/$TAG" --jq '.sha')
+          if [ "$final_tag_sha" != "$HEAD_SHA" ]; then
+            echo "::error::A tag mudou antes da publicação; preservar a referência alterada."
+            exit 1
+          fi
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
