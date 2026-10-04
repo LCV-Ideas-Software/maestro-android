@@ -307,7 +307,12 @@ analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
   existing tags/drafts before upload, and atomically creates the tag at this
   publishing run's exact source SHA. Native tag readbacks precede asset upload
   and publication. Both Play entrypoints share this repository's `play-release`
-  concurrency group. A failed recording preserves its draft/tag and reports
+  concurrency group with native `queue: max` (up to 100 pending runs, with no
+  cancellation of the running workflow). Asset uploads use the native URL
+  returned for the created draft ID; publication updates that same ID, never
+  re-resolving a tag to a replacement draft. Fresh native reads check that the
+  identified Release remains a draft for this tag and source before writes.
+  A failed recording preserves its draft/tag and reports
   their identity for operator review before retry; recovery must never re-upload
   an already committed versionCode.
 - `record-play-release.yml`, also dispatched manually, records that GitHub

@@ -6,6 +6,11 @@ All material changes to Maestro Android are recorded here.
 
 ### Fixed
 
+- Upload assets and publish only the identified draft through its native
+  upload URL and Release ID, preserving any replacement Release rather than
+  resolving a mutable tag again. Retain up to 100 pending Play runs with native
+  `concurrency.queue: max`; running work is not canceled.
+
 - Require native production `PUBLISHED` lifecycle and the exact active artifact
   version before either workflow records a public Release. Completed edits or
   generated APKs alone are insufficient; pending Google publication records no
