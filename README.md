@@ -308,7 +308,7 @@ analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
   version and `applicationId` against `PLAY_PACKAGE_NAME` before contacting Play.
   A later `main` commit with the same versionCode is not proof of origin.
   Configure the repository-local `PLAY_RELEASE_TOKEN` secret with a native
-  fine-grained token limited to this repository and Contents/Workflows write:
+  native token with Contents/Workflows write permissions for this repository:
   GitHub requires Workflows permission for historical targets whose workflow
   tree differs from the default branch. Reads use the automatic GitHub token;
   only Release/ref writes use this dedicated token. Missing configuration stops

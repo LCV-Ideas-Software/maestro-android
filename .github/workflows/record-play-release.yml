@@ -43,7 +43,8 @@ jobs:
     timeout-minutes: 20
     permissions:
       actions: read # Conferir o run e o commit da publicação neste repositório.
-      contents: write # Criar a tag, a Release e anexar os assets.
+      contents: read # Ler referências; somente PLAY_RELEASE_TOKEN grava a Release/tag.
+      attestations: read # Verificar/baixar attestations existentes do produtor.
       id-token: write # Token OIDC somente para as credenciais do Google.
     steps:
       - name: Identify the published source commit
@@ -235,6 +236,11 @@ jobs:
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/publish-play.yml" \
             --source-digest "$HEAD_SHA"; then
             (cd release && gh attestation download "$(basename "$APK")" --repo "$GITHUB_REPOSITORY")
+            bundle="release/sha256:$(sha256sum "$APK" | cut -d' ' -f1).jsonl"
+            test -s "$bundle"
+            gh attestation verify "$APK" --repo "$GITHUB_REPOSITORY" --bundle "$bundle" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/publish-play.yml" \
+              --source-digest "$HEAD_SHA"
             echo "verified=true" >> "$GITHUB_OUTPUT"
             echo "Producer APK build provenance verified at $HEAD_SHA." >> "$GITHUB_STEP_SUMMARY"
           else
@@ -301,7 +307,7 @@ jobs:
             echo ""
             if [ "$PRODUCER_PROVENANCE" = true ]; then
               echo "Attestation do APK pelo workflow produtor verificada no commit publicado."
-              echo "Verificar com \`gh attestation verify\` e \`--source-digest $HEAD_SHA\`."
+              echo "Verificar com \`gh attestation verify <apk> --repo $GITHUB_REPOSITORY --signer-workflow $GITHUB_REPOSITORY/.github/workflows/publish-play.yml --source-digest $HEAD_SHA\`."
             else
               echo "Não foi estabelecida uma attestation do APK pelo produtor. A identidade usa"
               echo "o run, a etapa de commit no Play, applicationId, versão e checksum; este registro"
