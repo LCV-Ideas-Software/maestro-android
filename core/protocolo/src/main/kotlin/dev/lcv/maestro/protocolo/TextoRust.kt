@@ -49,7 +49,7 @@ internal object TextoRust {
      * `\w` do Rust em modo Unicode, como o crate `regex` o documenta:
      * `\p{Alphabetic}` + `\p{M}` + `\d` (`\p{Nd}`) + `\p{Pc}` + `\p{Join_Control}`.
      * O prefixo `Is` das propriedades binárias existe no Android desde o 10, e
-     * o `minSdk` é 34.
+     * o `minSdk` é 36.
      */
     const val PALAVRA_CLASSE: String =
         "\\p{IsAlphabetic}\\p{M}\\p{Nd}\\p{Pc}\\p{IsJoin_Control}"

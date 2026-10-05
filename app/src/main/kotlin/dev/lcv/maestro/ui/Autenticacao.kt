@@ -70,7 +70,7 @@ fun rememberAutenticacaoDaTela(): AutenticacaoDaTela {
 }
 
 /**
- * O `BiometricPrompt` da plataforma (API 28+, disponível no `minSdk` 34): a
+ * O `BiometricPrompt` da plataforma (API 28+, disponível no `minSdk` 36): a
  * Activity do aplicativo é `ComponentActivity`, convenção da frota, e o
  * `androidx.biometric` exigiria `FragmentActivity`. Os autenticadores são os
  * da chave — biometria forte ou a credencial do aparelho —, e por isso não há

@@ -57,6 +57,15 @@ class AnexosScreenTest {
         regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.MANIFESTO_RESULTADO).fetchSemanticsNodes().isNotEmpty() }
     }
 
+    /**
+     * O resultado do manifesto vem da releitura, que chega à tela por outro caminho que o aviso da ação: o aviso
+     * pode aparecer antes. Espera o texto e confere que ele está no resultado do manifesto.
+     */
+    private fun esperarOResultadoDoManifesto(texto: String) {
+        regra.esperarTexto(texto)
+        regra.onNodeWithTag(Marcas.MANIFESTO_RESULTADO).assertTextEquals(texto)
+    }
+
     @Test
     fun oManifestoValidoMostraAsContagensQueASessaoVaiLer() {
         val id = c.sessao(Estados.ERRO, erro = "Falha qualquer.")
@@ -66,7 +75,7 @@ class AnexosScreenTest {
 
         regra.onNodeWithTag(Marcas.ANEXAR_MANIFESTO).performClick()
         regra.esperarTexto("Anexo adicionado.")
-        regra.onNodeWithTag(Marcas.MANIFESTO_RESULTADO).assertTextEquals("Manifesto lido: 1 citação e 1 fonte.")
+        esperarOResultadoDoManifesto("Manifesto lido: 1 citação e 1 fonte.")
         val anexos = c.anexos.daSessao(id)
         assertEquals(listOf("citation-manifest.json"), anexos.map { it.nomeOriginal })
         // O seletor aceita JSON e, pela lista, qualquer arquivo: é a leitura que decide o que é manifesto.
@@ -80,7 +89,7 @@ class AnexosScreenTest {
 
         regra.onNodeWithTag(Marcas.ANEXAR_MANIFESTO).performClick()
         regra.esperarTexto("Anexo adicionado.")
-        regra.onNodeWithTag(Marcas.MANIFESTO_RESULTADO).assertTextEquals(
+        esperarOResultadoDoManifesto(
             "Manifesto recusado: citation manifest attachment must use citation_manifest.v1. Com ele, a sessão pausaria " +
                 "na auditoria final antes de qualquer chamada paga; remova ou troque o arquivo.",
         )
@@ -91,7 +100,7 @@ class AnexosScreenTest {
         regra.esperarTexto("Anexo removido.")
         assertTrue(c.anexos.daSessao(id).isEmpty())
         assertFalse(File(anexo.caminho).exists())
-        regra.onNodeWithTag(Marcas.MANIFESTO_RESULTADO).assertTextEquals("Nenhum manifesto de citações anexado.")
+        esperarOResultadoDoManifesto("Nenhum manifesto de citações anexado.")
     }
 
     @Test
@@ -104,7 +113,7 @@ class AnexosScreenTest {
 
         regra.onNodeWithTag(Marcas.ANEXAR_MANIFESTO).performClick()
         regra.esperarTexto("Anexo adicionado.")
-        regra.onNodeWithTag(Marcas.MANIFESTO_RESULTADO).assertTextEquals(
+        esperarOResultadoDoManifesto(
             "Manifesto recusado: O manifesto nao esta vinculado ao hash do protocolo ativo. Hash do protocolo ativo: $ativo. " +
                 "Com ele, a sessão pausaria na auditoria final antes de qualquer chamada paga; remova ou troque o arquivo.",
         )

@@ -41,9 +41,11 @@ implemented.
 
 The Gradle project has been on the fleet baseline since 21/09/2026
 (MAEANDR-14): package name `dev.lcv.maestro`, `compileSdk` and `targetSdk` 37,
-`minSdk` 34, a `gradle/libs.versions.toml` version catalog, and the Kotlin
-Gradle Plugin declared. No signing material lives here; it is injected at build
-time by the publishing workflow.
+a `gradle/libs.versions.toml` version catalog, and the Kotlin Gradle Plugin
+declared. Its `minSdk`, 34 in MAEANDR-14, is 36 (Android 16) by the
+operator's decision of 04/10/2026 for every `*-android` app (MAEANDR-30).
+No signing material lives here; it is injected at build time by the
+publishing workflow.
 
 The first module of the port is `:core:protocolo` — pure Kotlin, no Android
 dependency, tested on the JVM. It carries the approved-content lock: text is

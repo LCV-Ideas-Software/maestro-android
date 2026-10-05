@@ -585,7 +585,8 @@ módulo `:app`, zero arquivos `.kt`. A calculadora está em
 
 A primeira entrega de código traz, na mesma mudança:
 
-1. `compileSdk` e `targetSdk` 37, `minSdk` 34.
+1. `compileSdk` e `targetSdk` 37, `minSdk` 34. Desde 04/10/2026, o `minSdk` é
+   36, por decisão do operador para todos os aplicativos \*-android (seção 6.2).
 2. `gradle/libs.versions.toml` com AGP, KGP, Compose e demais versões.
 3. O Kotlin Gradle Plugin declarado — **e a linha `kotlin-gradle-plugin`
    removida do `ignore` do [`.github/dependabot.yml`](../.github/dependabot.yml)
@@ -1504,7 +1505,7 @@ Ambas têm custo real e nenhuma tinha resposta na documentação — eram escolh
 produto, e o operador as fez. Ficam aqui escritas para não serem relitigadas.
 
 **1. StrongBox: sim** (`setIsStrongBoxBacked(true)`), disponível desde a API 28
-e portanto em todo aparelho que o `minSdk` 34 alcança. A documentação é
+e portanto em todo aparelho que o `minSdk` 36 alcança. A documentação é
 explícita sobre o preço, e o preço está aceito: *"Appropriate for applications
 requiring the highest level of security... However, it is slower, more
 resource-constrained, and supports fewer concurrent operations."*
@@ -1571,10 +1572,19 @@ sem botão negativo, que a credencial proíbe), e nada começa quando ela falha:
 o cofre não distingue uma janela vencida sem decifrar, e pausar logo depois de
 começar é pior do que pedir antes.
 
-A v1 assume `minSdk` 34, herdando a decisão do operador de 19/09/2026 na
+A v1 assume `minSdk` 36, pela decisão do operador de 04/10/2026 para todos os
+aplicativos \*-android, que superou a de 19/09/2026 (Android 14) herdada da
 calculadora. Isso torna as duas APIs acima universalmente disponíveis e dispensa
 caminho por nível de API — o que sobra é o hardware de StrongBox, que é questão
 de aparelho, não de versão do sistema.
+
+A decisão de 04/10/2026 nasceu de duas ações recomendadas do Play Console para
+a calculadora-android 1.0.3: a exibição de ponta a ponta pode não estar
+disponível para todos os usuários, e a calculadora usa APIs ou parâmetros
+descontinuados para essa exibição (`Window.setStatusBarColor`,
+`Window.setNavigationBarColor` e `LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES`).
+Nem o código próprio da calculadora nem o deste aplicativo chama essas APIs;
+os dois chamam o `enableEdgeToEdge()` do AndroidX.
 
 ### 6.3 O que se declara na Play
 

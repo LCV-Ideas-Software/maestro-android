@@ -16,11 +16,12 @@ android {
 
     defaultConfig {
         applicationId = "dev.lcv.maestro"
-        // Android 14. Mesma decisão do operador de 19/09/2026 na
-        // calculadora-android, e o que torna o StrongBox e o vínculo com
-        // autenticação do usuário universalmente disponíveis — ver a seção 6.2
-        // de `docs/especificacao-v1.md`.
-        minSdk = 34
+        // Android 16: nenhum aplicativo *-android abaixo dele (decisão do
+        // operador, 04/10/2026, que superou a de 19/09/2026, Android 14), e o
+        // que torna o StrongBox e o vínculo com autenticação do usuário
+        // universalmente disponíveis — ver a seção 6.2 de
+        // `docs/especificacao-v1.md`.
+        minSdk = 36
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
