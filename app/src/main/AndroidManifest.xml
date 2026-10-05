@@ -33,11 +33,17 @@
 
         <!-- Uma Activity só, `singleTask`: o toque na notificação da sessão
              chega por `onNewIntent` quando o aplicativo já está aberto, e por
-             `onCreate` quando não está; nos dois casos a tela da sessão abre. -->
+             `onCreate` quando não está; nos dois casos a tela da sessão abre.
+             `adjustResize`: com o teclado aberto, o sistema deixa de empurrar a
+             janela inteira para cima (o que levava a barra superior para baixo
+             da barra de status ou para fora da tela). O recuo do teclado chega
+             ao aplicativo de qualquer modo, e o `Scaffold` do `MaestroApp` o
+             aplica ao conteúdo e aos avisos (MAEANDR-31). -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Maestro">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

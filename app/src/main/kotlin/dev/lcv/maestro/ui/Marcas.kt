@@ -11,6 +11,10 @@ object Marcas {
     // Casca
     const val IR_PARA_CONFIGURACOES = "ir-para-configuracoes"
     const val VOLTAR = "voltar"
+    /** A área das telas, dentro dos recuos da casca (MAEANDR-31). */
+    const val CONTEUDO = "conteudo"
+    /** O lugar dos avisos (`Snackbar`) da casca (MAEANDR-31). */
+    const val AVISOS = "avisos"
     /** O vazio no lugar de uma tela cuja leitura falhou (decisão 25 estendida, #80). */
     const val LEITURA_FALHOU = "leitura-falhou"
 

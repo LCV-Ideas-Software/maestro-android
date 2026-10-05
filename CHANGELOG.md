@@ -6,6 +6,20 @@ All material changes to Maestro Android are recorded here.
 
 ### Fixed
 
+- With the software keyboard open, the top bar stays in place below the
+  status bar, the focused field stays in full view above the keyboard, the
+  screen's content ends at the keyboard's top, and notices show above the
+  keyboard (MAEANDR-31). The activity declared no `windowSoftInputMode`, so
+  when the keyboard covered the focused field the system pushed the whole
+  window up, taking the top bar under the status bar or, for a field at the
+  bottom of the screen, above the top of the screen. The activity now
+  declares `adjustResize`, per the official edge-to-edge setup, and the
+  system no longer moves the window; the keyboard inset reaches the app
+  either way, and the shell's `Scaffold` now counts it in its content insets
+  (the larger of the system bars and the keyboard), which place both the
+  content and the notices. A device test on the real activity opens the
+  keyboard on a low field of the settings screen and checks all four; it
+  fails on the previous code and when any one piece is undone.
 - Explicitly retain the tag and full source target on the same-ID publication
   PATCH, validating both in its native response instead of assuming omitted
   Release fields remain stable.

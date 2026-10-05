@@ -1936,7 +1936,13 @@ de teste, porque compra confiança sem entregá-la.
   cheio é o `SQLiteFullException` do framework, lançado sob demanda por um
   `openHelperFactory` de teste do Room (`BancoCheio`), no ponto em que o
   SQLite o lançaria: um gatilho SQL daria `SQLITE_CONSTRAINT`, e o limite de
-  páginas só falha quando a escrita pede página nova. Na JVM: o renderizador do texto final, o tipo da captura, os
+  páginas só falha quando a escrita pede página nova. Pela MAEANDR-31, na
+  `MainActivity` de verdade, porque o `adjustResize` do manifesto vale só nela:
+  com o teclado na tela aberto num campo baixo das configurações, a barra
+  superior não sai do lugar e fica inteira abaixo da barra de status, o campo em
+  foco fica inteiro à vista acima do teclado, o conteúdo termina no topo do
+  teclado e os avisos aparecem acima dele (`TecladoTest`). Na JVM: o
+  renderizador do texto final, o tipo da captura, os
   rótulos do painel do desktop, a regra do manifesto do formulário, que não
   deixa começar durante a leitura dele, e a ordem das releituras das telas de
   anexos e de links (`OrdemDasLeituras`); na tela de anexos, o manifesto de
