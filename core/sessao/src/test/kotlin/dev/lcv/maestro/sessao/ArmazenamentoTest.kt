@@ -35,4 +35,20 @@ class ArmazenamentoTest {
         val cancelamento = CancellationException("saiu da tela")
         assertSame(cancelamento, assertFailsWith<CancellationException> { motivoDeArmazenamento(cancelamento) })
     }
+
+    // Decisão 26 do operador (01/10/2026, #82): o acesso negado ao documento escolhido no seletor.
+
+    @Test
+    fun `o acesso que o provedor nega ao documento escolhido e armazenamento, com o motivo`() {
+        assertEquals("negado pelo provedor", motivoDoDocumento(SecurityException("negado pelo provedor")))
+        assertEquals("disco", motivoDoDocumento(IOException("disco")))
+        val estado = IllegalStateException("outra coisa")
+        assertSame(estado, assertFailsWith<IllegalStateException> { motivoDoDocumento(estado) })
+    }
+
+    @Test
+    fun `fora da fronteira do documento o erro de permissao segue adiante`() {
+        val permissao = SecurityException("uma permissão do sistema que falta")
+        assertSame(permissao, assertFailsWith<SecurityException> { motivoDeArmazenamento(permissao) })
+    }
 }

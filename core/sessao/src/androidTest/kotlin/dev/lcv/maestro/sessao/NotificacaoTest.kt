@@ -56,7 +56,7 @@ class NotificacaoTest {
         val notificacao = Notificacao(contexto) { intencao }.doCancelamentoQueFalhou("android-x", "database or disk is full")
         assertEquals("Cancelamento não gravado", notificacao.extras.getString(Notification.EXTRA_TITLE))
         assertEquals(
-            "O cancelamento pedido pela notificação não foi gravado, e a sessão seguiu como estava. Motivo: database or disk is full",
+            "O cancelamento pedido pela notificação não foi gravado. Motivo: database or disk is full",
             notificacao.extras.getCharSequence(Notification.EXTRA_TEXT).toString(),
         )
         assertSame(intencao, notificacao.contentIntent)

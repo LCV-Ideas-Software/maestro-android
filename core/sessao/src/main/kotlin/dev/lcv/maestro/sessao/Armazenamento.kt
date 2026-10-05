@@ -25,6 +25,15 @@ public fun motivoDeArmazenamento(erro: Exception): String = when {
     else -> throw erro
 }
 
+/**
+ * A entrada e saída do documento que a pessoa escolheu no seletor do sistema (decisão 26 do operador, 01/10/2026,
+ * #82): o provedor de documentos que nega acesso (`SecurityException`) também é falha de armazenamento, com o motivo
+ * dela; o resto é o de [motivoDeArmazenamento]. Só essa fronteira usa esta entrada: fora dela, um `SecurityException`
+ * (uma permissão do sistema que falta) é defeito de código e segue adiante.
+ */
+public fun motivoDoDocumento(erro: Exception): String =
+    if (erro is SecurityException) erro.message.orEmpty() else motivoDeArmazenamento(erro)
+
 private fun eDeArmazenamento(erro: Throwable): Boolean =
     erro is SQLiteFullException || erro is SQLiteDiskIOException || erro is SQLiteCantOpenDatabaseException ||
         erro is SQLiteDatabaseCorruptException || erro is IOException

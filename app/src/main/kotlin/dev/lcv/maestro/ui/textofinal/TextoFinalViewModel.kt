@@ -13,6 +13,7 @@ import androidx.lifecycle.viewModelScope
 import dev.lcv.maestro.Dependencias
 import dev.lcv.maestro.R
 import dev.lcv.maestro.sessao.Estados
+import dev.lcv.maestro.sessao.motivoDoDocumento
 import dev.lcv.maestro.ui.LeiturasDaTela
 import dev.lcv.maestro.ui.Mensagem
 import java.io.IOException
@@ -141,7 +142,9 @@ class TextoFinalViewModel(private val d: Dependencias, private val id: String) :
             titulo.replace(Regex("[\\\\/:*?\"<>|\\p{Cc}]"), "-").trim().take(120).ifEmpty { "texto-final" }
 
         /**
-         * O fluxo do `ContentResolver`, nunca um caminho de arquivo; `null` quando gravou.
+         * O fluxo do `ContentResolver`, nunca um caminho de arquivo; `null` quando gravou. O arquivo que não grava e o
+         * acesso que o provedor nega passam pelo classificador do documento (decisão 26 do operador, #82); o resto
+         * segue adiante, sem apagar nada.
          * [aoFalhar] apaga o documento que o seletor criou e diz se apagou; só os testes o trocam, para ver que é chamado.
          */
         fun gravar(
@@ -153,10 +156,8 @@ class TextoFinalViewModel(private val d: Dependencias, private val id: String) :
             val saida = resolver.openOutputStream(uri, "w") ?: throw IOException("o provedor não abriu o documento")
             saida.use { it.write(bytes) }
             null
-        } catch (erro: IOException) {
-            FalhaDaExportacao(erro.message.orEmpty(), aoFalhar(resolver, uri))
-        } catch (erro: SecurityException) {
-            FalhaDaExportacao(erro.message.orEmpty(), aoFalhar(resolver, uri))
+        } catch (erro: Exception) {
+            FalhaDaExportacao(motivoDoDocumento(erro), aoFalhar(resolver, uri))
         }
 
         private fun apagar(resolver: ContentResolver, uri: Uri): Boolean = try {

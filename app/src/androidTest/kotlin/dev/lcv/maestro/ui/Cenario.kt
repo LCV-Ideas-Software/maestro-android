@@ -1,6 +1,12 @@
 package dev.lcv.maestro.ui
 
+import android.content.ContentProvider
+import android.content.ContentResolver
+import android.content.ContentValues
+import android.database.Cursor
 import android.net.Uri
+import android.os.ParcelFileDescriptor
+import android.provider.ContactsContract
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.ActivityResultRegistryOwner
@@ -476,6 +482,35 @@ internal val MANIFESTO_DE_EXEMPLO: String = """
 /** Um arquivo de teste com [nome] e [conteudo], numa pasta própria do cache, para o seletor de teste devolver. */
 internal fun Cenario.arquivo(nome: String, conteudo: ByteArray): File =
     File(contexto.cacheDir, "doc-${UUID.randomUUID()}").apply { mkdirs() }.resolve(nome).apply { writeBytes(conteudo) }
+
+/**
+ * Um documento cujo provedor nega acesso (decisão 26 do operador, #82): o provedor de contatos do sistema exige
+ * `READ_CONTACTS` e `WRITE_CONTACTS`, que o aplicativo não declara, e abri-lo lança `SecurityException` ("Permission
+ * Denial"), o mesmo erro do provedor de documentos que nega o documento escolhido. É um provedor real, e não uma
+ * costura só de teste no código.
+ */
+internal val DOCUMENTO_NEGADO: Uri = ContactsContract.Contacts.CONTENT_URI
+
+/** O começo da mensagem do `SecurityException` de [DOCUMENTO_NEGADO]. */
+internal const val ACESSO_NEGADO: String = "Permission Denial"
+
+/**
+ * Um resolvedor cujo provedor, ao abrir qualquer documento, lança [erro]: o defeito que não é de armazenamento nem de
+ * acesso negado, e que o classificador do documento deixa seguir adiante (decisão 26 do operador, #82). É a API oficial
+ * `ContentResolver.wrap`, que chama o provedor direto, sem outro processo nem permissão no caminho.
+ */
+internal fun resolvedorQueLanca(erro: RuntimeException): ContentResolver = ContentResolver.wrap(object : ContentProvider() {
+    override fun onCreate(): Boolean = true
+    override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? = throw erro
+    override fun query(uri: Uri, projection: Array<String>?, selection: String?, selectionArgs: Array<String>?, sortOrder: String?): Cursor? = null
+    override fun getType(uri: Uri): String? = null
+    override fun insert(uri: Uri, values: ContentValues?): Uri? = null
+    override fun delete(uri: Uri, selection: String?, selectionArgs: Array<String>?): Int = 0
+    override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<String>?): Int = 0
+})
+
+/** Um documento de [resolvedorQueLanca]: `content:`, porque o `file:` o `ContentResolver` abre sem passar pelo provedor. */
+internal val DOCUMENTO_DO_PROVEDOR_QUE_LANCA: Uri = Uri.parse("content://dev.lcv.maestro.teste/documento")
 
 /**
  * O seletor de documentos do sistema nos testes, pela API oficial

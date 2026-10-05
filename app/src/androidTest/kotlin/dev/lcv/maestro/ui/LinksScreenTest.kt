@@ -206,6 +206,17 @@ class LinksScreenTest {
         assertTrue(c.evidencias.registrosDe(setOf(RELATORIO)).isEmpty())
     }
 
+    /** Decisão 26 do operador (#82): a captura que o provedor nega é avisada com o motivo, e nada vira evidência. */
+    @Test
+    fun aCapturaQueOProvedorNegaEAvisadaComOMotivo() {
+        val id = sessaoComLinks()
+        abrirOLink(id, RELATORIO, SeletorDeTeste(DOCUMENTO_NEGADO))
+
+        regra.onNodeWithTag(Marcas.IMPORTAR_CAPTURA).performScrollTo().performClick()
+        regra.esperarTexto("Não foi possível ler o arquivo escolhido. Motivo: $ACESSO_NEGADO", substring = true)
+        assertTrue(c.evidencias.registrosDe(setOf(RELATORIO)).isEmpty())
+    }
+
     @Test
     fun aRevisaoExigeDecisaoENotaEMostraARecusaDoMotor() {
         val id = sessaoComLinks()

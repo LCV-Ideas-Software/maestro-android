@@ -185,6 +185,19 @@ class SessoesScreenTest {
         regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).assertExists()
     }
 
+    /** Decisão 26 do operador (#82): o manifesto que o provedor nega é avisado com o motivo, e o formulário fica sem ele. */
+    @Test
+    fun oManifestoQueOProvedorNegaEAvisadoComOMotivo() {
+        c.configurar()
+        c.chaves(Provedor.CLAUDE, Provedor.CODEX)
+        regra.abrir(c, seletor = SeletorDeTeste(DOCUMENTO_NEGADO))
+        regra.waitUntil(5_000) { regra.onAllNodesWithText("2 / 6").fetchSemanticsNodes().isNotEmpty() }
+        regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).performScrollTo().performClick()
+        regra.esperarTexto("Não foi possível ler o arquivo escolhido. Motivo: $ACESSO_NEGADO", substring = true)
+        regra.onNodeWithTag(Marcas.MANIFESTO_DO_FORMULARIO).assertDoesNotExist()
+        regra.onNodeWithTag(Marcas.ESCOLHER_MANIFESTO).assertExists()
+    }
+
     @Test
     fun oDiscoQueFalhaAoLerAsConfiguracoesNaEscolhaDoManifestoEAvisado() {
         // Conferir o manifesto lê o protocolo das configurações, e essa leitura falha (decisão 25 do operador).

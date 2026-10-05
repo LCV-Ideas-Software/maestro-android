@@ -73,9 +73,9 @@ public class Notificacao(
     }
 
     /**
-     * O cancelamento pela notificação que não gravou (decisão 25 estendida, #80): o motivo, numa notificação à parte
-     * da do serviço, que segue no lugar porque a sessão continua. O toque leva à tela da sessão. Negada
-     * `POST_NOTIFICATIONS`, ela não aparece na gaveta, como a do serviço.
+     * O cancelamento pela notificação que não gravou (decisão 25 estendida, #80) ou que foi recusado (decisão 27,
+     * #82): o motivo, numa notificação à parte da do serviço, que segue no lugar enquanto a sessão continua. O toque
+     * leva à tela da sessão. Negada `POST_NOTIFICATIONS`, ela não aparece na gaveta, como a do serviço.
      */
     public fun cancelamentoFalhou(sessaoId: String, motivo: String) {
         canal()

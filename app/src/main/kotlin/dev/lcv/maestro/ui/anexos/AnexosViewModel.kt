@@ -152,7 +152,7 @@ class AnexosViewModel(private val d: Dependencias, private val id: String) : Vie
         mexer {
             when (val leitura = Documentos.ler(resolver, uri, AnexosDaSessao.MAX_BYTES)) {
                 Documentos.Leitura.AcimaDoTeto -> Mensagem.Literal(AnexosDaSessao.MENSAGEM_ACIMA_DO_TETO)
-                Documentos.Leitura.Falhou -> Mensagem.DeRecurso(R.string.anexo_ilegivel)
+                is Documentos.Leitura.Falhou -> Mensagem.DeRecurso(R.string.anexo_ilegivel, listOf(leitura.motivo))
                 is Documentos.Leitura.Lido -> when (
                     val salvo = d.anexos.adicionar(id, leitura.nome, leitura.tipo ?: TIPO_DESCONHECIDO, leitura.bytes)
                 ) {
