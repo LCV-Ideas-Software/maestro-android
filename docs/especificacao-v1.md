@@ -1941,7 +1941,10 @@ de teste, porque compra confiança sem entregá-la.
   com o teclado na tela aberto num campo baixo das configurações, a barra
   superior não sai do lugar e fica inteira abaixo da barra de status, o campo em
   foco fica inteiro à vista acima do teclado, o conteúdo termina no topo do
-  teclado e os avisos aparecem acima dele (`TecladoTest`). Na JVM: o
+  teclado e os avisos aparecem acima dele (`TecladoTest`). Os testes de tela
+  rodam sem o teclado do sistema, que o `Cenario` intercepta
+  (`InterceptPlatformTextInput`): o texto entra pela ação semântica do campo, e
+  o toque seguinte não corre contra a animação do teclado. Na JVM: o
   renderizador do texto final, o tipo da captura, os
   rótulos do painel do desktop, a regra do manifesto do formulário, que não
   deixa começar durante a leitura dele, e a ordem das releituras das telas de

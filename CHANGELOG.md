@@ -19,7 +19,12 @@ All material changes to Maestro Android are recorded here.
   (the larger of the system bars and the keyboard), which place both the
   content and the notices. A device test on the real activity opens the
   keyboard on a low field of the settings screen and checks all four; it
-  fails on the previous code and when any one piece is undone.
+  fails on the previous code and when any one piece is undone. The screen
+  tests now run without the system keyboard, which their shell intercepts
+  (`InterceptPlatformTextInput`): text still goes in through the field's
+  semantics, and a tap right after typing no longer races the keyboard's
+  animation, which on the CI emulator moved the button between the press and
+  the release.
 - Explicitly retain the tag and full source target on the same-ID publication
   PATCH, validating both in its native response instead of assuming omitted
   Release fields remain stable.

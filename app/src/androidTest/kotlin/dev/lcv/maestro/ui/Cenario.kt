@@ -12,6 +12,10 @@ import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.ActivityResultRegistryOwner
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.InterceptPlatformTextInput
+import androidx.compose.ui.platform.PlatformTextInputInterceptor
+import androidx.compose.ui.platform.PlatformTextInputMethodRequest
+import androidx.compose.ui.platform.PlatformTextInputSession
 import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.core.app.ActivityOptionsCompat
 import androidx.compose.ui.test.onAllNodesWithText
@@ -68,6 +72,7 @@ import java.io.File
 import java.io.IOException
 import java.net.InetAddress
 import java.net.UnknownHostException
+import kotlinx.coroutines.awaitCancellation
 import okhttp3.Dns
 import org.junit.rules.ExternalResource
 import org.junit.rules.TestRule
@@ -536,18 +541,34 @@ internal class SeletorDeTeste(var resposta: Uri? = null) : ActivityResultRegistr
     }
 }
 
-/** A casca inteira, com o cenário no lugar do grafo do processo e, se houver, o seletor de teste. */
+/**
+ * O pedido de teclado do campo em foco, interceptado: os testes de tela rodam sem o teclado do sistema, e o texto
+ * entra pela ação semântica do campo (`performTextInput`), como antes. Com o teclado no recuo da casca (MAEANDR-31), a
+ * área das telas encolhe enquanto ele sobe, e o toque logo depois de digitar caía fora do botão no emulador da CI: o
+ * botão saía do lugar entre o apertar e o soltar (dois casos da `SessoesScreenTest` na CI da #93). O teclado de
+ * verdade é do `TecladoTest`, na `MainActivity`.
+ */
+private val SEM_TECLADO = object : PlatformTextInputInterceptor {
+    override suspend fun interceptStartInputMethod(
+        request: PlatformTextInputMethodRequest,
+        nextHandler: PlatformTextInputSession,
+    ): Nothing = awaitCancellation()
+}
+
+/** A casca inteira, com o cenário no lugar do grafo do processo, sem o teclado do sistema e, se houver, o seletor de teste. */
 internal fun ComposeContentTestRule.abrir(cenario: Cenario, sessaoPedida: String? = null, seletor: SeletorDeTeste? = null) {
     setContent {
-        MaestroTheme {
-            if (seletor == null) {
-                MaestroApp(cenario.dependencias, cenario.autenticador, "teste", sessaoPedida) {}
-            } else {
-                val dono = object : ActivityResultRegistryOwner {
-                    override val activityResultRegistry: ActivityResultRegistry = seletor
-                }
-                CompositionLocalProvider(LocalActivityResultRegistryOwner provides dono) {
+        InterceptPlatformTextInput(SEM_TECLADO) {
+            MaestroTheme {
+                if (seletor == null) {
                     MaestroApp(cenario.dependencias, cenario.autenticador, "teste", sessaoPedida) {}
+                } else {
+                    val dono = object : ActivityResultRegistryOwner {
+                        override val activityResultRegistry: ActivityResultRegistry = seletor
+                    }
+                    CompositionLocalProvider(LocalActivityResultRegistryOwner provides dono) {
+                        MaestroApp(cenario.dependencias, cenario.autenticador, "teste", sessaoPedida) {}
+                    }
                 }
             }
         }
