@@ -66,10 +66,10 @@ jobs:
         # publicada do Gradle. Já existe no fluxo de publicação; aqui passa a
         # valer para todo pull request, que é onde um wrapper adulterado
         # entraria.
-        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        uses: gradle/actions/wrapper-validation@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
 
       - name: Build
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
@@ -121,10 +121,10 @@ jobs:
       - name: Validate the Gradle wrapper
         # O mesmo portão do job de build: nenhum `gradlew` roda antes de o
         # wrapper ser conferido contra as distribuições publicadas do Gradle.
-        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        uses: gradle/actions/wrapper-validation@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
 
       - name: Enable hardware acceleration for the emulator
         # O passo que o GitHub documenta para usar a aceleração de hardware do
