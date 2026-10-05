@@ -346,6 +346,25 @@ escolheu os cinco. O que a escolha pede, e como fica:
   plano com o disco ainda falhando, em que a leitura recomeçada em ON_START
   falha antes do ON_RESUME e a volta a relê: dois avisos e duas leituras
   nessa volta (a corrida do `WhileSubscribed`, aceita no desenho).
+- **Decisão 26 do operador (01/10/2026,
+  [#82](https://github.com/LCV-Ideas-Software/maestro-android/issues/82),
+  MAEANDR-28):** o acesso que o provedor de documentos nega ao documento
+  escolhido no seletor (`SecurityException`), na leitura (os anexos, a captura
+  dos Links e o manifesto do formulário de nova sessão) e na exportação do
+  texto final, é falha de armazenamento: passa pelo classificador, numa
+  entrada própria da fronteira do documento (`motivoDoDocumento`), e o aviso
+  traz o motivo. O arquivo escolhido que não se lê também passa a dizer o
+  motivo, e não só "Não foi possível ler o arquivo escolhido.". Fora dessa
+  fronteira, um `SecurityException` (uma permissão do sistema que falta) é
+  defeito de código e segue adiante.
+- **Decisão 27 do operador (01/10/2026, #82, MAEANDR-28):** o cancelamento
+  pela notificação segue a regra da tela da sessão. O trabalho só é cancelado
+  com o cancelamento gravado; a recusa (a sessão já finalizada, que não existe
+  ou que mudou de estado no meio) não cancela o trabalho e vira a mesma
+  notificação do cancelamento que não gravou, com a mensagem da recusa. Antes,
+  a recusa sem exceção cancelava o trabalho. O texto da notificação deixa de
+  dizer que a sessão seguiu como estava, o que a recusa não garante. As duas
+  perguntas saíram da revisão da #81.
 - **Lacuna medida, fora desta entrega:** no canônico atual (`0e17817`,
   MAESTRO-34), a revisão confere também a URL final e a cadeia de
   redirecionamentos; o motor do Android, portado de `68528f9`, confere a URL e
@@ -763,8 +782,11 @@ seção 4.2). A notificação mostra rodada, agente e custo, e é atualizada a c
 WorkManager, que só para o trabalho e deixaria a linha `running` para a
 reconciliação retomar e pagar de novo: ela vai a um receptor da biblioteca
 (`CancelamentoDaSessao`) que grava `blocked_cancelled` no Room primeiro e só
-então cancela o trabalho, para a chamada em voo parar logo (revisão cruzada
-de 27/09/2026 sobre o plano da 3b, emenda A3). A biblioteca declara
+então, com o cancelamento gravado, cancela o trabalho, para a chamada em voo
+parar logo (revisão cruzada de 27/09/2026 sobre o plano da 3b, emenda A3). A
+recusa (a sessão já finalizada ou que mudou de estado) não cancela o trabalho
+e vira uma notificação com a mensagem dela, como na tela da sessão (decisão
+27). A biblioteca declara
 `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC` e a fusão do tipo no
 serviço interno do WorkManager; `POST_NOTIFICATIONS` fica com o `:app`. O
 saldo do orçamento de seis horas é `Orcamento.restanteNaJanela`, sobre as
@@ -1901,7 +1923,16 @@ de teste, porque compra confiança sem entregá-la.
   WorkManager que não abre, pelo gancho instalado de fato; o cancelamento
   pela notificação que não grava e a notificação que ele posta, ao lado da
   do serviço, e não no lugar dela; e o classificador com as classes reais do
-  SQLite (`ArmazenamentoNoAparelhoTest`). O banco
+  SQLite (`ArmazenamentoNoAparelhoTest`). Pelas decisões 26 e 27 (#82): a
+  leitura e a exportação do documento que o provedor nega, com o motivo, e
+  o arquivo escolhido que não se lê, também com o motivo (`DocumentosTest` e
+  o texto final), em cada tela que lê o documento
+  escolhido (Anexos, a captura dos Links e o manifesto da tela inicial),
+  sobre um provedor real que nega acesso (o de contatos do sistema, cujas
+  permissões o aplicativo não declara); o erro que não é do documento, que
+  segue adiante na leitura e na exportação, sem apagar nada (um provedor de
+  teste que lança, pela API oficial `ContentResolver.wrap`); e o cancelamento
+  pela notificação recusado, que avisa e não cancela o trabalho. O banco
   cheio é o `SQLiteFullException` do framework, lançado sob demanda por um
   `openHelperFactory` de teste do Room (`BancoCheio`), no ponto em que o
   SQLite o lançaria: um gatilho SQL daria `SQLITE_CONSTRAINT`, e o limite de
@@ -1912,7 +1943,8 @@ de teste, porque compra confiança sem entregá-la.
   outro protocolo recusado com o hash ativo e a releitura antiga que termina
   depois de outra já aplicada, que não repõe a lista velha; as leituras da tela
   (`LeiturasDaTelaTest`), a verificação da abertura e a falha do WorkManager
-  (`ReconciliacaoDaAberturaTest`) e o classificador (`ArmazenamentoTest`, no `:core:sessao`). No `:core:provedores`, na JVM, a
+  (`ReconciliacaoDaAberturaTest`) e o classificador (`ArmazenamentoTest`, no `:core:sessao`), com a entrada do documento escolhido
+  (`motivoDoDocumento`) e o `SecurityException` que segue adiante fora dela (decisão 26). No `:core:provedores`, na JVM, a
   captura assistida (as regras de nome, tipo, tamanho e bytes mágicos, a ordem
   das recusas, os dois registros) e a busca que guarda cada resultado,
   devolve a falha do armazém, como o `save_stored(...)?` do canônico, e,

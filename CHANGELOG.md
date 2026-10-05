@@ -1105,6 +1105,22 @@ All material changes to Maestro Android are recorded here.
 
 ### Changed
 
+- A document from the system picker whose provider denies access
+  (`SecurityException`), when it is read (attachments, the operator capture
+  on Links, the manifest in the new-session form) or when the final text is
+  exported to it, is now a storage failure: it goes through the storage
+  classifier, in an entry scoped to the picked document
+  (`motivoDoDocumento`), and the notice gives the reason (#82, MAEANDR-28;
+  operator's decision 26, 01/10/2026). A chosen file that cannot be read now
+  also gives its reason. Elsewhere the storage classifier still rethrows a
+  `SecurityException` (`motivoDeArmazenamento` is unchanged).
+- A cancel from the notification now stops the work only when the
+  cancellation is written, as the session screen does; a refusal (a finished,
+  missing or changed session) does not stop the work and posts the same
+  notice as a failed write, with the refusal message (#82, MAEANDR-28;
+  operator's decision 27, 01/10/2026). Before, a refusal without an exception
+  stopped the work. The notice no longer says that the session stayed as it
+  was, which a refusal cannot promise.
 - A storage failure while a screen reads, live or when it opens or resumes,
   or while the app reconciles sessions each time it returns to the
   foreground, no longer crashes the app

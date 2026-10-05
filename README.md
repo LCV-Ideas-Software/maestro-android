@@ -172,7 +172,9 @@ every iteration and the citation-manifest block in the prompts.
 `TrabalhoDaSessao` is the `CoroutineWorker` that raises the `dataSync`
 foreground service before any paid call and returns success on every outcome
 (a pause is a resumable status, never a WorkManager retry); the notification's
-cancel action writes `blocked_cancelled` to Room before stopping the job; the
+cancel action writes `blocked_cancelled` to Room before stopping the job, and
+stops it only when that write is accepted, as the session screen does
+(operator's decision 27, 01/10/2026); the
 reconciliation on app open re-queues interrupted sessions. One rule is the
 operator's decision of 27/09/2026: a paid call whose outcome was never
 recorded (the process died during or right after it) is marked on the
@@ -223,7 +225,9 @@ failure, with the reason, and never claims less or more than it wrote
 (operator's decision 25, 29/09/2026), and neither does a failed read when a
 screen opens, resumes or observes live data, nor the reconcile on app start:
 the screen warns with the reason and goes on, and reads again when it
-returns to the foreground (decision 25 extended, 30/09/2026).
+returns to the foreground (decision 25 extended, 30/09/2026). A document from
+the system picker whose provider denies access is a storage failure too,
+with its reason (decision 26, 01/10/2026).
 
 The native port is specified in
 [`docs/especificacao-v1.md`](docs/especificacao-v1.md) (in Portuguese), written

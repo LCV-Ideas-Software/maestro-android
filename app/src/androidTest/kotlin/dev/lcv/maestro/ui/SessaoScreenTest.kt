@@ -596,6 +596,24 @@ class SessaoScreenTest {
         assertEquals(listOf(id to Estados.CANCELADA), c.agendador.canceladas.toList())
     }
 
+    /**
+     * Decisão 27 do operador (#82): o cancelamento pela notificação segue a regra da tela. A recusa (a sessão já
+     * finalizada, ou que não existe) avisa com a mensagem dela e não cancela o trabalho; o controle, com o
+     * cancelamento gravado, é o do teste acima.
+     */
+    @Test
+    fun oCancelamentoPelaNotificacaoRecusadoAvisaENaoCancelaOTrabalho() {
+        val id = c.sessao(Estados.ERRO, erro = "A execução parou.")
+        val motivos = mutableListOf<String>()
+        CancelamentoDaSessao.cancelar(id, c.sessoes, c.agendador) { motivos += it }
+        assertEquals(listOf("Sessao ja finalizada; nada a cancelar."), motivos)
+        assertEquals(Estados.ERRO, c.sessoes.carregar(id)?.status)
+        assertTrue(c.agendador.canceladas.isEmpty())
+        CancelamentoDaSessao.cancelar("nao-existe", c.sessoes, c.agendador) { motivos += it }
+        assertEquals(listOf("Sessao ja finalizada; nada a cancelar.", RepositorioDeSessoes.MENSAGEM_NAO_ENCONTRADA), motivos)
+        assertTrue(c.agendador.canceladas.isEmpty())
+    }
+
     @Test
     fun aParadaDeUmaExecucaoAnteriorNaoVoltaQuandoADoNovoErroNaoSeLe() {
         c.agendador.parada = WorkInfo.STOP_REASON_TIMEOUT
