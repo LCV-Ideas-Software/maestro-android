@@ -1138,6 +1138,17 @@ All material changes to Maestro Android are recorded here.
   reason and leaves the work running. The storage classifier moves to `:core:sessao`,
   also recognizes a database that cannot open or is corrupt, and unwraps the
   `ExecutionException` from WorkManager's `get()`.
+- The minimum Android version is now Android 16 (`minSdk` 36); it was
+  Android 14 (MAEANDR-30). On 04/10/2026 the operator decided that no
+  `*-android` app supports anything below it. The decision came from two
+  recommendations of the Play Console on calculadora-android 1.0.3:
+  edge-to-edge "may not display for all users", and the app "uses deprecated
+  APIs or parameters for edge-to-edge" (`Window.setStatusBarColor`,
+  `Window.setNavigationBarColor` and
+  `LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES`). Neither that app's code nor
+  this one's uses them; both call AndroidX Activity's `enableEdgeToEdge()`,
+  which uses them, and even its implementation for Android 15 and later calls
+  the two `Window` setters.
 - Every revision turn whose current text fails the release audit now carries
   the gate packet — the failing rows and the correction candidates — to the
   reviewer, not only a corrective retry (operator's decision 23,
