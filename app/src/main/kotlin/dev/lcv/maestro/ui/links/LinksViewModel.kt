@@ -384,6 +384,13 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                 // Sair da tela cancela o escopo, mas não a busca, que bloqueia no HTTP: o vigia chama o
                 // cancelamento dela, e nada é gravado depois (achado do Codex na #78). Como na auditoria
                 // da `Fabrica`, o vigia também fecha a busca que terminou.
+                //
+                // A guarda da gravação confere o job desta ação, e não o do `withContext` abaixo. Cancelado,
+                // este job fica "cancelando" antes de avisar os filhos, na ordem em que nasceram; o vigia,
+                // no `Main.immediate`, roda o `finally` dentro desse aviso e solta a busca antes de o
+                // `withContext` saber do cancelamento. Conferido o job dele, a busca solta ainda gravava a
+                // linha (a falha da `LinksScreenTest` na CI da #93).
+                val acao = coroutineContext.job
                 val vigia = launch {
                     try {
                         awaitCancellation()
@@ -394,13 +401,12 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                 val saida = try {
                     withContext(Dispatchers.IO) {
                         // A resposta HTTP pode ter chegado antes de a tela sair, e aí não há chamada para o
-                        // vigia cancelar: a linha só é gravada com esta corrotina viva (achado do Codex na #78).
+                        // vigia cancelar: a linha só é gravada com esta ação viva (achado do Codex na #78).
                         // O diário (`anotar`) não é barrado: gravada a linha, a entrada dele tem de acompanhá-la.
-                        val viva = coroutineContext.job
                         val base = d.links.registroDaTela(id)
                         val registro = object : IntegridadeDeLinks.RegistroDeLinks by base {
                             override fun salvar(linha: LinhaDeLink) {
-                                viva.ensureActive()
+                                acao.ensureActive()
                                 base.salvar(linha)
                             }
                         }

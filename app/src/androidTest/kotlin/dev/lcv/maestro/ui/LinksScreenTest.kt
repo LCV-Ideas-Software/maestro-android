@@ -29,6 +29,7 @@ import dev.lcv.maestro.sessao.Estados
 import dev.lcv.maestro.sessao.LinksDaSessao
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -366,6 +367,24 @@ class LinksScreenTest {
         c.resultadosDaBusca = listOf(c.resultadoDeBusca("https://exemplo.org/substituto", "Relatório substituto"))
         c.buscaPresa = CountDownLatch(1)
         c.buscaTerminouAntes = true
+        // A corrida da CI da #93, tornada certa: o vigia solta a busca no meio do cancelamento da tela, e a saída
+        // fica parada ali até a busca gravar a linha (ou dois segundos). Uma guarda que só soubesse do cancelamento
+        // depois desse ponto deixaria a busca solta gravar. O banco não aceita leitura na linha principal: quem
+        // olha a linha é outra linha de execução.
+        c.aoCancelarABusca = {
+            val gravou = CountDownLatch(1)
+            thread {
+                val limite = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+                while (System.nanoTime() < limite) {
+                    if (linha(id, RELATORIO).candidatosDeCorrecao.isNotEmpty()) {
+                        gravou.countDown()
+                        break
+                    }
+                    Thread.sleep(20)
+                }
+            }
+            gravou.await(2, TimeUnit.SECONDS)
+        }
         abrirOLink(id, RELATORIO)
         regra.onNodeWithTag(Marcas.BUSCAR_PROPOSTAS).performScrollTo().performClick()
         regra.waitUntil(5_000) { c.buscas.isNotEmpty() }

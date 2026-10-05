@@ -271,6 +271,12 @@ internal class Cenario {
     /** Posto, a busca falha ao guardar os resultados, como a real com o disco cheio: a `IOException` do armazém sai crua. */
     @Volatile var discoDaBusca: IOException? = null
     val buscasCanceladas = AtomicInteger()
+
+    /**
+     * Posto, roda no cancelamento da busca, depois de soltá-la, na mesma linha de execução de quem cancelou: é
+     * onde o teste segura a saída da tela para a busca solta correr na frente.
+     */
+    @Volatile var aoCancelarABusca: (() -> Unit)? = null
     val navegador = NavegadorFalso()
 
     /** A reconciliação da abertura sobre este banco, como a do `MaestroApplication` sobre o do processo (#80). */
@@ -297,6 +303,7 @@ internal class Cenario {
                 cancelar = {
                     buscasCanceladas.incrementAndGet()
                     buscaPresa?.countDown()
+                    aoCancelarABusca?.invoke()
                 },
             )
         },

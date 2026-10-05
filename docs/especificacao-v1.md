@@ -1899,7 +1899,8 @@ de teste, porque compra confiança sem entregá-la.
   do motor para nota curta e para aceite de link que não passou; as propostas
   com o provedor escolhido, que sobrevivem à auditoria seguinte na linha
   decidida, a busca que não se monta por erro de disco, e a busca cancelada quando a tela sai, que não grava as propostas
-  nem quando a resposta já tinha chegado; a aba Links dos autos que
+  nem quando a resposta já tinha chegado, com a saída da tela parada logo depois de soltar a busca (a guarda da
+  gravação confere o job da ação, que o cancelamento marca antes de o vigia soltar a busca); a aba Links dos autos que
   leva à tela; e, pela decisão 25, o banco cheio em cada ação de tela que
   grava — iniciar, cancelar, retomar, salvar as configurações, anexar,
   remover, a passagem ao navegador, a importação, a decisão e as propostas —,

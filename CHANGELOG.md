@@ -25,6 +25,17 @@ All material changes to Maestro Android are recorded here.
   semantics, and a tap right after typing no longer races the keyboard's
   animation, which on the CI emulator moved the button between the press and
   the release.
+- A correction-proposal search that the link screen abandons no longer saves
+  its proposals when its response had already arrived. Leaving the screen
+  cancels the action, which marks its own job first and then notifies its
+  children in creation order; the watcher that releases the blocked search
+  runs its `finally` inside that notification, before the inner
+  `withContext` learns of it, and the save guard checked that inner job, so
+  the released search could still write the row (a rare race that failed a
+  `LinksScreenTest` case on the CI of #93). The guard now checks the
+  action's own job. The test holds the screen's exit right after the search
+  is released, until the search writes the row or two seconds pass: the
+  previous guard fails it every time.
 - Explicitly retain the tag and full source target on the same-ID publication
   PATCH, validating both in its native response instead of assuming omitted
   Release fields remain stable.
