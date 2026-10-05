@@ -293,7 +293,7 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
         agir {
             when (val leitura = Documentos.ler(resolver, uri, ImportacaoDoOperador.MAX_BYTES)) {
                 Documentos.Leitura.AcimaDoTeto -> Saida(Mensagem.DeRecurso(R.string.captura_acima_do_teto))
-                Documentos.Leitura.Falhou -> Saida(Mensagem.DeRecurso(R.string.anexo_ilegivel))
+                is Documentos.Leitura.Falhou -> Saida(Mensagem.DeRecurso(R.string.anexo_ilegivel, listOf(leitura.motivo)))
                 is Documentos.Leitura.Lido -> {
                     val tipo = tipoDaCaptura(leitura.nome, leitura.tipo) ?: return@agir Saida(Mensagem.DeRecurso(R.string.captura_tipo_recusado))
                     val pedido = ImportacaoDoOperador.Pedido(

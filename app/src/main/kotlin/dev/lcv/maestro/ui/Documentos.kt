@@ -7,6 +7,7 @@ package dev.lcv.maestro.ui
 import android.content.ContentResolver
 import android.net.Uri
 import android.provider.OpenableColumns
+import dev.lcv.maestro.sessao.motivoDoDocumento
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 
@@ -24,11 +25,14 @@ object Documentos {
         /** Maior que o teto: nada foi guardado. */
         data object AcimaDoTeto : Leitura
 
-        /** O provedor não abriu ou não entregou o documento. */
-        data object Falhou : Leitura
+        /** O provedor não abriu, não entregou ou negou o documento: [motivo] é o do classificador (decisão 26). */
+        data class Falhou(val motivo: String) : Leitura
     }
 
-    /** Lê [uri] até [teto] bytes. Bloqueante: chamar fora da linha principal. */
+    /**
+     * Lê [uri] até [teto] bytes. Bloqueante: chamar fora da linha principal. O arquivo que não se lê e o acesso
+     * que o provedor nega passam pelo classificador do documento (decisão 26 do operador, #82); o resto segue adiante.
+     */
     fun ler(resolver: ContentResolver, uri: Uri, teto: Int): Leitura = try {
         val entrada = resolver.openInputStream(uri) ?: throw IOException("o provedor não abriu o documento")
         val bytes = entrada.use { fluxo ->
@@ -45,10 +49,8 @@ object Documentos {
             saida.toByteArray()
         }
         Leitura.Lido(nome(resolver, uri), resolver.getType(uri), bytes)
-    } catch (erro: IOException) {
-        Leitura.Falhou
-    } catch (erro: SecurityException) {
-        Leitura.Falhou
+    } catch (erro: Exception) {
+        Leitura.Falhou(motivoDoDocumento(erro))
     }
 
     /** O nome que o provedor mostra (`DISPLAY_NAME`), ou o último segmento do endereço. */

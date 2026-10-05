@@ -139,7 +139,7 @@
     <string name="sem_anexos">Nenhum anexo nesta sessão.</string>
     <string name="anexo_adicionado">Anexo adicionado.</string>
     <string name="anexo_removido">Anexo removido.</string>
-    <string name="anexo_ilegivel">Não foi possível ler o arquivo escolhido.</string>
+    <string name="anexo_ilegivel">Não foi possível ler o arquivo escolhido. Motivo: %1$s</string>
     <string name="campo_manifesto">Manifesto de citações (opcional)</string>
     <string name="escolher_manifesto">Escolher manifesto</string>
     <string name="manifesto_nao_reconhecido">Este arquivo não é um manifesto de citações (citation_manifest.v1): a sessão o ignoraria.</string>

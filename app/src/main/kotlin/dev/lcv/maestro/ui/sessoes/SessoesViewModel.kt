@@ -240,7 +240,7 @@ class SessoesViewModel(private val d: Dependencias) : ViewModel() {
             try {
                 when (val leitura = withContext(Dispatchers.IO) { Documentos.ler(resolver, uri, AnexosDaSessao.MAX_BYTES) }) {
                     Documentos.Leitura.AcimaDoTeto -> eventos.send(Evento.Aviso(Mensagem.Literal(AnexosDaSessao.MENSAGEM_ACIMA_DO_TETO)))
-                    Documentos.Leitura.Falhou -> eventos.send(Evento.Aviso(Mensagem.DeRecurso(R.string.anexo_ilegivel)))
+                    is Documentos.Leitura.Falhou -> eventos.send(Evento.Aviso(Mensagem.DeRecurso(R.string.anexo_ilegivel, listOf(leitura.motivo))))
                     is Documentos.Leitura.Lido -> {
                         val tipo = leitura.tipo ?: AnexosViewModel.TIPO_DESCONHECIDO
                         // O protocolo que a sessão nova vai receber é o das configurações (`resolveStartRequest`), no Room:

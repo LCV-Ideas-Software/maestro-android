@@ -33,6 +33,8 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -215,6 +217,27 @@ class TextoFinalScreenTest {
         // O motivo vem da exceção e vai ao aviso (decisão 25 do operador).
         assertTrue(falha!!.apagou)
         assertTrue(falha.motivo, falha.motivo.contains("ENOENT"))
+    }
+
+    /** Decisão 26 do operador (#82): o acesso que o provedor nega ao documento é falha de armazenamento, com o motivo. */
+    @Test
+    fun oAcessoQueOProvedorNegaNaExportacaoFalhaComOMotivoEApagaODocumento() {
+        val apagados = mutableListOf<Uri>()
+        val falha = TextoFinalViewModel.gravar(c.contexto.contentResolver, DOCUMENTO_NEGADO, "texto".toByteArray()) { _, uri -> apagados.add(uri) }
+        assertEquals(listOf(DOCUMENTO_NEGADO), apagados)
+        assertTrue(falha!!.motivo, falha.motivo.startsWith(ACESSO_NEGADO))
+    }
+
+    /** Decisão 26 do operador (#82): o que não é falha de armazenamento nem acesso negado segue adiante, sem apagar nada. */
+    @Test
+    fun oErroQueNaoEDoDocumentoNaExportacaoSegueAdianteSemApagar() {
+        val erro = IllegalStateException("defeito do provedor")
+        val apagados = mutableListOf<Uri>()
+        val lancado = assertThrows(IllegalStateException::class.java) {
+            TextoFinalViewModel.gravar(resolvedorQueLanca(erro), DOCUMENTO_DO_PROVEDOR_QUE_LANCA, "texto".toByteArray()) { _, uri -> apagados.add(uri) }
+        }
+        assertSame(erro, lancado)
+        assertEquals(emptyList<Uri>(), apagados)
     }
 
     @Test

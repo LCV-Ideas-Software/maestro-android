@@ -19,8 +19,10 @@ import android.content.Intent
  * O armazenamento que falha ao gravar o cancelamento é uma notificação com o
  * motivo, e o trabalho segue (decisão 25 estendida, #80): parar o trabalho sem
  * a transição é o que a ordem acima proíbe. A recusa sem exceção (a sessão já
- * finalizada ou que mudou de estado no meio) segue como antes da #80: o
- * trabalho é cancelado.
+ * finalizada, que não existe ou que mudou de estado no meio) segue a regra da
+ * tela da sessão (decisão 27 do operador, 01/10/2026, #82): o trabalho só é
+ * cancelado com o cancelamento gravado, e a recusa vira a mesma notificação,
+ * com a mensagem dela.
  */
 public class CancelamentoDaSessao : BroadcastReceiver() {
 
@@ -47,17 +49,21 @@ public class CancelamentoDaSessao : BroadcastReceiver() {
 
         /**
          * O corpo do receptor, com as dependências à parte para o teste: a transição no Room e, só depois de ela
-         * voltar sem exceção, o cancelamento do trabalho. O armazenamento que falha vai a [avisar] com o motivo, e o
-         * trabalho não é cancelado; o que não é armazenamento segue adiante.
+         * ser gravada (`Resultado.Ok`), o cancelamento do trabalho, como na tela da sessão. O armazenamento que falha
+         * vai a [avisar] com o motivo, e a recusa com a mensagem dela; nos dois casos o trabalho não é cancelado. O que
+         * não é armazenamento segue adiante.
          */
         public fun cancelar(sessaoId: String, sessoes: RepositorioDeSessoes, agendador: Agendador, avisar: (motivo: String) -> Unit) {
-            try {
+            val resultado = try {
                 sessoes.cancelar(sessaoId)
             } catch (erro: Exception) {
                 avisar(motivoDeArmazenamento(erro))
                 return
             }
-            agendador.cancelar(sessaoId)
+            when (resultado) {
+                is Resultado.Ok -> agendador.cancelar(sessaoId)
+                is Resultado.Recusado -> avisar(resultado.mensagem)
+            }
         }
     }
 }

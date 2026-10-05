@@ -122,6 +122,17 @@ class AnexosScreenTest {
         grande.delete()
     }
 
+    /** Decisão 26 do operador (#82): o arquivo que o provedor nega é avisado com o motivo, e nada é guardado. */
+    @Test
+    fun oArquivoQueOProvedorNegaEAvisadoComOMotivo() {
+        val id = c.sessao(Estados.ERRO, erro = "Falha qualquer.")
+        abrirNosAnexos(id, SeletorDeTeste(DOCUMENTO_NEGADO))
+
+        regra.onNodeWithTag(Marcas.ANEXAR_MANIFESTO).performClick()
+        regra.esperarTexto("Não foi possível ler o arquivo escolhido. Motivo: $ACESSO_NEGADO", substring = true)
+        assertTrue(c.anexos.daSessao(id).isEmpty())
+    }
+
     @Test
     fun oDiscoQueFalhaEAvisadoSemDerrubarOAplicativo() {
         val id = c.sessao(Estados.ERRO, erro = "Falha qualquer.")
