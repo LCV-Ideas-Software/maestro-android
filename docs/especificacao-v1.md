@@ -1899,7 +1899,8 @@ de teste, porque compra confiança sem entregá-la.
   do motor para nota curta e para aceite de link que não passou; as propostas
   com o provedor escolhido, que sobrevivem à auditoria seguinte na linha
   decidida, a busca que não se monta por erro de disco, e a busca cancelada quando a tela sai, que não grava as propostas
-  nem quando a resposta já tinha chegado; a aba Links dos autos que
+  nem quando a resposta já tinha chegado, com a saída da tela parada logo depois de soltar a busca (a guarda da
+  gravação confere o job da ação, que o cancelamento marca antes de o vigia soltar a busca); a aba Links dos autos que
   leva à tela; e, pela decisão 25, o banco cheio em cada ação de tela que
   grava — iniciar, cancelar, retomar, salvar as configurações, anexar,
   remover, a passagem ao navegador, a importação, a decisão e as propostas —,
@@ -1936,7 +1937,16 @@ de teste, porque compra confiança sem entregá-la.
   cheio é o `SQLiteFullException` do framework, lançado sob demanda por um
   `openHelperFactory` de teste do Room (`BancoCheio`), no ponto em que o
   SQLite o lançaria: um gatilho SQL daria `SQLITE_CONSTRAINT`, e o limite de
-  páginas só falha quando a escrita pede página nova. Na JVM: o renderizador do texto final, o tipo da captura, os
+  páginas só falha quando a escrita pede página nova. Pela MAEANDR-31, na
+  `MainActivity` de verdade, porque o `adjustResize` do manifesto vale só nela:
+  com o teclado na tela aberto num campo baixo das configurações, a barra
+  superior não sai do lugar e fica inteira abaixo da barra de status, o campo em
+  foco fica inteiro à vista acima do teclado, o conteúdo termina no topo do
+  teclado e os avisos aparecem acima dele (`TecladoTest`). Os testes de tela
+  rodam sem o teclado do sistema, que o `Cenario` intercepta
+  (`InterceptPlatformTextInput`): o texto entra pela ação semântica do campo, e
+  o toque seguinte não corre contra a animação do teclado. Na JVM: o
+  renderizador do texto final, o tipo da captura, os
   rótulos do painel do desktop, a regra do manifesto do formulário, que não
   deixa começar durante a leitura dele, e a ordem das releituras das telas de
   anexos e de links (`OrdemDasLeituras`); na tela de anexos, o manifesto de

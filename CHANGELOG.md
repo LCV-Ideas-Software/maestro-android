@@ -6,6 +6,36 @@ All material changes to Maestro Android are recorded here.
 
 ### Fixed
 
+- With the software keyboard open, the top bar stays in place below the
+  status bar, the focused field stays in full view above the keyboard, the
+  screen's content ends at the keyboard's top, and notices show above the
+  keyboard (MAEANDR-31). The activity declared no `windowSoftInputMode`, so
+  when the keyboard covered the focused field the system pushed the whole
+  window up, taking the top bar under the status bar or, for a field at the
+  bottom of the screen, above the top of the screen. The activity now
+  declares `adjustResize`, per the official edge-to-edge setup, and the
+  system no longer moves the window; the keyboard inset reaches the app
+  either way, and the shell's `Scaffold` now counts it in its content insets
+  (the larger of the system bars and the keyboard), which place both the
+  content and the notices. A device test on the real activity opens the
+  keyboard on a low field of the settings screen and checks all four; it
+  fails on the previous code and when any one piece is undone. The screen
+  tests now run without the system keyboard, which their shell intercepts
+  (`InterceptPlatformTextInput`): text still goes in through the field's
+  semantics, and a tap right after typing no longer races the keyboard's
+  animation, which on the CI emulator moved the button between the press and
+  the release.
+- A correction-proposal search that the link screen abandons no longer saves
+  its proposals when its response had already arrived. Leaving the screen
+  cancels the action, which marks its own job first and then notifies its
+  children in creation order; the watcher that releases the blocked search
+  runs its `finally` inside that notification, before the inner
+  `withContext` learns of it, and the save guard checked that inner job, so
+  the released search could still write the row (a rare race that failed a
+  `LinksScreenTest` case on the CI of #93). The guard now checks the
+  action's own job. The test holds the screen's exit right after the search
+  is released, until the search writes the row or two seconds pass: the
+  previous guard fails it every time.
 - Explicitly retain the tag and full source target on the same-ID publication
   PATCH, validating both in its native response instead of assuming omitted
   Release fields remain stable.

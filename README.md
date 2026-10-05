@@ -257,9 +257,9 @@ analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
   request and every push to `main`: Gradle wrapper validation, `assembleDebug`,
   `lintDebug` and unit tests — including those of `:core:protocolo`, which run
   on the JVM — with the same JDK the publishing workflow uses. A separate job
-  runs the instrumented tests of `:core:seguranca` and `:core:sessao` on an
-  emulator managed by the Android Gradle Plugin (Gradle Managed Devices),
-  and requires that every instrumented case of both modules ran and passed.
+  runs the instrumented tests of `:core:seguranca`, `:core:sessao` and `:app`
+  on an emulator managed by the Android Gradle Plugin (Gradle Managed Devices),
+  and requires that every instrumented case of the three modules ran and passed.
   Both jobs are required
   checks in the repository ruleset.
 - GitHub CodeQL Default setup analyzes the supported content. The duplicate
