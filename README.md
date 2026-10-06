@@ -138,9 +138,10 @@ StrongBox when the device has it, the trusted environment when it does not.
 The ciphertext lives in the app's DataStore. Using that key requires the user
 to have authenticated within a fixed time window, not once per call. Its tests
 are instrumented, because the Keystore exists only on a device or an emulator.
-Four of the five cases run on an emulator in CI on every pull request, as a
-required check; the fifth needs StrongBox hardware, which no available device
-has, and its test runs only where that hardware exists.
+Four of the five cases run on the Gradle managed emulator, locally, as the gate
+of every pull request before it is pushed; the fifth needs StrongBox hardware,
+which no available device has, and its test runs only where that hardware
+exists.
 
 The fourth module, `:core:sessao` (MAEANDR-22, two pull requests),
 is the Android library that holds the Maestro AI state on the device: the
@@ -260,12 +261,13 @@ analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
 - The `CI` workflow compiles, analyzes and tests the project on every pull
   request and every push to `main`: Gradle wrapper validation, `assembleDebug`,
   `lintDebug` and unit tests — including those of `:core:protocolo`, which run
-  on the JVM — with the same JDK the publishing workflow uses. A separate job
-  runs the instrumented tests of `:core:seguranca`, `:core:sessao` and `:app`
-  on an emulator managed by the Android Gradle Plugin (Gradle Managed Devices),
-  and requires that every instrumented case of the three modules ran and passed.
-  Both jobs are required
-  checks in the repository ruleset.
+  on the JVM — with the same JDK the publishing workflow uses. The job is a
+  required check in the repository ruleset. The instrumented tests of
+  `:core:seguranca`, `:core:sessao` and `:app` do not run in CI: an emulator on
+  the hosted runner took 16 to 30 minutes per pull request (operator decision
+  of 06/10/2026, #97). They run locally, on the emulator managed by the Android
+  Gradle Plugin (Gradle Managed Devices), as the gate of every pull request
+  before the push, and the result is recorded in the pull request.
 - GitHub CodeQL Default setup analyzes the supported content. The duplicate
   advanced-setup workflow is not maintained in this repository.
 - Dependency Review evaluates pull requests to `main`.

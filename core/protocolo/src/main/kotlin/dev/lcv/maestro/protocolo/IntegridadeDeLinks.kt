@@ -316,7 +316,7 @@ public object IntegridadeDeLinks {
                         url.codePoints().noneMatch { controle(it) } &&
                         ':' !in url.split('/', '?', '#').first()
                     if (url.startsWith("#") || interno) return null
-                    val ancora = aberto.ancora.toString().trim()
+                    val ancora = EspacoUnicode.aparar(aberto.ancora.toString())
                     return LinkExtraido(
                         inicio = aberto.inicio,
                         urlInicio = urlInicio,

@@ -6,6 +6,12 @@ All material changes to Maestro Android are recorded here.
 
 ### Changed
 
+- The `CI` workflow no longer runs the instrumented tests on a hosted emulator:
+  the job took 16 to 30 minutes per pull request (operator decision of
+  06/10/2026, #97). The instrumented suites of `:core:seguranca`, `:core:sessao`
+  and `:app` stay in the repository and run locally, on the Gradle managed
+  device, as the gate of every pull request before the push; the workflow keeps
+  the build, lint and JVM-test job.
 - Port the link-integrity engine from the desktop's current `link_integrity.rs`
   (`maestro-app` `16a8cff`, MAESTRO-34; #77, MAEANDR-26). A review now holds
   only against the URL, content hash, final URL and redirect chain the screen
@@ -24,6 +30,11 @@ All material changes to Maestro Android are recorded here.
 
 ### Fixed
 
+- The link anchor is trimmed with the module's own Unicode whitespace class
+  (`EspacoUnicode`), like every other text the audit reads, instead of
+  Kotlin's `trim()`: an anchor made only of U+0085 was kept, became a space
+  in sanitation and changed the link id; now it is empty and the anchor is
+  null, as in the canonical (#46, MAEANDR-18).
 - With the software keyboard open, the top bar stays in place below the
   status bar, the focused field stays in full view above the keyboard, the
   screen's content ends at the keyboard's top, and notices show above the
