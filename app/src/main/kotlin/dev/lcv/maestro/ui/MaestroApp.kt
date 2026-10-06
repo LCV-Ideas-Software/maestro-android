@@ -8,12 +8,16 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -116,11 +120,15 @@ fun MaestroApp(
         Scaffold(
             containerColor = Tema.cores.fundo,
             topBar = { BarraSuperior(pilha) },
-            snackbarHost = { SnackbarHost(estadoDosAvisos) },
+            snackbarHost = { SnackbarHost(estadoDosAvisos, Modifier.testTag(Marcas.AVISOS)) },
+            // Embaixo, o recuo do conteúdo e a posição dos avisos acompanham o teclado: vale o maior entre as barras do
+            // sistema e o teclado (MAEANDR-31, com `adjustResize` no manifesto). Só com as barras, o teclado cobriria
+            // o campo em foco e o aviso que chega com ele aberto.
+            contentWindowInsets = ScaffoldDefaults.contentWindowInsets.union(WindowInsets.ime),
         ) { espaco ->
             NavDisplay(
                 backStack = pilha,
-                modifier = Modifier.padding(espaco),
+                modifier = Modifier.padding(espaco).testTag(Marcas.CONTEUDO),
                 // A tela inicial nunca sai: a `NavDisplay` exige pilha não vazia, e
                 // o voltar nela é o do sistema, que fecha o aplicativo.
                 onBack = { if (pilha.size > 1) pilha.removeLastOrNull() },
