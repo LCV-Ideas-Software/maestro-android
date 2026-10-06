@@ -105,6 +105,17 @@ class IntegridadeDeLinksTest {
     }
 
     @Test
+    fun `a ancora e aparada pela classe de espaco do modulo, nao pelo trim do Kotlin`() {
+        // Critério da #46: uma definição só de espaço em branco no módulo (Unicode White_Space, a do `trim` do Rust).
+        // O `trim()` do Kotlin não tira o U+0085 (NEL): a âncora feita só dele ficava, virava um espaço no saneamento
+        // e mudava o id do link; com a classe do módulo a âncora fica vazia e sai nula, como no canônico.
+        val linhas = auditar("[\u0085](https://example.com/public) e [\u0085x\u0085](https://example.com/outro)").linhas
+        assertEquals(2, linhas.size)
+        assertNull(linhas[0].textoDaAncora)
+        assertEquals("x", linhas[1].textoDaAncora)
+    }
+
+    @Test
     fun `imagem por referencia e imagem dentro de link entram as duas na auditoria`() {
         val referencia = IntegridadeDeLinks.extrair("Veja ![grafico][img].\n\n[img]: https://example.org/chart.png")
         assertEquals(1, referencia.size)

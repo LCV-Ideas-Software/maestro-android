@@ -24,6 +24,11 @@ All material changes to Maestro Android are recorded here.
 
 ### Fixed
 
+- The link anchor is trimmed with the module's own Unicode whitespace class
+  (`EspacoUnicode`), like every other text the audit reads, instead of
+  Kotlin's `trim()`: an anchor made only of U+0085 was kept, became a space
+  in sanitation and changed the link id; now it is empty and the anchor is
+  null, as in the canonical (#46, MAEANDR-18).
 - With the software keyboard open, the top bar stays in place below the
   status bar, the focused field stays in full view above the keyboard, the
   screen's content ends at the keyboard's top, and notices show above the
