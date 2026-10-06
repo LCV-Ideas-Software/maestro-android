@@ -289,7 +289,7 @@ analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
   same-repository Dependabot pull requests against `main`, subject to the
   effective native rules and checks. Grouping does not restrict auto-merge to
   minor and patch updates. There is no merge queue or central controller.
-- The official Linear Release Action and CLI v0.17.2 record pushed `main`
+- The official Linear Release Action v0.18.1 and CLI v0.18.0 record pushed `main`
   history in the corresponding continuous Linear pipeline. This does not
   publish an Android application, npm package, or Windows release.
 - GitHub Pages deploys only the sanitized `site/` directory to

@@ -1153,6 +1153,10 @@ All material changes to Maestro Android are recorded here.
 
 ### Changed
 
+- Update the official Linear Release Action to v0.18.1 at its full commit SHA,
+  select the official CLI v0.18.0 explicitly and retain upstream checksum
+  verification (LCV-316).
+
 - A document from the system picker whose provider denies access
   (`SecurityException`), when it is read (attachments, the operator capture
   on Links, the manifest in the new-session form) or when the final text is
