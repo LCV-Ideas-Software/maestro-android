@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dev.lcv.maestro.Dependencias
+import android.content.Context
 import dev.lcv.maestro.R
 import dev.lcv.maestro.protocolo.Custo
 import dev.lcv.maestro.provedores.Provedor
@@ -278,7 +279,22 @@ class ConfiguracoesViewModel(private val d: Dependencias) : ViewModel() {
         avisar(Mensagem.DeRecurso(R.string.autenticacao_recusada_configuracoes))
     }
 
+    /**
+     * A política de privacidade no navegador do sistema: a política de Dados do Usuário do Google Play exige o
+     * link também dentro do aplicativo. É a mesma página que o Console da Play aponta; sem navegador, o aviso
+     * diz o motivo, como na passagem da tela de links.
+     */
+    fun abrirPolitica(contexto: Context) {
+        val falha = d.navegador.abrir(contexto, URL_DA_POLITICA)
+        if (falha != null) avisar(Mensagem.DeRecurso(R.string.privacidade_sem_navegador, listOf(falha)))
+    }
+
     private fun avisar(mensagem: Mensagem) {
         eventos.trySend(Evento.Aviso(mensagem))
+    }
+
+    companion object {
+        /** A política de privacidade dos aplicativos Android da LCV Ideas & Software, a mesma da ficha da Play. */
+        const val URL_DA_POLITICA: String = "https://www.lcv.dev/privacy/"
     }
 }

@@ -3,9 +3,11 @@
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14230/badge)](https://www.bestpractices.dev/projects/14230)
 
 Public repository for the Android edition of Maestro Editorial AI. It carries
-the reviewed governance, security, release and documentation baseline, and —
-since 21/09/2026 — the first module of the native port. There is no shippable
-application yet: no user interface, no provider client, and no release.
+the reviewed governance, security, release and documentation baseline and,
+since 21/09/2026, the native port. Version 1.0.0 (06/10/2026) is the first
+version prepared for public release on Google Play; the publication is
+recorded here, as the Release `v01.00.00`, only after Play reports it
+published.
 
 ## Canonical tracking
 
@@ -22,8 +24,8 @@ unpublished operational details must remain in their private systems.
 
 ## Product boundaries
 
-The intended Android product is a free, privacy-preserving editorial workbench.
-Its current design constraints are:
+The Android product is a privacy-preserving editorial workbench. Its design
+constraints are:
 
 - package name `dev.lcv.maestro`;
 - bring-your-own-key credentials stored only through Android Keystore-backed
@@ -374,9 +376,9 @@ analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
   Play refuses. Measured on 20/09/2026 in calculadora-android: Play makes the
   universal APK available as soon as it processes the bundle, before any rollout.
 
-  This repository has no application yet, so `play/release-notes/pt-BR.txt` does
-  not exist and the publishing workflow stops before building, saying so. That is
-  the intended gate, not a defect: nothing here is ready to reach a store.
+  The release notes of the current version live in `play/release-notes/pt-BR.txt`,
+  in the store's language for the lay reader; the publishing workflow stops
+  before building when the file is missing or longer than 500 characters.
 
 Every external GitHub Action is pinned to a full commit SHA directly in its
 workflow. The third-party inventory is in [THIRDPARTY.md](THIRDPARTY.md). Native

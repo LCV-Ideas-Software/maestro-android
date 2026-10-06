@@ -4,6 +4,7 @@
  */
 package dev.lcv.maestro.ui.sessao
 
+import android.content.Context
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -129,7 +131,7 @@ fun SessaoScreen(vm: SessaoViewModel, aoAbrirTextoFinal: () -> Unit, aoAbrirAnex
                 Metricas(sessao)
                 Rastreamento(sessao)
                 Autos(estado, vm::escolherArtefato, aoAbrirLinks)
-                TextoDaSessao(sessao, aoAbrirTextoFinal)
+                TextoDaSessao(sessao, aoAbrirTextoFinal, aoReportar = { contexto, assunto, corpo -> vm.reportarConteudo(contexto, assunto, corpo) })
                 Erro(sessao, estado.ultimaParada)
                 // Os anexos da sessão, com o manifesto de citações, e os links auditados do texto (seção 2.2, MAEANDR-18).
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -341,10 +343,21 @@ private fun ConteudoDaAba(aba: Aba, detalhe: DetalheDoArtefato, aoAbrirLinks: ()
  * No lugar do **Criar Post** do web, o texto liberado abre a tela da seção 4.4, formatado e exportável.
  */
 @Composable
-private fun TextoDaSessao(sessao: ProjecaoDaSessao, aoAbrirTextoFinal: () -> Unit) {
+private fun TextoDaSessao(sessao: ProjecaoDaSessao, aoAbrirTextoFinal: () -> Unit, aoReportar: (Context, String, String) -> Unit) {
     val convergiu = sessao.status == Estados.CONVERGIDA
     val liberado = TextoFinalViewModel.liberado(sessao.status, sessao.textoFinal) != null
+    val contexto = LocalContext.current
+    val assunto = stringResource(R.string.reportar_assunto, sessao.id)
+    val corpo = stringResource(R.string.reportar_corpo, sessao.id, sessao.titulo)
     Cartao {
+        // Política de Conteúdo Gerado por IA do Google Play (seção 9): reportar conteúdo ofensivo sem sair do
+        // aplicativo; o relato vai por e-mail, pelo aplicativo de e-mail do aparelho.
+        BotaoFantasma(
+            stringResource(R.string.acao_reportar_conteudo),
+            aoClicar = { aoReportar(contexto, assunto, corpo) },
+            icone = R.drawable.simbolo_warning,
+            modifier = Modifier.testTag(Marcas.REPORTAR_CONTEUDO),
+        )
         Cabecalho(
             if (convergiu) R.drawable.simbolo_check_circle else R.drawable.simbolo_description,
             stringResource(R.string.secao_texto),

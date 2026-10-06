@@ -79,6 +79,20 @@ class TextoFinalScreenTest {
         return achada!!
     }
 
+    /** Política de Conteúdo Gerado por IA do Google Play (seção 9): o relato de conteúdo ofensivo também sai da tela do texto final. */
+    @Test
+    fun reportarConteudoOfensivoDoTextoFinalCompoeOEmailComASessao() {
+        val id = c.sessao(Estados.CONVERGIDA, textoFinal = textoFinal, textoAtual = textoFinal, titulo = "Artigo com problema")
+        abrirNoTextoFinal(id)
+        // A linha de exportações não rola (a página ocupa o resto da tela): o botão já está visível.
+        regra.onNodeWithTag(Marcas.REPORTAR_CONTEUDO).performClick()
+        regra.waitUntil(5_000) { c.correio.composicoes.isNotEmpty() }
+        val (destinatario, assunto, corpo) = c.correio.composicoes.single()
+        assertEquals("contato@lcv.dev", destinatario)
+        assertEquals("Maestro AI: conteúdo ofensivo na sessão $id", assunto)
+        assertTrue(corpo.contains("Sessão: $id") && corpo.contains("Título: Artigo com problema"))
+    }
+
     @Test
     fun oTextoLiberadoAbreNumaPaginaTravadaComAsTresExportacoes() {
         val id = c.sessao(Estados.CONVERGIDA, textoFinal = textoFinal, textoAtual = textoFinal)

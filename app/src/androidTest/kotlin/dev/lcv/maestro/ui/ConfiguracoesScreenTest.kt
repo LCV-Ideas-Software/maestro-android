@@ -25,6 +25,7 @@ import dev.lcv.maestro.provedores.Provedor
 import dev.lcv.maestro.seguranca.Guarda
 import dev.lcv.maestro.seguranca.NivelDoCofre
 import dev.lcv.maestro.sessao.RepositorioDeConfiguracoes
+import dev.lcv.maestro.ui.configuracoes.ConfiguracoesViewModel
 import java.math.BigDecimal
 import java.util.concurrent.CountDownLatch
 import org.junit.Assert.assertEquals
@@ -106,6 +107,34 @@ class ConfiguracoesScreenTest {
         digitar(Marcas.chave(Provedor.GEMINI), "chave-gemini")
         regra.onNodeWithTag(Marcas.salvarChave(Provedor.GEMINI)).performScrollTo().performClick()
         regra.waitUntil(5_000) { regra.onAllNodesWithTag(Marcas.SEM_TRAVA).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    /** Política de Dados do Usuário do Google Play (seção 9): o link da política de privacidade dentro do aplicativo abre a página no navegador do sistema. */
+    @Test
+    fun aPoliticaDePrivacidadeAbreNoNavegadorDoSistema() {
+        abrirConfiguracoes()
+        regra.onNodeWithTag(Marcas.ABRIR_PRIVACIDADE).performScrollTo().performClick()
+        regra.waitUntil(5_000) { c.navegador.abertas.isNotEmpty() }
+        assertEquals(listOf(ConfiguracoesViewModel.URL_DA_POLITICA), c.navegador.abertas)
+        assertEquals("https://www.lcv.dev/privacy/", ConfiguracoesViewModel.URL_DA_POLITICA)
+    }
+
+    /** Sem navegador, o aviso diz o motivo, como na passagem da tela de links. */
+    @Test
+    fun aPoliticaSemNavegadorAvisaOMotivo() {
+        c.navegador.falha = "failed to open system default browser: No Activity found to handle Intent"
+        abrirConfiguracoes()
+        regra.onNodeWithTag(Marcas.ABRIR_PRIVACIDADE).performScrollTo().performClick()
+        regra.esperarTexto("Não foi possível abrir o navegador para a política de privacidade: failed to open system default browser", substring = true)
+    }
+
+    /** Seção 6.3: a tela que pede a chave diz, antes da primeira sessão, para onde vai o texto (e a frase de retenção da 6.4). */
+    @Test
+    fun aTelaDasChavesDizParaOndeVaiOTexto() {
+        abrirConfiguracoes()
+        regra.onNodeWithTag(Marcas.TEXTO_PARA_PROVEDORES).performScrollTo()
+            .assert(hasText("O seu texto, o pedido e os anexos da sessão são enviados, por TLS, aos provedores dos agentes que você ativar, e a nenhum outro provedor de inteligência artificial", substring = true))
+            .assert(hasText("cada provedor ainda aplica a própria política de retenção", substring = true))
     }
 
     @Test

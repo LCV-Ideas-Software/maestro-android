@@ -62,6 +62,31 @@ class SessaoScreenTest {
         regra.waitUntil(5_000) { regra.onAllNodesWithTag(marca).fetchSemanticsNodes().isNotEmpty() }
     }
 
+    /** Política de Conteúdo Gerado por IA do Google Play (seção 9): o relato de conteúdo ofensivo vai ao aplicativo de e-mail com a sessão identificada. */
+    @Test
+    fun reportarConteudoOfensivoCompoeOEmailComASessao() {
+        val id = c.sessao(Estados.RODANDO, teto = "5", custo = "1.2345", titulo = "Artigo com problema")
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.METRICA_CUSTO)
+        regra.onNodeWithTag(Marcas.REPORTAR_CONTEUDO).performScrollTo().performClick()
+        regra.waitUntil(5_000) { c.correio.composicoes.isNotEmpty() }
+        val (destinatario, assunto, corpo) = c.correio.composicoes.single()
+        assertEquals("contato@lcv.dev", destinatario)
+        assertEquals("Maestro AI: conteúdo ofensivo na sessão $id", assunto)
+        assertTrue(corpo.contains("Sessão: $id") && corpo.contains("Título: Artigo com problema"))
+    }
+
+    /** Sem aplicativo de e-mail, o aviso diz o motivo. */
+    @Test
+    fun reportarSemAplicativoDeEmailAvisaOMotivo() {
+        c.correio.falha = "failed to open the system e-mail app: No Activity found to handle Intent"
+        val id = c.sessao(Estados.RODANDO, teto = "5", custo = "1.2345")
+        regra.abrir(c, sessaoPedida = id)
+        esperarTag(Marcas.METRICA_CUSTO)
+        regra.onNodeWithTag(Marcas.REPORTAR_CONTEUDO).performScrollTo().performClick()
+        regra.esperarTexto("Não foi possível abrir o aplicativo de e-mail para o relato: failed to open the system e-mail app", substring = true)
+    }
+
     @Test
     fun mostraMetricasOsUltimosOitoEventosOsAutosEAsCincoAbas() {
         val id = c.sessao(Estados.RODANDO, teto = "5", custo = "1.2345")

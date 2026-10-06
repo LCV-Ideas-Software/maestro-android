@@ -1652,6 +1652,10 @@ compartilhamento com terceiro no vocabulário do formulário de Segurança de da
 da Play. A declaração tem de dizer exatamente isso, e a tela que pede a chave
 tem de dizer a mesma coisa antes de a primeira sessão rodar.
 
+**A frase da tela, desde a 1.0.0 (06/10/2026, #100).** A legenda da tela de
+chaves, logo abaixo da explicação da chave (seção 6.1), diz, palavra por
+palavra: *"O seu texto, o pedido e os anexos da sessão são enviados, por TLS, aos provedores dos agentes que você ativar, e a nenhum outro provedor de inteligência artificial; nenhum servidor da LCV Ideas & Software os recebe, vê ou guarda. Na conferência dos links, os endereços citados no texto vão aos próprios sites e ao serviço de nomes do Google; se você pedir propostas de correção para um link, a sua consulta ou o trecho do texto em torno dele vai ao Crossref e ao OpenAlex. O aplicativo pede que não guardem a conversa aos provedores cuja API oferece essa opção (OpenAI, Google, xAI e Perplexity); a Anthropic e a DeepSeek não a oferecem; e cada provedor ainda aplica a própria política de retenção."* A frase do meio nomeia os dois outros destinos do que o usuário escreve, que a primeira redação ("e a nada mais") negava: os sites citados e o serviço de nomes do Google, na conferência dos links, e o Crossref e o OpenAlex, na busca de evidências (achado do cross-review de 06/10/2026). A última frase é a da seção 6.4, com os provedores nomeados como a seção 5 os mede: a tela não promete retenção zero, porque `store: false` não a garante, nem o pedido a quem não tem o campo (achado do Codex na #102).
+
 ### 6.4 `store: false` em todos os provedores que o oferecem
 
 Medido em 21/09/2026, e é um achado que contradiz o próprio produto se ficar por
@@ -2051,9 +2055,13 @@ Decisões de produto vigentes, no mesmo espírito das da calculadora:
   aparelho" não é usada porque é falsa;
 - a chave nunca é exibida depois de gravada — a tela mostra "configurada" ou
   "não configurada", nunca o valor;
-- o texto do usuário vai aos provedores que ele mesmo escolheu ativar, e a nada
-  mais; o aplicativo não entra no backup na nuvem, e o banco local e o segredo
-  cifrado ficam **fora também da transferência entre aparelhos** (seção 4.2);
+- o texto do usuário vai aos provedores que ele mesmo escolheu ativar; fora
+  deles, só os sites citados e o `dns.google`, na conferência dos links, e o
+  Crossref e o OpenAlex, na busca de evidências, recebem partes dele (os
+  endereços citados, a consulta ou o trecho em torno do link), como a legenda da
+  tela de chaves diz (seção 6.3); o aplicativo não entra no backup na nuvem, e o
+  banco local e o segredo cifrado ficam **fora também da transferência entre
+  aparelhos** (seção 4.2);
 - as consultas de nome da auditoria de links vão ao **DNS sobre HTTPS do
   Google** (`dns.google`), não ao DNS da rede em que o aparelho está — decisão
   do operador de 25/09/2026 (seção 5.4). É a única parte do aplicativo que fala
@@ -2061,7 +2069,24 @@ Decisões de produto vigentes, no mesmo espírito das da calculadora:
   citado no texto;
 - o **e-mail de contato é opcional e do usuário**: se ele o preencher, vai só
   ao Crossref, na busca de evidências, como a documentação do Crossref pede;
-  nenhum e-mail ou identificador da LCV vai em requisição nenhuma.
+  nenhum e-mail ou identificador da LCV vai em requisição nenhuma;
+- **o link para a política de privacidade fica dentro do aplicativo**, em
+  Configurações › Sobre, abrindo `https://www.lcv.dev/privacy/` no navegador
+  do sistema: a política de Dados do Usuário do Google Play (ajuda oficial,
+  `answer/9888076`, lida em 06/10/2026) exige o link no Console e dentro do
+  aplicativo. Omissão corrigida na 1.0.0 (#100);
+- **reportar conteúdo ofensivo pelo aplicativo**: a política de
+  Conteúdo Gerado por IA do Google Play (`answer/13985936`, lida em
+  06/10/2026) diz que *"apps that generate content using AI must contain
+  in-app user reporting or flagging features that allow users to report or
+  flag offensive content to developers without needing to exit the app"*. O
+  botão "Reportar conteúdo ofensivo", nas telas de sessão e de texto final,
+  abre o aplicativo de e-mail do aparelho (`ACTION_SENDTO` com `mailto:`,
+  `Correio` ao lado de `Navegador`) com a mensagem a `contato@lcv.dev` já
+  preenchida com o identificador e o título da sessão. O relato vai por
+  e-mail porque não há servidor nosso; decisão do operador de 06/10/2026,
+  registrada na [Discussion #103](https://github.com/LCV-Ideas-Software/maestro-android/discussions/103),
+  e dita na política de privacidade como a única forma de algo do usuário chegar à LCV, por ação dele. No momento do envio o usuário passa do Maestro ao aplicativo de e-mail: é a leitura adotada da exigência de relatar "sem sair do aplicativo" quando não há servidor próprio, e a política de privacidade descreve o mecanismo sem afirmar que ele cumpre a regra (achado do cross-review de 06/10/2026); se a revisão da Google exigir um formulário dentro do aplicativo, a decisão volta ao operador.
 
 A publicação segue a esteira já em paridade (seção 3), com notas de versão em
 `play/release-notes/pt-BR.txt` e o teto de 500 caracteres por idioma verificado
@@ -2105,7 +2130,16 @@ mesma esteira, é gratuito. Registro na Discussion #62.
 Cada uma com estado e evidência. Lista que envelhece sem estado foi a falha
 apontada na calculadora, e não se repete.
 
-### Abertas, dependem de medição no aparelho
+### Descartadas por decisão do operador em 06/10/2026 (dependiam de medição no aparelho)
+
+**Decisão do operador de 06/10/2026, 16:16 (Brasília):** *"Não haverá aparelho
+conectado via usb para isso. Então descarta."* As três medições abaixo ficam
+registradas pelo que eram e com o estado em que pararam; a 1.0.0 saiu sem elas,
+com os valores vigentes (seções 4.1, 5.1 e 6.2), e nenhum deles muda sem uma
+decisão nova. Se um dia houver aparelho e chaves para medir, a medição volta
+como issue própria, não como pendência silenciosa aqui. Registro na
+[Discussion #101](https://github.com/LCV-Ideas-Software/maestro-android/discussions/101)
+e na [#100](https://github.com/LCV-Ideas-Software/maestro-android/issues/100).
 
 1. **O WorkManager basta, ou o serviço em primeiro plano tem de ser nosso?**
    Duas medições que levam à mesma decisão, e por isso viram uma pendência só.

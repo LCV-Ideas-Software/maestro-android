@@ -5,11 +5,13 @@
 package dev.lcv.maestro.ui.textofinal
 
 import android.content.ContentResolver
+import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.lcv.maestro.Correio
 import dev.lcv.maestro.Dependencias
 import dev.lcv.maestro.R
 import dev.lcv.maestro.sessao.Estados
@@ -82,6 +84,19 @@ class TextoFinalViewModel(private val d: Dependencias, private val id: String) :
     }.flowOn(Dispatchers.IO).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Estado())
 
     /** A volta da tela ao primeiro plano: a leitura que falhou lê de novo (decisão 25 estendida, #80). */
+    /** O id da sessão, para o assunto do relato de conteúdo ofensivo. */
+    val idDaSessao: String get() = id
+
+    /**
+     * Reportar conteúdo ofensivo (política de Conteúdo Gerado por IA do Google Play, seção 9): abre o aplicativo
+     * de e-mail do aparelho com a mensagem a contato@lcv.dev já preenchida; sem aplicativo de e-mail, o aviso diz
+     * o motivo.
+     */
+    fun reportarConteudo(contexto: Context, assunto: String, corpo: String) {
+        val falha = d.correio.compor(contexto, Correio.CONTATO, assunto, corpo)
+        if (falha != null) eventos.trySend(Mensagem.DeRecurso(R.string.reportar_sem_correio, listOf(falha)))
+    }
+
     fun recarregar() {
         leituras.voltou()
     }
