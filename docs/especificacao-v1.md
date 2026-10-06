@@ -1811,10 +1811,14 @@ de teste, porque compra confiança sem entregá-la.
   5. **depois de a janela expirar, a decifra é recusada** e o estado observável
      é `pausada_aguardando_autenticacao`, não uma exceção crua.
 
-  **Onde rodam, decisões do operador de 23/09/2026:** os casos 2 a 5 rodam na
-  CI em toda PR, num emulador do Gradle Managed Devices (a solução oficial do
-  Google), em job próprio que é **verificação obrigatória** do ruleset do
-  repositório; no emulador da CI, pular é falha. O caso 1 exige StrongBox, que
+  **Onde rodam, decisões do operador de 23/09/2026 e de 06/10/2026:** os casos
+  2 a 5 rodavam na CI em toda PR, num emulador do Gradle Managed Devices (a
+  solução oficial do Google), em job próprio que era verificação obrigatória do
+  ruleset do repositório; em 06/10/2026 o operador tirou esse job do workflow (o
+  emulador no runner hospedado levava de 16 a 30 minutos por PR; #97), e os
+  casos passaram a rodar no mesmo emulador gerenciado, localmente, como portão
+  de toda PR antes do push, com o resultado registrado na PR; no emulador
+  gerenciado, pular é falha. O caso 1 exige StrongBox, que
   o emulador não tem, e **não há aparelho com o hardware disponível: o caso não
   é rodado.** O teste existe e roda em qualquer aparelho que tenha o hardware.
   A decisão foi conferida antes num emulador Android 17 (API 37), em
@@ -1871,7 +1875,7 @@ de teste, porque compra confiança sem entregá-la.
   escalonador do web (`EscalonamentoTest`, os casos de `sessions.test.ts`),
   o orçamento de seis horas e as citações da sessão. A
   primeira pull request (26/09/2026) provou a metade que já existia, no mesmo
-  emulador do `:core:seguranca`, em toda pull request: `preparar` reivindica a sessão
+  emulador gerenciado do `:core:seguranca`, no portão de toda pull request: `preparar` reivindica a sessão
   (execução e cerca) e uma sessão cancelada ou reconciliada não é
   reivindicada; o *checkpoint* grava artefato, custódia e evento juntos, um
   portão perdido não deixa nem o artefato, e um checkpoint de execução

@@ -6,6 +6,12 @@ All material changes to Maestro Android are recorded here.
 
 ### Changed
 
+- The `CI` workflow no longer runs the instrumented tests on a hosted emulator:
+  the job took 16 to 30 minutes per pull request (operator decision of
+  06/10/2026, #97). The instrumented suites of `:core:seguranca`, `:core:sessao`
+  and `:app` stay in the repository and run locally, on the Gradle managed
+  device, as the gate of every pull request before the push; the workflow keeps
+  the build, lint and JVM-test job.
 - Port the link-integrity engine from the desktop's current `link_integrity.rs`
   (`maestro-app` `16a8cff`, MAESTRO-34; #77, MAEANDR-26). A review now holds
   only against the URL, content hash, final URL and redirect chain the screen
