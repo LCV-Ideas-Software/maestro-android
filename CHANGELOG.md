@@ -4,6 +4,24 @@ All material changes to Maestro Android are recorded here.
 
 ## [Unreleased]
 
+### Changed
+
+- Port the link-integrity engine from the desktop's current `link_integrity.rs`
+  (`maestro-app` `16a8cff`, MAESTRO-34; #77, MAEANDR-26). A review now holds
+  only against the URL, content hash, final URL and redirect chain the screen
+  showed. Links are found on `commonmark-java`'s syntax tree with source
+  positions instead of a regular-expression scan: reference definitions, code
+  and link destinations are covered once, positions are UTF-16 offsets, and a
+  reference definition whose title is left unclosed fails the text closed
+  until the library fixes it. One sensitive-parameter rule, decoded with the
+  platform's `URLDecoder` and strict UTF-8, serves both normalisation and
+  collection; a link refused for embedded credentials, a credential-like
+  parameter or a known secret pattern is redacted from the record, the screen
+  and the agent's context (`<blocked URL>`, `<redacted context>`), and the
+  blocked-fetch record keeps only the origin. Raw-HTML handling inside the
+  extractor is not ported, because raw HTML already blocks the release.
+  Existing link ids change where the anchor or the context changed.
+
 ### Fixed
 
 - Explicitly retain the tag and full source target on the same-ID publication

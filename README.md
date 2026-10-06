@@ -88,8 +88,12 @@ shares; section 2.2 of the specification lists them. Raw HTML inside the
 Markdown final text blocks the release (operator's decision of 25/09/2026);
 `commonmark-java` tells it from prose, following the CommonMark specification,
 not a scanner of our own (operator's decision of 24/09/2026; recorded in
-[`THIRDPARTY.md`](THIRDPARTY.md)). The application is a product for the
-public, not a copy of the operator's internal apps: it reaches users through
+[`THIRDPARTY.md`](THIRDPARTY.md)). The link-integrity engine is ported from
+the desktop's current `link_integrity.rs` (`maestro-app` `16a8cff`, MAESTRO-34;
+#77): a review holds only against the URL, content hash, final URL and
+redirect chain the screen showed, and the links themselves are found on
+`commonmark-java`'s syntax tree, with source positions. The application is a
+product for the public, not a copy of the operator's internal apps: it reaches users through
 two channels, the Play Store (R$ 10.00 initially, a convenience fee that may
 change) and, free of charge, the GitHub Releases of this repository
 (operator's decision of 25/09/2026, Discussion #62). What needs

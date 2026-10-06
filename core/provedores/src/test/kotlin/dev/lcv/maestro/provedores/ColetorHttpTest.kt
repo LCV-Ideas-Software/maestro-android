@@ -4,6 +4,7 @@ import dev.lcv.maestro.protocolo.EstadoDaEvidencia
 import dev.lcv.maestro.protocolo.EstadoDeInteracao
 import dev.lcv.maestro.protocolo.EstadoDoCache
 import dev.lcv.maestro.protocolo.EstadoDoRobots
+import dev.lcv.maestro.protocolo.FormatoDeLinks
 import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import dev.lcv.maestro.protocolo.MetodoHttp
 import dev.lcv.maestro.protocolo.ModoDeAcesso
@@ -15,6 +16,7 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -67,12 +69,16 @@ class ColetorHttpTest {
     @Test
     fun `URL recusada pela regra fica bloqueada com o id preliminar e sem requisicao`() {
         val coletor = coletor(RedeDeTeste.politicaReal())
-        for (bruta in listOf("http://localhost:${servidor.port}/x", "http://127.0.0.1/test")) {
+        for ((bruta, gravada) in listOf(
+            "http://localhost:${servidor.port}/x" to "http://localhost:${servidor.port}/",
+            "http://127.0.0.1/test" to "http://127.0.0.1/",
+        )) {
             val coleta = coletor.coletarComConteudo(bruta)
             val registro = coleta.registro
             assertEquals(EstadoDaEvidencia.BLOQUEADA, registro.estado)
             assertEquals(RedeDeTeste.sha("http_fetch|GET|$bruta"), registro.id)
-            assertEquals(bruta, registro.url)
+            // `rejected_url_for_record`: só `esquema://host[:porta]/` do link recusado vai ao registro.
+            assertEquals(gravada, registro.url)
             val esperado = if ("localhost" in bruta) {
                 "endereco local bloqueado por seguranca"
             } else {
@@ -90,6 +96,30 @@ class ColetorHttpTest {
             assertEquals("2026-09-25T12:00:00+00:00", registro.atualizadaEm)
         }
         assertEquals(0, servidor.requestCount)
+    }
+
+    @Test
+    fun `a coleta usa a mesma regra de parametro sensivel da normalizacao`() {
+        // No canônico, `validate_public_url` e `normalize_url` chamam a mesma `url_has_sensitive_parameters`
+        // (`web_evidence.rs:707`, `link_integrity.rs:413`). Os seis aceites são o teste do próprio canônico
+        // (`web_evidence.rs:4093-4098`); os três bloqueios são formas que só a regra fiel lê (#77).
+        val coletor = coletor()
+        for (aceita in listOf("/#monkey", "/?monkey=1", "/?donkey=1", "/?turkey=1", "/?hockey=1", "/?title=access_token")) {
+            robots()
+            pagina()
+            assertEquals(EstadoDaEvidencia.PRONTA, coletor.coletar(url(aceita)).estado, aceita)
+        }
+        assertEquals(12, servidor.requestCount)
+        for (bloqueada in listOf("/?utm_source=x;access_token=secret", "/api_key=abc/x", "/a#access_token=secret")) {
+            val registro = coletor.coletar(url(bloqueada))
+            assertEquals(EstadoDaEvidencia.BLOQUEADA, registro.estado, bloqueada)
+            assertEquals(
+                "URLs with credential-like query parameters are blocked; use an environment-backed connector or operator capture",
+                registro.notas.single(),
+                bloqueada,
+            )
+        }
+        assertEquals(12, servidor.requestCount)
     }
 
     @Test
@@ -463,15 +493,31 @@ class ColetorHttpTest {
 
     @Test
     fun `a URL gravada no registro bloqueado nao leva credencial nem valor sensivel`() {
+        // `rejected_url_never_persists_credentials_or_sensitive_query_values` (`web_evidence.rs:4349-4400`).
         val coletor = coletor()
-        assertEquals("https://example.com/", coletor.coletar("https://user:password@example.com/").url)
-        assertEquals("https://example.com/?x=1&access_token=%3Credacted%3E", coletor.coletar("https://example.com/?x=1&access_token=topsecret").url)
-        assertEquals(
-            "https://example.com/?Sig=%3Credacted%3E&session_token=%3Credacted%3E&x=2#f",
-            coletor.coletar("https://example.com/?Sig=abc&session_token=def&x=2#f").url,
-        )
-        // O que o parser não lê é tratado no texto, com a mesma regra.
-        assertEquals("http://exa mple.com/?token=<redacted>&ok=1", coletor.coletar("http://user:pw@exa mple.com/?token=abc&ok=1").url)
+        val original = "https://user:senha@example.com/path?access_token=valor-super-secreto;sig=outra-senha#fragmento-secreto"
+        val bloqueado = coletor.coletar(original)
+        assertEquals("https://example.com/", bloqueado.url)
+        assertEquals(EstadoDaEvidencia.BLOQUEADA, bloqueado.estado)
+        val serializado = FormatoDeLinks.serializarEvidencia(bloqueado)
+        for (segredo in listOf("senha", "valor-super-secreto", "user:", "fragmento-secreto")) {
+            assertFalse(serializado.contains(segredo), serializado)
+        }
+        assertEquals("<blocked URL>", coletor.coletar("not a URL?access_token=senha").url)
+        // A grafia sem barras duplas que o HttpUrl aceita (achado do Codex no cross-review da #77): bloqueada antes da
+        // rede, e o registro guarda só a origem.
+        val semBarras = coletor.coletar("https:/:review-placeholder@example.com/path")
+        assertEquals(EstadoDaEvidencia.BLOQUEADA, semBarras.estado)
+        assertEquals("https://example.com/", semBarras.url)
+        assertEquals(listOf("URLs with embedded credentials are blocked"), semBarras.notas)
+        assertEquals("https://example.com/", IntegridadeDeLinks.urlParaRegistro("https://example.com/path?q=segredo-operacional", AnalisadorDeUrlOkHttp))
+        // O que o `HttpUrl` não lê também sai como `<blocked URL>`.
+        assertEquals("<blocked URL>", coletor.coletar("http://user:pw@exa mple.com/?token=abc&ok=1").url)
+        // `sanitize_text(url) != url` (`web_evidence.rs:714-718`): o padrão de segredo conhecido bloqueia a coleta.
+        val comSegredo = coletor.coletar("https://example.com/sk-ant-abcdefghijklmnop/x")
+        assertEquals(EstadoDaEvidencia.BLOQUEADA, comSegredo.estado)
+        assertEquals("https://example.com/", comSegredo.url)
+        assertEquals(listOf("URL contains credential-like material and cannot be stored safely"), comSegredo.notas)
         assertEquals(0, servidor.requestCount)
         // O id preliminar continua sendo o da URL como o texto a citou.
         assertEquals(RedeDeTeste.sha("http_fetch|GET|https://user:password@example.com/"), coletor.coletar("https://user:password@example.com/").id)

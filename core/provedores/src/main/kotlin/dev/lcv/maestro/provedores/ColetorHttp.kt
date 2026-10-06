@@ -101,7 +101,9 @@ public class ColetorHttp internal constructor(
         val validada = try {
             UrlPublica.validar(url, politica)
         } catch (erro: IntegridadeDeLinks.Falha) {
-            return guardar(falha(null, idPreliminar, url, EstadoDaEvidencia.BLOQUEADA, erro.message.orEmpty(), agora), null)
+            // `blocked_request_record`: a URL recusada vai ao registro como `rejected_url_for_record` a deixa.
+            val urlRegistravel = IntegridadeDeLinks.urlParaRegistro(url, AnalisadorDeUrlOkHttp)
+            return guardar(falha(null, idPreliminar, urlRegistravel, EstadoDaEvidencia.BLOQUEADA, erro.message.orEmpty(), agora), null)
         }
         val urlCanonica = validada.toString()
         val id = FormatoDoRegistro.sha256("http_fetch|GET|$urlCanonica")
@@ -246,9 +248,9 @@ public class ColetorHttp internal constructor(
             id = id,
             versaoDoEsquema = VERSAO_DO_ESQUEMA,
             estado = EstadoDaEvidencia.COLETANDO,
-            // A URL gravada nunca leva credencial nem valor de chave sensível:
-            // a URL bloqueada pela validação chega aqui como o texto citou.
-            url = Erros.sanear(UrlPublica.paraRegistro(url), 2_048),
+            // A URL validada já passou pelo `sanitize_text` de `validar`; a bloqueada chega como
+            // `urlParaRegistro` a deixou. Nenhuma leva credencial.
+            url = url,
             metodo = MetodoHttp.GET,
             modoDeAcesso = ModoDeAcesso.COLETA_HTTP,
             status = null,

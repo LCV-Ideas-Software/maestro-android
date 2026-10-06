@@ -1,6 +1,5 @@
 package dev.lcv.maestro.protocolo
 
-import java.net.URI
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -20,13 +19,7 @@ class AuditoriaFinalTest {
 
     private val agora: Instant = Instant.parse("2026-09-24T12:00:00Z")
 
-    private val analisador = IntegridadeDeLinks.AnalisadorDeUrl { url ->
-        runCatching { URI(url) }.getOrNull()?.let { uri ->
-            uri.scheme?.let { esquema ->
-                IntegridadeDeLinks.UrlAnalisada(esquema.lowercase(), uri.host, "", null, uri.rawPath ?: "", url)
-            }
-        }
-    }
+    private val analisador = IntegridadeDeLinks.AnalisadorDeUrl { url -> urlDeTeste(url) }
 
     private val registro = object : IntegridadeDeLinks.RegistroDeLinks {
         val linhas = HashMap<String, LinhaDeLink>()

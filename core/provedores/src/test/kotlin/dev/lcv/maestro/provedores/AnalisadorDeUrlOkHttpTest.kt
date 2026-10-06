@@ -108,4 +108,49 @@ class AnalisadorDeUrlOkHttpTest {
         assertContentEquals(ip("127.0.0.1"), AnalisadorDeUrlOkHttp.analisar("http://127.0.0.1/x")!!.ipDoHost)
         assertEquals("xn--caf-dma.example", AnalisadorDeUrlOkHttp.analisar("https://café.example/")!!.host)
     }
+
+    @Test
+    fun `a senha conta em toda grafia de autoridade que o HttpUrl aceita`() {
+        // Achado do Codex no cross-review da #77 (05/10/2026): o HttpUrl lê `https:/host` e `https:\\host` como
+        // `https://host`; a senha parseada contava só com `://` literal, e nessas grafias a credencial passava.
+        for (url in listOf(
+            "https://user:pw@example.org/", "https:/user:pw@example.org/", "https:\\\\user:pw@example.org/",
+            "HTTPS:///:pw@example.org/", "https:/:pw@example.org/x", "https:\\:pw@example.org/",
+        )) {
+            assertEquals("pw", AnalisadorDeUrlOkHttp.analisar(url)!!.senha, url)
+            assertTrue(AnalisadorDeUrlOkHttp.temSenha(url), url)
+        }
+        // A senha vazia também é senha (`https://:@host` é `Some("")` para a crate `url`), em qualquer grafia.
+        for (url in listOf("https://:@example.org/", "https:/:@example.org/", "https:\\\\user:@example.org/")) {
+            assertEquals("", AnalisadorDeUrlOkHttp.analisar(url)!!.senha, url)
+        }
+        // Controles: só usuário, e `:` depois do `@` (a porta) não são senha.
+        assertNull(AnalisadorDeUrlOkHttp.analisar("https:/user@example.org/")!!.senha)
+        assertEquals("user", AnalisadorDeUrlOkHttp.analisar("https:/user@example.org/")!!.usuario)
+        assertNull(AnalisadorDeUrlOkHttp.analisar("https://example.org:8443/a:b?c=d:e")!!.senha)
+        assertFalse(AnalisadorDeUrlOkHttp.temSenha("https://example.org:8443/a:b?c=d:e"))
+    }
+
+    @Test
+    fun `os pedacos crus que o canonico le da URL`() {
+        // #77: a forma sem o fragmento (`same_network_url`) e os pedaços da regra do parâmetro sensível, ainda
+        // codificados, como `path_segments()`, `query()` e `fragment()` da crate `url`.
+        val http = AnalisadorDeUrlOkHttp.analisar("HTTPS://Example.COM/a/b%2Fc/?x=1;y=2#f%20g")!!
+        assertEquals("https://example.com/a/b%2Fc/?x=1;y=2", http.semFragmento)
+        assertEquals(listOf("a", "b%2Fc", ""), http.segmentosDoCaminho)
+        assertEquals("x=1;y=2", http.query)
+        assertEquals("f%20g", http.fragmento)
+        val raiz = AnalisadorDeUrlOkHttp.analisar("https://example.com")!!
+        assertEquals("https://example.com/", raiz.semFragmento)
+        assertEquals(listOf(""), raiz.segmentosDoCaminho)
+        assertNull(raiz.query)
+        assertNull(raiz.fragmento)
+        // O `mailto:` não tem caminho hierárquico, e a query vem depois do `?`.
+        val correio = AnalisadorDeUrlOkHttp.analisar("mailto:editor@example.com?subject=a%20b#x")!!
+        assertEquals("mailto:editor@example.com?subject=a%20b", correio.semFragmento)
+        assertNull(correio.segmentosDoCaminho)
+        assertEquals("subject=a%20b", correio.query)
+        assertEquals("x", correio.fragmento)
+    }
+
 }

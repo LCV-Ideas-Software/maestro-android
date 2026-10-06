@@ -95,6 +95,26 @@ class TransportePublicoTest {
     }
 
     @Test
+    fun `um salto para URL com parametro de credencial e recusado antes da segunda requisicao`() {
+        // Cada salto passa por `validate_public_url` (`web_evidence.rs:946`, `:981`), com a mesma regra de parâmetro
+        // sensível da normalização; as três formas abaixo só a regra fiel lê (#77).
+        for (destino in listOf("/b?utm_source=x;access_token=secret", "/api_key=abc/x", "/a#access_token=secret")) {
+            val antes = servidor.requestCount
+            servidor.enqueue(redirecionar(servidor.url(destino).toString()))
+            assertEquals(
+                "URLs with credential-like query parameters are blocked; use an environment-backed connector or operator capture",
+                falha { executar(servidor.url("/x").toString()) },
+                destino,
+            )
+            assertEquals(antes + 1, servidor.requestCount, destino)
+        }
+        // Controle: o salto limpo é seguido.
+        servidor.enqueue(redirecionar(servidor.url("/limpo").toString()))
+        servidor.enqueue(MockResponse.Builder().code(200).body("ok").build())
+        assertEquals(200, executar(servidor.url("/x").toString()).status)
+    }
+
+    @Test
     fun `um 304 nao e redirecionamento e chega sem corpo, como HEAD`() {
         servidor.enqueue(MockResponse.Builder().code(304).setHeader("ETag", "\"v1\"").build())
         val naoModificado = executar(servidor.url("/x").toString())

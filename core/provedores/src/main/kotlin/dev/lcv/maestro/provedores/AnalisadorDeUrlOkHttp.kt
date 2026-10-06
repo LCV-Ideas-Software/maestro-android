@@ -2,9 +2,6 @@ package dev.lcv.maestro.provedores
 
 import dev.lcv.maestro.protocolo.IntegridadeDeLinks
 import java.net.InetAddress
-import java.net.URI
-import java.net.URISyntaxException
-import java.util.Locale
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /**
@@ -16,9 +13,9 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
  *
  * Só `http` e `https` passam pelo `HttpUrl`. Outro esquema (`mailto:`, que a
  * auditoria reconhece sem coletar; `javascript:`, `data:`, que ela recusa)
- * é lido pelo `java.net.URI` só para dizer qual é o esquema; sem esquema, ou
- * mal formado, é `null`, e a auditoria recusa (`IntegridadeDeLinks.kt`,
- * `normalizar`).
+ * é lido pelo `java.net.URI` do próprio motor
+ * ([IntegridadeDeLinks.analisarPorUri]) só para dizer qual é o esquema; sem
+ * esquema, ou mal formado, é `null`, e a auditoria recusa (`normalizar`).
  *
  * [IntegridadeDeLinks.UrlAnalisada.ipDoHost] vem só de host literal, nunca de
  * DNS (revisão cruzada de 25/09/2026): IPv6 é o que o `HttpUrl` já validou
@@ -37,42 +34,36 @@ public object AnalisadorDeUrlOkHttp : IntegridadeDeLinks.AnalisadorDeUrl {
                 esquema = http.scheme,
                 host = http.host,
                 usuario = http.username,
-                senha = if (temSenha(url)) http.password else null,
+                // A senha não vazia que o HttpUrl leu conta sempre; a checagem literal só acrescenta a vazia.
+                senha = if (http.password.isNotEmpty() || temSenha(url)) http.password else null,
                 caminho = http.encodedPath,
                 serializada = http.toString(),
+                query = http.encodedQuery,
+                fragmento = http.encodedFragment,
                 ipDoHost = ipLiteral(http.host),
             )
         }
         // `http://` ou `https://` que o HttpUrl recusou é URL malformada, e não
         // um esquema desconhecido.
         if (COMECA_COM_HTTP.containsMatchIn(url)) return null
-        return try {
-            val uri = URI(url)
-            val esquema = uri.scheme?.lowercase(Locale.ROOT) ?: return null
-            val info = uri.rawUserInfo
-            IntegridadeDeLinks.UrlAnalisada(
-                esquema = esquema,
-                host = uri.host,
-                usuario = info?.substringBefore(':') ?: "",
-                senha = info?.takeIf { ':' in it }?.substringAfter(':'),
-                caminho = uri.rawPath ?: uri.rawSchemeSpecificPart ?: "",
-                serializada = url,
-            )
-        } catch (erro: URISyntaxException) {
-            null
-        }
+        return IntegridadeDeLinks.analisarPorUri(url)
     }
 
     /**
      * Se a autoridade da URL traz senha, mesmo vazia: `https://:@host` tem
      * senha `""` para a crate `url` (`Some("")`), e o `HttpUrl` devolve `""`
      * tanto para a senha ausente quanto para a vazia. A auditoria recusa
-     * qualquer credencial embutida, então a presença é o que importa.
+     * qualquer credencial embutida, então a presença é o que importa. A
+     * autoridade começa depois do esquema e de qualquer sequência de `/` e
+     * `\`, as grafias que o `HttpUrl` aceita (`https:/host`, `https:\\host`),
+     * e vai até o primeiro `/`, `\`, `?` ou `#` (achado do Codex no
+     * cross-review da #77, 05/10/2026).
      */
     internal fun temSenha(url: String): Boolean {
-        val depoisDoEsquema = url.indexOf("://").takeIf { it >= 0 }?.let { url.substring(it + 3) } ?: return false
-        val fim = depoisDoEsquema.indexOfAny(charArrayOf('/', '?', '#')).takeIf { it >= 0 } ?: depoisDoEsquema.length
-        val autoridade = depoisDoEsquema.substring(0, fim)
+        var inicio = url.indexOf(':').takeIf { it >= 0 }?.plus(1) ?: return false
+        while (inicio < url.length && (url[inicio] == '/' || url[inicio] == '\\')) inicio++
+        val fim = url.indexOfAny(charArrayOf('/', '\\', '?', '#'), inicio).takeIf { it >= 0 } ?: url.length
+        val autoridade = url.substring(inicio, fim)
         val arroba = autoridade.lastIndexOf('@')
         return arroba >= 0 && ':' in autoridade.substring(0, arroba)
     }
