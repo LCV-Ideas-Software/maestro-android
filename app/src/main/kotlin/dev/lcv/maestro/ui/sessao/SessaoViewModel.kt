@@ -4,11 +4,13 @@
  */
 package dev.lcv.maestro.ui.sessao
 
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.lcv.maestro.Correio
 import dev.lcv.maestro.Dependencias
 import dev.lcv.maestro.R
 import dev.lcv.maestro.Sincronia
@@ -199,6 +201,16 @@ class SessaoViewModel(private val d: Dependencias, private val id: String) : Vie
             falhaDosAutos = lido.valor.falhaDosAutos ?: detalhe.falha,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Estado())
+
+    /**
+     * Reportar conteúdo ofensivo (política de Conteúdo Gerado por IA do Google Play, seção 9): abre o aplicativo
+     * de e-mail do aparelho com a mensagem a contato@lcv.dev já preenchida; sem aplicativo de e-mail, o aviso diz
+     * o motivo. A tela monta o assunto e o corpo com os recursos de texto, que o modelo não lê.
+     */
+    fun reportarConteudo(contexto: Context, assunto: String, corpo: String) {
+        val falha = d.correio.compor(contexto, Correio.CONTATO, assunto, corpo)
+        if (falha != null) eventos.trySend(Mensagem.DeRecurso(R.string.reportar_sem_correio, listOf(falha)))
+    }
 
     fun escolherArtefato(artefatoId: String) {
         // Um toque é um pedido novo: se o artefato não se lê, o aviso sai mesmo que outro já tenha saído nesta volta (#80).

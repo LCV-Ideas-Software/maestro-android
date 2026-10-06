@@ -61,7 +61,8 @@ fun TextoFinalScreen(vm: TextoFinalViewModel) {
     val estado by vm.estado.collectAsStateWithLifecycle()
     val avisos = LocalAvisos.current
     val recursos = LocalResources.current
-    val resolver = LocalContext.current.contentResolver
+    val contexto = LocalContext.current
+    val resolver = contexto.contentResolver
     val atividade = LocalActivity.current
     LaunchedEffect(vm) { vm.avisos.collect { avisos.mostrar(it.em(recursos)) } }
     LifecycleResumeEffect(vm) {
@@ -123,6 +124,16 @@ fun TextoFinalScreen(vm: TextoFinalViewModel) {
                         icone = R.drawable.simbolo_description,
                         habilitado = carregada && imprimir != null,
                         modifier = Modifier.testTag(Marcas.EXPORTAR_PDF),
+                    )
+                    // Política de Conteúdo Gerado por IA do Google Play (seção 9): reportar conteúdo ofensivo sem
+                    // sair do aplicativo; o relato vai por e-mail, pelo aplicativo de e-mail do aparelho.
+                    val assunto = stringResource(R.string.reportar_assunto, vm.idDaSessao)
+                    val corpo = stringResource(R.string.reportar_corpo, vm.idDaSessao, estado.titulo)
+                    BotaoFantasma(
+                        stringResource(R.string.acao_reportar_conteudo),
+                        aoClicar = { vm.reportarConteudo(contexto, assunto, corpo) },
+                        icone = R.drawable.simbolo_warning,
+                        modifier = Modifier.testTag(Marcas.REPORTAR_CONTEUDO),
                     )
                 }
                 Cartao(modifier = Modifier.weight(1f)) {

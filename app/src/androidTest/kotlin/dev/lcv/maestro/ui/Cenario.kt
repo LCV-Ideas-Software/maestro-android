@@ -25,6 +25,7 @@ import androidx.work.WorkManager
 import android.content.Context
 import dev.lcv.maestro.BuscaDaTela
 import dev.lcv.maestro.CofreDaTela
+import dev.lcv.maestro.Correio
 import dev.lcv.maestro.Dependencias
 import dev.lcv.maestro.Navegador
 import dev.lcv.maestro.ReconciliacaoDaAbertura
@@ -185,6 +186,19 @@ internal class AgendadorFalso(
 }
 
 /** O navegador do sistema nos testes: anota a URL e responde [falha]; nenhum teste abre navegador. */
+/** O aplicativo de e-mail dublê: só anota a mensagem composta; nenhum teste abre aplicativo de e-mail. */
+internal class CorreioFalso : Correio {
+    val composicoes: MutableList<Triple<String, String, String>> = CopyOnWriteArrayList()
+
+    /** Posta, é a falha que o aparelho sem aplicativo de e-mail devolveria. */
+    @Volatile var falha: String? = null
+
+    override fun compor(contexto: Context, destinatario: String, assunto: String, corpo: String): String? {
+        composicoes += Triple(destinatario, assunto, corpo)
+        return falha
+    }
+}
+
 internal class NavegadorFalso : Navegador {
     val abertas: MutableList<String> = CopyOnWriteArrayList()
 
@@ -278,6 +292,7 @@ internal class Cenario {
      */
     @Volatile var aoCancelarABusca: (() -> Unit)? = null
     val navegador = NavegadorFalso()
+    val correio = CorreioFalso()
 
     /** A reconciliação da abertura sobre este banco, como a do `MaestroApplication` sobre o do processo (#80). */
     val reconciliacao = Reconciliacao(banco, sessoes, retomada, agendador, { cofre.chaves() }, evidencias, anexos, relogio)
@@ -308,6 +323,7 @@ internal class Cenario {
             )
         },
         navegador = navegador,
+        correio = correio,
         falhasDaAbertura = abertura.falhas,
         relogio = relogio,
     )

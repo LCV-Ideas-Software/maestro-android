@@ -150,7 +150,7 @@ fun ConfiguracoesScreen(vm: ConfiguracoesViewModel, versao: String, aoAbrirLicen
                 Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, contexto.packageName),
             )
         }
-        Sobre(versao, aoAbrirLicencas)
+        Sobre(versao, aoAbrirLicencas, aoAbrirPolitica = { vm.abrirPolitica(contexto) })
     }
 }
 
@@ -165,6 +165,10 @@ private fun Chaves(
     Cartao {
         Cabecalho(R.drawable.simbolo_key, stringResource(R.string.ajustes), stringResource(R.string.chaves_dos_agentes))
         Legenda(stringResource(R.string.chaves_explicacao))
+        // Seção 6.3: a tela que pede a chave diz, antes da primeira sessão, que o texto vai aos
+        // provedores ativados (compartilhamento com terceiros, no vocabulário da Play), com a
+        // frase da seção 6.4 sobre o que `store: false` faz e o que não faz.
+        Legenda(stringResource(R.string.texto_para_provedores), modifier = Modifier.testTag(Marcas.TEXTO_PARA_PROVEDORES))
         // Seção 4.2 e emenda A14: sem trava de tela o Keystore não gera a chave que cifra as de
         // API, e remover a trava apaga a que havia. O cofre não distingue "nunca guardou" de
         // "perdeu com a trava"; por isso o aviso é um só, verdadeiro nos dois casos.
@@ -363,10 +367,13 @@ private fun Notificacoes(permitidas: Boolean, aoAbrirAjustes: () -> Unit) {
 }
 
 @Composable
-private fun Sobre(versao: String, aoAbrirLicencas: () -> Unit) {
+private fun Sobre(versao: String, aoAbrirLicencas: () -> Unit, aoAbrirPolitica: () -> Unit) {
     Cartao {
         Cabecalho(R.drawable.simbolo_info, stringResource(R.string.titulo), stringResource(R.string.sobre))
         Legenda(stringResource(R.string.versao, versao))
         BotaoFantasma(stringResource(R.string.acao_licencas), aoAbrirLicencas, modifier = Modifier.testTag(Marcas.ABRIR_LICENCAS))
+        // Política de Dados do Usuário do Google Play: o link para a política de privacidade fica no Console e
+        // dentro do aplicativo; abre no navegador do sistema, como a passagem da tela de links (seção 9).
+        BotaoFantasma(stringResource(R.string.acao_privacidade), aoAbrirPolitica, modifier = Modifier.testTag(Marcas.ABRIR_PRIVACIDADE))
     }
 }

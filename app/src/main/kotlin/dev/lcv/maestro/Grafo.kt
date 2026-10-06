@@ -166,6 +166,41 @@ fun interface Navegador {
 }
 
 /**
+ * O aplicativo de e-mail do sistema, para o usuário reportar conteúdo ofensivo
+ * gerado pelos assistentes: a política de Conteúdo Gerado por IA do Google Play
+ * exige um meio de reportar dentro do aplicativo, e a decisão do operador de
+ * 06/10/2026 é o e-mail, sem servidor nosso (seção 9). `ACTION_SENDTO` com
+ * `mailto:` e os extras documentados (destinatário, assunto, texto), do contexto
+ * da Activity. A falta de aplicativo de e-mail chega como
+ * `ActivityNotFoundException` e o disparo barrado como `SecurityException`; os
+ * testes de tela usam um dublê que só anota a mensagem.
+ */
+fun interface Correio {
+    fun compor(contexto: Context, destinatario: String, assunto: String, corpo: String): String?
+
+    companion object {
+        /** O e-mail público de contato da LCV Ideas & Software, o mesmo da política de privacidade. */
+        const val CONTATO: String = "contato@lcv.dev"
+
+        val DO_SISTEMA = Correio { contexto, destinatario, assunto, corpo ->
+            try {
+                contexto.startActivity(
+                    Intent(Intent.ACTION_SENDTO, "mailto:".toUri())
+                        .putExtra(Intent.EXTRA_EMAIL, arrayOf(destinatario))
+                        .putExtra(Intent.EXTRA_SUBJECT, assunto)
+                        .putExtra(Intent.EXTRA_TEXT, corpo),
+                )
+                null
+            } catch (erro: ActivityNotFoundException) {
+                "failed to open the system e-mail app: ${erro.message}"
+            } catch (erro: SecurityException) {
+                "failed to open the system e-mail app: ${erro.message}"
+            }
+        }
+    }
+}
+
+/**
  * Uma busca de evidências e o jeito de pará-la: a busca bloqueia no HTTP, e
  * cancelar a corrotina não a interrompe — só o `cancelarTudo` dela. A tela
  * cancela quando sai (achado do Codex na #78).
@@ -194,6 +229,8 @@ class Dependencias(
     /** A busca de evidências (Crossref e OpenAlex) com o e-mail de contato atual; lê o Room, então fora da linha principal. */
     val busca: () -> BuscaDaTela,
     val navegador: Navegador,
+    /** O aplicativo de e-mail do sistema, para reportar conteúdo ofensivo (seção 9). */
+    val correio: Correio = Correio.DO_SISTEMA,
     /** As falhas da reconciliação da abertura e da inicialização do WorkManager, que a tela inicial avisa (#80). */
     val falhasDaAbertura: Flow<ReconciliacaoDaAbertura.Falha>,
     val relogio: () -> Instant = Instant::now,
@@ -214,6 +251,7 @@ class Dependencias(
                 importacao = grafo.importacao,
                 busca = { grafo.buscaDeEvidencias().let { BuscaDaTela(it, it::cancelarTudo) } },
                 navegador = Navegador.DO_SISTEMA,
+                correio = Correio.DO_SISTEMA,
                 falhasDaAbertura = aplicativo.abertura.falhas,
             )
         }

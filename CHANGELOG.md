@@ -4,8 +4,22 @@ All material changes to Maestro Android are recorded here.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.0.0] - 2026-10-06
+
 ### Changed
 
+- Version 1.0.0, `versionCode` 2: the first version prepared for publication
+  on Google Play from this repository (#100, MAEANDR-33); the Release
+  `v01.00.00` is recorded after Play reports it published. `versionCode` 1 was
+  the bundle of 17/09/2026 (MAEANDR-9) on the internal track. The store's
+  release notes live in `play/release-notes/pt-BR.txt`.
+- The specification's section 11 records the operator's decision of
+  06/10/2026: the three on-device measurements it kept open (WorkManager
+  against an own foreground service, the per-call timeout with maximum
+  reasoning on the six providers, the authentication window in real sessions)
+  are discarded, and 1.0.0 ships with the values in force.
 - The `CI` workflow no longer runs the instrumented tests on a hosted emulator:
   the job took 16 to 30 minutes per pull request (operator decision of
   06/10/2026, #97). The instrumented suites of `:core:seguranca`, `:core:sessao`
@@ -105,6 +119,31 @@ All material changes to Maestro Android are recorded here.
 
 ### Added
 
+- "Report offensive content" on the session and final-text screens: the Google
+  Play policy on AI-generated content requires an in-app way to report offensive
+  content to the developers without leaving the app. The button opens the
+  device's e-mail app (`ACTION_SENDTO` with `mailto:`, the new `Correio` next to
+  `Navegador`) with a message to contato@lcv.dev already filled with the session
+  id and title; the report travels by e-mail because there is no LCV server
+  (operator decision of 06/10/2026, Discussion #103), so the user passes from
+  Maestro to the e-mail app at the moment of sending, the reading adopted of the
+  policy's "without needing to exit the app". Screen tests on both screens use a
+  double that only records the composed message (#100).
+- "Privacy policy" in Settings › About opens https://www.lcv.dev/privacy/ in
+  the system browser: the Play User Data policy requires the link in the
+  Console and inside the app. Screen tests cover the opening and the notice
+  when no browser is available (#100).
+- The keys screen says, before the first session, where the user's text goes:
+  the text, the request and the session's attachments are sent, over TLS, to the
+  providers of the agents the user enables and to no other AI provider; in the
+  link check the cited addresses go to the sites themselves and to Google's name
+  service, and a correction search sends the query or the text excerpt around
+  the link to Crossref and OpenAlex; no LCV Ideas & Software server receives any
+  of it; the app asks the four providers whose API offers it not to store the
+  conversation, and each provider still applies its own retention policy
+  (specification, sections 6.3 and 6.4: the Play Data safety form calls this
+  sharing with third parties). Until now the screen said this only about the
+  key. A screen test fails on the previous tree (#100, MAEANDR-33).
 - Add the rest of `:app` (MAEANDR-21, second of two pull requests; MAEANDR-18):
   the final-text screen for a converged session — the Markdown rendered by
   `commonmark-java`, the same parser the release audit uses, with

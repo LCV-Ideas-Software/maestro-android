@@ -17,6 +17,9 @@
     <string name="acao_voltar">Voltar</string>
     <string name="acao_configuracoes">Configurações</string>
     <string name="acao_licencas">Licenças</string>
+    <!-- Política de Dados do Usuário do Google Play: o link para a política de privacidade fica também dentro do aplicativo (seção 9 da especificação). -->
+    <string name="acao_privacidade">Política de privacidade</string>
+    <string name="privacidade_sem_navegador">Não foi possível abrir o navegador para a política de privacidade: %1$s</string>
 
     <!-- Cartões de métrica (web) -->
     <string name="metrica_sessao">Sessão</string>
@@ -107,6 +110,11 @@
     <string name="texto_final">Texto final</string>
     <string name="sem_texto">Nenhum texto produzido ainda.</string>
     <string name="abrir_texto_final">Abrir texto final</string>
+    <!-- Política de Conteúdo Gerado por IA do Google Play (seção 9): reportar conteúdo ofensivo sem sair do aplicativo; o relato vai por e-mail, pelo aplicativo de e-mail do aparelho. -->
+    <string name="acao_reportar_conteudo">Reportar conteúdo ofensivo</string>
+    <string name="reportar_assunto">Maestro AI: conteúdo ofensivo na sessão %1$s</string>
+    <string name="reportar_corpo">Descreva o que aconteceu e cole o trecho ofensivo abaixo desta linha. A mensagem vai para a LCV Ideas &amp; Software pelo seu aplicativo de e-mail.\n\nSessão: %1$s\nTítulo: %2$s\n\n</string>
+    <string name="reportar_sem_correio">Não foi possível abrir o aplicativo de e-mail para o relato: %1$s</string>
 
     <!-- Texto final (especificação, seção 4.4) -->
     <string name="texto_nao_liberado">Texto ainda não liberado pela auditoria.</string>
@@ -249,6 +257,8 @@
     <string name="ajustes">Ajustes</string>
     <string name="chaves_dos_agentes">Chaves dos agentes</string>
     <string name="chaves_explicacao">A chave é guardada apenas neste aparelho, cifrada por chave do Keystore que não é exportável; ela é enviada, por TLS, apenas ao provedor a que pertence, e só quando você roda uma sessão com aquele provedor ativo ou pede o teste das chaves; nenhum servidor da LCV Ideas &amp; Software a recebe, vê ou guarda; ela nunca é exibida de volta depois de gravada.</string>
+    <!-- Seção 6.3: o texto vai a terceiros, e a tela que pede a chave diz isso antes da primeira sessão; a frase sobre retenção é a da seção 6.4. -->
+    <string name="texto_para_provedores">O seu texto, o pedido e os anexos da sessão são enviados, por TLS, aos provedores dos agentes que você ativar, e a nenhum outro provedor de inteligência artificial; nenhum servidor da LCV Ideas &amp; Software os recebe, vê ou guarda. Na conferência dos links, os endereços citados no texto vão aos próprios sites e ao serviço de nomes do Google; se você pedir propostas de correção para um link, a sua consulta ou o trecho do texto em torno dele vai ao Crossref e ao OpenAlex. O aplicativo pede que não guardem a conversa aos provedores cuja API oferece essa opção (OpenAI, Google, xAI e Perplexity); a Anthropic e a DeepSeek não a oferecem; e cada provedor ainda aplica a própria política de retenção.</string>
     <string name="chave_do_agente">Chave de API (%1$s)</string>
     <string name="chave_configurada_placeholder">Chave já configurada; preencha apenas para substituir</string>
     <string name="chave_informe">Informe a chave</string>

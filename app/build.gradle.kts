@@ -23,8 +23,10 @@ android {
         // `docs/especificacao-v1.md`.
         minSdk = 36
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        // 1.0.0, a primeira publicação na Play (#100). O versionCode 1 foi o do
+        // bundle de 17/09/2026 (MAEANDR-9) na faixa interna; a Play exige um maior.
+        versionCode = 2
+        versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
