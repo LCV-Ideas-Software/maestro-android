@@ -2,11 +2,24 @@ package dev.lcv.maestro.protocolo
 
 import java.time.Instant
 import java.util.TreeMap
+import org.commonmark.node.AbstractVisitor
+import org.commonmark.node.Code
+import org.commonmark.node.FencedCodeBlock
+import org.commonmark.node.Image
+import org.commonmark.node.IndentedCodeBlock
+import org.commonmark.node.Link
+import org.commonmark.node.LinkReferenceDefinition
+import org.commonmark.node.Node
+import org.commonmark.node.Paragraph
+import org.commonmark.node.Text
+import org.commonmark.parser.IncludeSourceSpans
+import org.commonmark.parser.Parser
 
 /**
  * O motor de integridade de links: o quarto e o quinto estágios da auditoria
  * do candidato final. Porte de `maestro-app/src-tauri/src/link_integrity.rs`
- * (linhas 165–970 em `68528f9`), por decisão do operador de 24/09/2026.
+ * (linhas 165–970 em `68528f9`), por decisão do operador de 24/09/2026, e
+ * reportado de `16a8cff` (MAESTRO-34, linhas 1–1260) na #77 (MAEANDR-26).
  *
  * O que o canônico diz de si, e vale aqui: *"Mechanical reachability is
  * deliberately separated from editorial claim support. A successful HTTP
@@ -52,7 +65,11 @@ public object IntegridadeDeLinks {
     /**
      * Uma URL analisada. [esquema] em caixa baixa, [serializada] é o
      * `to_string()` do canônico, e [ipDoHost] traz os bytes do host quando ele
-     * é um IP literal — nunca por DNS.
+     * é um IP literal — nunca por DNS. [caminho], [query] e [fragmento] vêm
+     * como estão na URL, ainda codificados (`path()`, `query()` e
+     * `fragment()` da crate `url`; a query sem o `?` e o fragmento sem o `#`,
+     * ou `null` quando ausentes). O que o canônico de `16a8cff` lê a mais da
+     * `Url` (#77) deriva desses: [semFragmento] e [segmentosDoCaminho].
      */
     public data class UrlAnalisada(
         val esquema: String,
@@ -61,8 +78,50 @@ public object IntegridadeDeLinks {
         val senha: String?,
         val caminho: String,
         val serializada: String,
+        val query: String?,
+        val fragmento: String?,
         val ipDoHost: ByteArray? = null,
-    )
+    ) {
+        /** A forma serializada sem o fragmento (`set_fragment(None)` e `to_string()`), para [mesmaUrlDeRede]. */
+        val semFragmento: String
+            get() = fragmento?.let { serializada.removeSuffix("#$it") } ?: serializada
+
+        /**
+         * `path_segments()` da crate `url`: o caminho depois da primeira barra, partido nas barras; `null` quando a
+         * URL não tem caminho hierárquico (o `mailto:`). É o que a regra do parâmetro sensível lê ([ParametroSensivel]).
+         */
+        val segmentosDoCaminho: List<String>?
+            get() = caminho.takeIf { it.startsWith("/") }?.removePrefix("/")?.split('/')
+    }
+
+    /**
+     * A leitura pelo `java.net.URI` de um esquema que não é `http` nem `https` (`mailto:`, que a auditoria reconhece
+     * sem coletar; `javascript:`, `data:`, que ela recusa): só o bastante para dizer qual é o esquema e o que a regra
+     * do parâmetro sensível lê. Sem esquema, ou malformada, é `null`. A URL sem caminho hierárquico (opaca) tem a
+     * query depois do `?` da parte específica do esquema, como no WHATWG (`cannot-be-a-base`). É o analisador dos
+     * dublês de teste e o ramo não-http do analisador real, uma leitura só.
+     */
+    public fun analisarPorUri(url: String): UrlAnalisada? {
+        val uri = try {
+            java.net.URI(url)
+        } catch (erro: java.net.URISyntaxException) {
+            return null
+        }
+        val esquema = uri.scheme?.lowercase(java.util.Locale.ROOT) ?: return null
+        val info = uri.rawUserInfo
+        val especifica = uri.rawSchemeSpecificPart
+        return UrlAnalisada(
+            esquema = esquema,
+            host = uri.host,
+            usuario = info?.substringBefore(':') ?: "",
+            senha = info?.takeIf { ':' in it }?.substringAfter(':'),
+            caminho = uri.rawPath ?: especifica ?: "",
+            // A crate `url` serializa o esquema em caixa baixa (`MAILTO:` vira `mailto:`) e o resto fica como está.
+            serializada = esquema + url.substring(uri.scheme.length),
+            query = if (uri.isOpaque) especifica?.takeIf { '?' in it }?.substringAfter('?') else uri.rawQuery,
+            fragmento = uri.rawFragment,
+        )
+    }
 
     /** `fetch_web_evidence_inner(None, GET, force_revalidate = false)`. */
     public fun interface ColetorDeEvidencia {
@@ -96,15 +155,21 @@ public object IntegridadeDeLinks {
         public fun todos(): List<LinhaDeLink>
     }
 
-    /** `ExtractedLink`; [inicio] é índice UTF-16, só usado para ordenar. */
+    // ── extração (`extract_links`, linhas 251–390 em 16a8cff) ───────────────
+
+    /**
+     * `ExtractedLink`. [inicio], [urlInicio] e [urlFim] são índices UTF-16 da `String`, a unidade de
+     * `SourceSpan.getInputIndex()` e de `MatchResult.range` (o canônico usa bytes porque o Rust indexa bytes). A
+     * máscara do passo seguinte troca caractere por espaço e preserva o comprimento, como o canônico preserva o `len()`.
+     */
     internal data class LinkExtraido(
         val inicio: Int,
+        val urlInicio: Int,
+        val urlFim: Int,
         val urlOriginal: String,
         val textoDaAncora: String?,
         val textoAoRedor: String,
     )
-
-    // ── extração (linhas 165–295) ────────────────────────────────────────────
 
     /** `surrounding_text`: janela de 180 bytes UTF-8 para cada lado, como no Rust. */
     private fun textoAoRedor(texto: String, inicio: Int, fim: Int): String {
@@ -122,88 +187,157 @@ public object IntegridadeDeLinks {
     /** Byte de continuação UTF-8 (`10xxxxxx`): não é fronteira de caractere. */
     private fun continuacao(byte: Byte): Boolean = (byte.toInt() and 0xC0) == 0x80
 
-    /** `strip_html`. Rust (linha 194): `(?is)<[^>]+>` */
-    private fun semHtml(valor: String): String {
-        val semTags = TAG.replace(valor, " ")
-        val decodificado = semTags.replace("&nbsp;", " ")
-            .replace("&amp;", "&")
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&quot;", "\"")
-        return Saneamento.texto(EspacoUnicode.dividirPorEspacos(decodificado).joinToString(" "), 240)
-    }
-
-    private val TAG = Regex("<[^>]+>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-
     /** `clean_url_tail`. */
     private fun limparCauda(valor: String): String =
         EspacoUnicode.aparar(valor).trim('"', '\'', '<', '>').trimEnd('.', ',', ';', ':')
+
+    /**
+     * `clean_bare_url_tail`: tira do fim da URL solta a pontuação (`.`, `,`, `;`, `:`, `]`, `}`) e o `)` que não tem
+     * par; conta os parênteses uma vez só, em tempo linear.
+     */
+    private fun limparCaudaSolta(valor: String): String {
+        val abre = valor.count { it == '(' }
+        var fecha = valor.count { it == ')' }
+        var fim = valor.length
+        while (fim > 0) {
+            val ultimo = valor[fim - 1]
+            val fechaSemPar = ultimo == ')' && fecha > abre
+            if (!fechaSemPar && ultimo !in ".,;:]}") break
+            if (ultimo == ')') fecha--
+            fim--
+        }
+        return valor.substring(0, fim)
+    }
 
     private fun sobrepoe(inicio: Int, fim: Int, cobertos: List<IntRange>): Boolean =
         cobertos.any { inicio < it.last + 1 && fim > it.first }
 
     /**
-     * Os três padrões de `extract_links`. Rust (linhas 231, 251 e 274):
-     * `(?s)\[([^\]\n]{0,240})\]\(\s*((?:[a-zA-Z][a-zA-Z0-9+.-]*:)[^)\s]+)(?:\s+["'][^"']*["'])?\s*\)`
-     * `(?is)<a\b[^>]*\bhref\s*=\s*["']((?:[a-z][a-z0-9+.-]*:)[^"']+)["'][^>]*>(.*?)</a>`
-     * `(?i)(?:https?://|mailto:|ftps?://|tel:|javascript:|data:|file:|blob:)[^\s<>"')\]]+`
+     * O padrão da URL solta do canônico (linha 366): `(?i)(?:https?://|mailto:|ftps?://|tel:|javascript:|data:|file:|blob:)[^\s<>"']+`.
+     * O `\s` do Rust é `White_Space` do Unicode ([TextoRust.ESPACO_CLASSE]).
      */
-    private val MARKDOWN = Regex(
-        "\\[([^\\]\\n]{0,240})\\]\\(${TextoRust.ESPACO}*((?:[a-zA-Z][a-zA-Z0-9+.-]*:)" +
-            "[^)${TextoRust.ESPACO_CLASSE}]+)(?:${TextoRust.ESPACO}+[\"'][^\"']*[\"'])?${TextoRust.ESPACO}*\\)",
-        RegexOption.DOT_MATCHES_ALL,
-    )
-
-    private val HTML = Regex(
-        "<a${TextoRust.LIMITE}[^>]*${TextoRust.LIMITE}href${TextoRust.ESPACO}*=${TextoRust.ESPACO}*[\"']" +
-            "((?:[a-z][a-z0-9+.-]*:)[^\"']+)[\"'][^>]*>(.*?)</a>",
-        setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
-    )
-
     private val SOLTO = Regex(
-        "(?:https?://|mailto:|ftps?://|tel:|javascript:|data:|file:|blob:)" +
-            "[^${TextoRust.ESPACO_CLASSE}<>\"')\\]]+",
+        "(?:https?://|mailto:|ftps?://|tel:|javascript:|data:|file:|blob:)[^${TextoRust.ESPACO_CLASSE}<>\"']+",
         RegexOption.IGNORE_CASE,
     )
 
-    /** `extract_links`. */
+    /**
+     * O padrão da máscara (`source_with_rejected_urls_masked`): o [SOLTO], mais as grafias de autoridade dos esquemas
+     * especiais do WHATWG (`http`, `https`, `ftp`, `ws`, `wss`), que a crate `url` lê com qualquer sequência de barras,
+     * nenhuma inclusive (`https:/u:p@h`, `https:\u:p@h`, `ftp:u:p@h`), como o `HttpUrl` lê as de http(s), e a
+     * autoridade sem esquema (`//u:p@h`). Só mascara, e só o literal sensível; a extração continua pelo padrão do
+     * canônico (achados do Codex, do Grok e do DeepSeek no cross-review da #77, 06/10/2026).
+     */
+    private val MASCARAVEL = Regex(
+        "(?:(?:https?|ftp|wss?):[/\\\\]*|ftps://|[/\\\\]{2}|mailto:|tel:|javascript:|data:|file:|blob:)[^${TextoRust.ESPACO_CLASSE}<>\"']+",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /**
+     * O leitor do texto, com as posições de origem; os limites de aninhamento são os padrão da biblioteca, a proteção
+     * dela contra entrada maliciosa. O texto final é Markdown, e esta é a especificação dele (decisão do operador de
+     * 24/09/2026).
+     */
+    private val LEITOR: Parser = Parser.builder().includeSourceSpans(IncludeSourceSpans.BLOCKS_AND_INLINES).build()
+
+    /** Um link ou imagem aberto durante a visita: o início, o destino e a âncora que os filhos vão compondo. */
+    private class LinkAberto(val inicio: Int, val fim: Int, val destino: String) {
+        val ancora = StringBuilder()
+    }
+
+    /**
+     * `extract_links`, sobre a commonmark-java em vez do pulldown-cmark, no que a biblioteca entrega como ela é:
+     * definições de referência e código (em linha, cercado e indentado) ficam cobertos; links e imagens, aninhados
+     * inclusive, entram no ponto de uso com o destino que o leitor dá (o da definição, na referência; `mailto:` mais o
+     * endereço, no autolink de e-mail, pela especificação); a URL solta é o padrão do canônico sobre o texto cru, fora
+     * do que está coberto. Não se porta o tratamento de HTML cru (`<a href>` e comentários): no texto final ele é
+     * recusado antes deste portão (decisão do operador de 25/09/2026; `AuditoriaAbnt`). A diferença que a biblioteca
+     * faz em entrada anormal (caractere de controle, entidade inválida, aninhamento acima de 100, Markdown malformado)
+     * fica como ela entrega. Falha fechada: o leitor que falhar, ou o parágrafo que vier sem posição de origem (defeito
+     * da commonmark-java 0.30.0 com o título de definição não fechado; teste-sentinela), reprovam o texto em vez de
+     * deixar passar uma URL sem conferência.
+     */
     internal fun extrair(texto: String): List<LinkExtraido> {
+        val documento = try {
+            LEITOR.parse(texto)
+        } catch (erro: RuntimeException) {
+            throw Falha("link-integrity extraction failed: ${erro.message}")
+        }
         val links = mutableListOf<LinkExtraido>()
         val cobertos = mutableListOf<IntRange>()
-        for (achado in MARKDOWN.findAll(texto)) {
-            val url = achado.groups[2] ?: continue
-            val inicio = achado.range.first
-            val fim = achado.range.last + 1
-            links += LinkExtraido(
-                inicio = inicio,
-                urlOriginal = limparCauda(url.value),
-                textoDaAncora = achado.groups[1]
-                    ?.let { Saneamento.texto(EspacoUnicode.aparar(it.value), 240) }
-                    ?.takeIf { it.isNotEmpty() },
-                textoAoRedor = textoAoRedor(texto, inicio, fim),
-            )
-            cobertos += achado.range
-        }
-        for (achado in HTML.findAll(texto)) {
-            val inicio = achado.range.first
-            val fim = achado.range.last + 1
-            if (sobrepoe(inicio, fim, cobertos)) continue
-            val url = achado.groups[1] ?: continue
-            links += LinkExtraido(
-                inicio = inicio,
-                urlOriginal = limparCauda(url.value),
-                textoDaAncora = achado.groups[2]?.let { semHtml(it.value) }?.takeIf { it.isNotEmpty() },
-                textoAoRedor = textoAoRedor(texto, inicio, fim),
-            )
-            cobertos += achado.range
-        }
+        val abertos = ArrayDeque<LinkAberto>()
+        documento.accept(
+            object : AbstractVisitor() {
+                override fun visit(paragrafo: Paragraph) {
+                    if (paragrafo.sourceSpans.isEmpty()) {
+                        throw Falha(
+                            "link-integrity extraction lost the source position of a paragraph: " +
+                                Saneamento.texto(textoDe(paragrafo), 120),
+                        )
+                    }
+                    visitChildren(paragrafo)
+                }
+                override fun visit(definicao: LinkReferenceDefinition) {
+                    cobertos += faixa(definicao)
+                }
+                override fun visit(bloco: FencedCodeBlock) {
+                    cobertos += faixa(bloco)
+                }
+                override fun visit(bloco: IndentedCodeBlock) {
+                    cobertos += faixa(bloco)
+                }
+                override fun visit(codigo: Code) {
+                    cobertos += faixa(codigo)
+                    abertos.forEach { it.ancora.append(codigo.literal) }
+                }
+                override fun visit(texto: Text) {
+                    abertos.forEach { it.ancora.append(texto.literal) }
+                }
+                override fun visit(link: Link) = linkOuImagem(link, link.destination)
+                override fun visit(imagem: Image) = linkOuImagem(imagem, imagem.destination)
+                private fun linkOuImagem(no: Node, destino: String) {
+                    val trecho = faixa(no)
+                    val aberto = LinkAberto(trecho.first, trecho.last + 1, destino)
+                    abertos.addLast(aberto)
+                    visitChildren(no)
+                    abertos.removeLast()
+                    fechar(aberto)?.let { links += it }
+                    cobertos += trecho
+                }
+                private fun fechar(aberto: LinkAberto): LinkExtraido? {
+                    val url = aberto.destino
+                    val fonte = texto.substring(aberto.inicio, aberto.fim)
+                    val posicao = fonte.indexOf(url)
+                    val (urlInicio, urlFim) =
+                        if (posicao >= 0) aberto.inicio + posicao to aberto.inicio + posicao + url.length else aberto.inicio to aberto.fim
+                    // O destino interno (relativo) não é auditado: sem `//`, sem `\`, sem controle e sem `:` antes do
+                    // primeiro `/`, `?` ou `#`. O `#…` também não.
+                    val interno = !url.startsWith("//") && '\\' !in url &&
+                        url.codePoints().noneMatch { controle(it) } &&
+                        ':' !in url.split('/', '?', '#').first()
+                    if (url.startsWith("#") || interno) return null
+                    val ancora = aberto.ancora.toString().trim()
+                    return LinkExtraido(
+                        inicio = aberto.inicio,
+                        urlInicio = urlInicio,
+                        urlFim = urlFim,
+                        urlOriginal = url,
+                        textoDaAncora = ancora.takeIf { it.isNotEmpty() }?.let { Saneamento.texto(it, 240) },
+                        textoAoRedor = textoAoRedor(texto, aberto.inicio, aberto.fim),
+                    )
+                }
+            },
+        )
         for (achado in SOLTO.findAll(texto)) {
             val inicio = achado.range.first
             val fim = achado.range.last + 1
             if (sobrepoe(inicio, fim, cobertos)) continue
+            val url = limparCaudaSolta(achado.value)
             links += LinkExtraido(
                 inicio = inicio,
-                urlOriginal = limparCauda(achado.value),
+                urlInicio = inicio,
+                urlFim = inicio + url.length,
+                urlOriginal = limparCauda(url),
                 textoDaAncora = null,
                 textoAoRedor = textoAoRedor(texto, inicio, fim),
             )
@@ -211,10 +345,33 @@ public object IntegridadeDeLinks {
         return links.sortedBy { it.inicio }
     }
 
-    /** `count_link_occurrences`. */
+    /** A faixa de origem de um nó, `[início, fim)`, do primeiro ao último `SourceSpan`; sem posição, falha fechada. */
+    private fun faixa(no: Node): IntRange {
+        val spans = no.sourceSpans
+        if (spans.isEmpty()) {
+            throw Falha("link-integrity extraction lost the source position of a ${no.javaClass.simpleName}")
+        }
+        val ultimo = spans.last()
+        return spans.first().inputIndex until ultimo.inputIndex + ultimo.length
+    }
+
+    /** O texto dos nós de texto de dentro, para a mensagem da falha. */
+    private fun textoDe(no: Node): String {
+        val construtor = StringBuilder()
+        no.accept(
+            object : AbstractVisitor() {
+                override fun visit(texto: Text) {
+                    construtor.append(texto.literal)
+                }
+            },
+        )
+        return construtor.toString()
+    }
+
+    /** `count_link_occurrences`; lança [Falha] quando [extrair] reprova o texto, e quem conta a trata como a auditoria. */
     public fun contarOcorrencias(texto: String): Int = extrair(texto).size
 
-    // ── normalização e identidade (linhas 297–386) ───────────────────────────
+    // ── normalização e identidade (`normalize_url` a `base_row`, linhas 392–497 em 16a8cff) ──────────
 
     /** O `Ok((normalizada, mudanças))` ou o `Err(motivo)` de `normalize_url`. */
     internal sealed interface Normalizacao {
@@ -233,12 +390,21 @@ public object IntegridadeDeLinks {
         if (analisada.esquema !in setOf("http", "https", "mailto")) {
             return Normalizacao.Recusada("somente http, https e mailto sao permitidos")
         }
-        if (analisada.esquema == "http" || analisada.esquema == "https") {
-            if (analisada.host == null) return Normalizacao.Recusada("URL http/https sem host")
-            if (analisada.usuario.isNotEmpty() || analisada.senha != null) {
-                return Normalizacao.Recusada("credenciais embutidas na URL sao proibidas")
-            }
+        if ((analisada.esquema == "http" || analisada.esquema == "https") && analisada.host == null) {
+            return Normalizacao.Recusada("URL http/https sem host")
         }
+        // O canônico (`16a8cff.rs:405-411`) só recusa a credencial em http e https, e só a que o parser lê. Aqui a
+        // autoridade de qualquer esquema leva a mesma recusa, como o parser a lê ou como o texto a mostra
+        // ([USUARIO_NA_AUTORIDADE]): `mailto://u:p@h/` o `java.net.URI` lê com usuário e senha; em
+        // `mailto://u:p@exa_mple.org/` ele lê uma autoridade "registry-based", sem usuário nem senha, e só o texto a
+        // mostra. Sem isto a senha iria para a URL normalizada de um link aceitável (achados do Codex no cross-review da
+        // #77, rodadas 5 e 6, 06/10/2026). É o que garante que todo link que [sensivel] redige é recusado: cada leitura
+        // da redação tem a sua recusa aqui, ou no portão do saneamento em [auditar]. O `mailto:` opaco não tem
+        // autoridade e não é alcançado.
+        if (analisada.usuario.isNotEmpty() || analisada.senha != null || USUARIO_NA_AUTORIDADE.containsMatchIn(aparado)) {
+            return Normalizacao.Recusada(CREDENCIAIS_EMBUTIDAS)
+        }
+        if (ParametroSensivel.tem(analisada)) return Normalizacao.Recusada(PARAMETRO_SENSIVEL)
         val mudancas = mutableListOf<String>()
         if (aparado != valor) mudancas += "whitespace_removed"
         if (analisada.serializada != aparado) mudancas += "url_parser_normalization"
@@ -248,6 +414,17 @@ public object IntegridadeDeLinks {
     /** `char::is_control`: categoria Cc. */
     private fun controle(pontoDeCodigo: Int): Boolean =
         Character.getType(pontoDeCodigo) == Character.CONTROL.toInt()
+
+    /**
+     * `same_network_url`: as duas URLs parseiam e são a mesma sem o fragmento. A que não parseia conta como
+     * diferente, como no canônico. O fragmento não sai da página: a coleta o tira (`UrlPublica`), e um link com
+     * `#secao` não é um redirecionamento.
+     */
+    internal fun mesmaUrlDeRede(esquerda: String, direita: String, analisador: AnalisadorDeUrl): Boolean {
+        val primeira = analisador.analisar(esquerda) ?: return false
+        val segunda = analisador.analisar(direita) ?: return false
+        return primeira.semFragmento == segunda.semFragmento
+    }
 
     /** `link_id`. */
     internal fun idDoLink(
@@ -304,7 +481,7 @@ public object IntegridadeDeLinks {
         tom = "warn",
     )
 
-    // ── classificação (linhas 388–575) ───────────────────────────────────────
+    // ── classificação (`content_type_mismatch` a `apply_preserved_review`, linhas 499–694 em 16a8cff) ──
 
     /** `content_type_mismatch`: o caminho promete PDF e a resposta não, ou o contrário. */
     private fun tipoDivergente(url: String, tipoDeConteudo: String?, analisador: AnalisadorDeUrl): Boolean {
@@ -316,36 +493,43 @@ public object IntegridadeDeLinks {
     }
 
     /**
-     * `mechanical_failure_class`, com uma regra a mais que o canônico: um
-     * registro de evidência só prova algo se a coleta terminou e nada ficou
-     * pendente. A ordem é a do canônico, com a regra nova entre a interação e
-     * o código HTTP:
+     * `mechanical_failure_class`, na ordem do canônico de `16a8cff` (#77):
      *
-     * 1. captcha, login e paywall têm classe própria (o motor de evidências
+     * 1. um 403 com pedido de login é "proibido", antes de tudo; só o 401 é
+     *    "exige autenticação" (a coleta grava 401 e 403 como login exigido);
+     * 2. captcha, login e paywall têm classe própria (o motor de evidências
      *    grava essas interações junto com o estado "ação do operador", então a
      *    classe só existe nesse estado, e é lida antes dele);
-     * 2. coleta que não terminou (na fila, em coleta, vencida, ou à espera do
-     *    operador por outra interação) e interação pendente (consentimento,
-     *    confirmação de download) vão para quarentena, antes de o código HTTP
-     *    guardado de uma coleta anterior ser lido — no canônico caíam em
-     *    "passou";
-     * 3. o código HTTP e os estados bloqueada e falhou, como no canônico.
+     * 3. toda outra interação pendente vai para quarentena, inclusive a
+     *    "resolvida por pessoa" sem o booleano que a confirma
+     *    ([interacaoConcluida]);
+     * 4. a evidência bloqueada, a coleta que não terminou (na fila, em coleta,
+     *    vencida, à espera do operador) e a pronta com cache que não está
+     *    fresco vão para quarentena antes de o código HTTP ser lido: o código
+     *    guardado é de uma coleta que não vale;
+     * 5. depois, o código HTTP e o estado falhou; a pronta sem código também
+     *    vai para quarentena.
+     *
+     * A quarentena da interação pendente e da coleta que não terminou nasceu
+     * no porte, como divergência do Rust de `68528f9`, onde caíam em
+     * "passou"; o canônico passou a fazer o mesmo em `16a8cff`.
      */
-    private fun classeDeFalhaMecanica(registro: RegistroDeEvidencia): ClassificacaoDoLink? {
-        when (registro.estadoDeInteracao) {
+    internal fun classeDeFalhaMecanica(registro: RegistroDeEvidencia): ClassificacaoDoLink? {
+        val interacao = registro.estadoDeInteracao
+        if (registro.status == 403 && interacao == EstadoDeInteracao.EXIGE_LOGIN) return ClassificacaoDoLink.PROIBIDO
+        when (interacao) {
             EstadoDeInteracao.EXIGE_CAPTCHA -> return ClassificacaoDoLink.EXIGE_CAPTCHA
             EstadoDeInteracao.EXIGE_LOGIN -> return ClassificacaoDoLink.EXIGE_AUTENTICACAO
             EstadoDeInteracao.PAYWALL -> return ClassificacaoDoLink.PAYWALL
             else -> Unit
         }
-        if (!terminouSemPendencia(registro)) return ClassificacaoDoLink.EM_QUARENTENA
+        if (coletaNaoVale(registro)) return ClassificacaoDoLink.EM_QUARENTENA
         val status = registro.status
         return when {
             status == 401 -> ClassificacaoDoLink.EXIGE_AUTENTICACAO
             status == 403 -> ClassificacaoDoLink.PROIBIDO
             status == 404 || status == 410 -> ClassificacaoDoLink.NAO_ENCONTRADO
             status != null && status !in 200..299 -> ClassificacaoDoLink.SUSPEITA_DE_ALUCINACAO
-            registro.estado == EstadoDaEvidencia.BLOQUEADA -> ClassificacaoDoLink.EM_QUARENTENA
             registro.estado == EstadoDaEvidencia.FALHOU -> {
                 val notas = EspacoUnicode.caixaBaixaAscii(registro.notas.joinToString(" "))
                 when {
@@ -360,39 +544,38 @@ public object IntegridadeDeLinks {
     }
 
     /**
-     * A regra que a quarentena e o tom compartilham: um registro só prova
-     * algo se a coleta terminou e nada ficou pendente com uma pessoa. Antes
-     * disso, o que ele guarda (código HTTP, hash) é de uma coleta que não
-     * vale, e alguém ainda precisa agir.
+     * A coleta cuja prova não vale, o predicado único da quarentena e do tom `blocked` (especificação, seção 2.2):
+     * alguém ainda precisa agir antes de a evidência valer. É a interação pendente (captcha, login, paywall,
+     * consentimento, download, ou a "resolvida por pessoa" sem o booleano que a confirma), a coleta que não terminou
+     * (na fila, em coleta, vencida, à espera do operador) ou bloqueada, e a pronta sem cache fresco ou sem código HTTP.
      */
-    private fun terminouSemPendencia(registro: RegistroDeEvidencia): Boolean =
-        registro.estado in ESTADOS_FINAIS && registro.estadoDeInteracao in INTERACOES_CONCLUIDAS
-
-    /** As interações que não deixam nada pendente entre a coleta e o conteúdo. */
-    private val INTERACOES_CONCLUIDAS = setOf(EstadoDeInteracao.NENHUMA, EstadoDeInteracao.RESOLVIDA_POR_PESSOA)
+    private fun coletaNaoVale(registro: RegistroDeEvidencia): Boolean =
+        !interacaoConcluida(registro) ||
+            (registro.estado != EstadoDaEvidencia.PRONTA && registro.estado != EstadoDaEvidencia.FALHOU) ||
+            (
+                registro.estado == EstadoDaEvidencia.PRONTA &&
+                    (registro.estadoDoCache != EstadoDoCache.FRESCO || registro.status == null)
+                )
 
     /**
-     * Os estados em que a coleta terminou: pronta, bloqueada ou falhou. Só
-     * neles o código HTTP guardado é o da coleta que vale.
+     * Nada ficou pendente com uma pessoa entre a coleta e o conteúdo: nenhuma
+     * interação, ou a interação resolvida por uma pessoa com o booleano que o
+     * confirma (`HumanResolved` com `human_resolved`, como no canônico).
      */
-    private val ESTADOS_FINAIS = setOf(EstadoDaEvidencia.PRONTA, EstadoDaEvidencia.BLOQUEADA, EstadoDaEvidencia.FALHOU)
+    private fun interacaoConcluida(registro: RegistroDeEvidencia): Boolean =
+        registro.estadoDeInteracao == EstadoDeInteracao.NENHUMA ||
+            (registro.estadoDeInteracao == EstadoDeInteracao.RESOLVIDA_POR_PESSOA && registro.resolvidaPorPessoa)
 
     /**
      * O tom da linha cuja evidência falhou na verificação mecânica. `blocked`
-     * é o que precisa de alguém agir antes de valer: evidência bloqueada,
-     * coleta que não terminou e interação pendente (captcha, login, paywall,
-     * consentimento, download) — o mesmo predicado da quarentena,
-     * [terminouSemPendencia]. `error` é a coleta que terminou sem pendência e
-     * falhou: pronta com código ruim, ou falhou. O canônico só dava `blocked`
-     * à bloqueada; o resumo da auditoria conta as linhas `blocked` em
-     * `bloqueadas`.
+     * é o que precisa de alguém agir antes de valer — o mesmo predicado da
+     * quarentena, [coletaNaoVale]. `error` é a coleta que terminou sem
+     * pendência e falhou: pronta com código ruim, ou falhou. O canônico só
+     * dava `blocked` à bloqueada; o resumo da auditoria conta as linhas
+     * `blocked` em `bloqueadas`.
      */
     private fun tomDaFalha(evidencia: RegistroDeEvidencia): String =
-        if (terminouSemPendencia(evidencia) && evidencia.estado != EstadoDaEvidencia.BLOQUEADA) {
-            "error"
-        } else {
-            "blocked"
-        }
+        if (coletaNaoVale(evidencia)) "blocked" else "error"
 
     /** `apply_web_evidence`. */
     internal fun aplicarEvidencia(
@@ -431,7 +614,8 @@ public object IntegridadeDeLinks {
                 tom = "error",
             )
         }
-        val redirecionado = comEvidencia.urlFinal?.let { it != comEvidencia.urlNormalizada } ?: false
+        val redirecionado = comEvidencia.urlFinal
+            ?.let { !mesmaUrlDeRede(it, comEvidencia.urlNormalizada, analisador) } ?: false
         val passou = if (redirecionado) {
             ClassificacaoDoLink.REDIRECIONADO_VERIFICADO
         } else {
@@ -456,7 +640,8 @@ public object IntegridadeDeLinks {
         DecisaoDeRevisao.ACEITAR -> linha.copy(
             sustentaAfirmacao = true,
             statusDaRevisao = StatusDaRevisao.ACEITA,
-            classificacao = if (linha.urlFinal?.let { it != linha.urlNormalizada } == true) {
+            // A classe mecânica já diz se houve redirecionamento (`aplicarEvidencia`, pela URL de rede sem o fragmento).
+            classificacao = if (linha.classificacaoMecanica == ClassificacaoDoLink.REDIRECIONADO_VERIFICADO) {
                 ClassificacaoDoLink.REDIRECIONADO_VERIFICADO
             } else {
                 ClassificacaoDoLink.VERIFICADO_SUSTENTA_A_AFIRMACAO
@@ -481,8 +666,11 @@ public object IntegridadeDeLinks {
     }
 
     /**
-     * As condições mecânicas do aceite: o motivo da recusa, ou `null` se o
-     * link pode ser aceito.
+     * As condições mecânicas do aceite (`mechanically_acceptable`, de
+     * `16a8cff`): o motivo da recusa, ou `null` se o link pode ser aceito.
+     * Duas diferenças do canônico, decididas pelo operador (#77): o `mailto:`
+     * é aceito sem coleta (decisão 1), e a recusa diz o motivo em três
+     * mensagens, em vez de uma só (decisão 6).
      */
     private fun motivoParaNaoAceitar(linha: LinhaDeLink): String? {
         val correio = linha.urlNormalizada.startsWith("mailto:")
@@ -490,20 +678,21 @@ public object IntegridadeDeLinks {
         if (!alcancavel && !correio) {
             return "cannot accept a link that did not pass mechanical validation"
         }
-        // Divergência do canônico, corrigindo uma falha dele: sem hash do
-        // conteúdo, o aceite não fica preso a conteúdo nenhum — a revisão
-        // conferia `null` com `null`, e mudar o destino nunca a derrubava. O
-        // hash tem o formato do identificador (64 dígitos hexadecimais
-        // minúsculos). O `mailto:`, que não é coletado, segue sem hash.
-        if (!correio && linha.sha256?.let(::idValido) != true) {
+        // Sem hash do conteúdo, o aceite não fica preso a conteúdo nenhum: a
+        // revisão conferia `null` com `null`, e mudar o destino nunca a
+        // derrubava. Nasceu no porte, como divergência do Rust de `68528f9`;
+        // o canônico passou a exigir o hash em `16a8cff`, em qualquer caixa
+        // ([AuditoriaAbnt.sha256Valido], a mesma regra da ABNT). O `mailto:`, que não é coletado, segue sem hash.
+        if (!correio && linha.sha256?.let(AuditoriaAbnt::sha256Valido) != true) {
             return "cannot accept a link without the content hash of its evidence"
         }
         if (linha.classificacaoMecanica == ClassificacaoDoLink.TIPO_DE_CONTEUDO_DIVERGENTE) {
             return "content-type mismatch must be corrected before acceptance"
         }
-        // Divergência do canônico, corrigindo uma falha dele: o Rust só
-        // conferia o código HTTP, e captcha, login, paywall ou evidência
-        // bloqueada servidos com 200 podiam ser aceitos como suporte.
+        // Captcha, login, paywall ou evidência bloqueada servidos com 200 não
+        // sustentam um aceite. Nasceu no porte, como divergência do Rust de
+        // `68528f9`, que só conferia o código HTTP; o canônico passou a fazer
+        // o mesmo em `16a8cff`.
         if (linha.classificacaoMecanica !in ACEITAVEIS) {
             return "cannot accept a link that did not pass mechanical validation"
         }
@@ -512,12 +701,16 @@ public object IntegridadeDeLinks {
 
     /**
      * `apply_preserved_review`: a revisão anterior só vale se origem, contexto,
-     * âncora, URL normalizada e hash do conteúdo forem exatamente os mesmos.
+     * âncora, URL normalizada, URL final, cadeia de redirecionamentos e hash do
+     * conteúdo forem exatamente os mesmos. A mesma URL com o mesmo conteúdo,
+     * servida por outro caminho de redirecionamento, mantém o id do link, e o
+     * aceite dado a um caminho não vale para o outro (`16a8cff`, #77).
      *
-     * Divergência do canônico: um aceite só é preservado se a verificação nova
-     * ainda cumprir as condições do aceite ([motivoParaNaoAceitar]). O Rust o
-     * preservava só pelo hash, e um link que agora responde com erro ou captcha
-     * voltaria aceito sem revisão.
+     * Um aceite só é preservado se a verificação nova ainda cumprir as
+     * condições do aceite ([motivoParaNaoAceitar]). Nasceu no porte, como
+     * divergência: o Rust de `68528f9` o preservava só pelo hash, e um link que
+     * agora responde com erro ou captcha voltaria aceito sem revisão; o
+     * canônico passou a fazer o mesmo em `16a8cff`.
      */
     internal fun preservarRevisao(linha: LinhaDeLink, anterior: LinhaDeLink): LinhaDeLink {
         val decisao = anterior.decisaoDeRevisao
@@ -525,6 +718,8 @@ public object IntegridadeDeLinks {
             anterior.textoAoRedor != linha.textoAoRedor ||
             anterior.textoDaAncora != linha.textoDaAncora ||
             anterior.urlNormalizada != linha.urlNormalizada ||
+            anterior.urlFinal != linha.urlFinal ||
+            anterior.cadeiaDeRedirecionamento != linha.cadeiaDeRedirecionamento ||
             anterior.sha256 != linha.sha256 ||
             decisao == null ||
             (decisao == DecisaoDeRevisao.ACEITAR && motivoParaNaoAceitar(linha) != null)
@@ -559,7 +754,136 @@ public object IntegridadeDeLinks {
             tom = "blocked",
         )
 
-    // ── a auditoria (linhas 577–688) ─────────────────────────────────────────
+    // ── redação e máscara (`redacted_extracted_link`, `source_with_rejected_urls_masked`, `safe_context_link`) ──
+
+    private const val CREDENCIAIS_EMBUTIDAS = "credenciais embutidas na URL sao proibidas"
+    private const val PARAMETRO_SENSIVEL = "parametro de credencial na URL e proibido"
+    private const val URL_BLOQUEADA = "<blocked URL>"
+    private const val CONTEXTO_REDIGIDO = "<redacted context>"
+
+    /**
+     * Usuário ou senha na autoridade de uma URL que tem autoridade, parseável ou não: um esquema especial do WHATWG
+     * (`http`, `https`, `ftp`, `ws`, `wss`) com qualquer sequência de `/` e `\` depois dos dois-pontos, nenhuma
+     * inclusive (as grafias que a crate `url` lê como `ftp://u:p@h`, e o `HttpUrl` como `https://u:p@h`), ou duas ou
+     * mais barras com ou sem esquema (`gopher://u:p@h`, a relativa de protocolo `//u:p@h`), e tudo até o `@`. O
+     * esquema opaco não tem autoridade: `mailto:leitor@example.org` é endereço, não credencial (achados do Gemini,
+     * do Codex e do DeepSeek no cross-review da #77, 06/10/2026).
+     */
+    private const val AUTORIDADE_COM_USUARIO = "(?:(?:https?|ftp|wss?):[/\\\\]*|(?:[a-zA-Z][a-zA-Z0-9+.-]*:)?[/\\\\]{2,})[^/\\\\?#]*@"
+
+    /** O cinto da autoridade no início da URL: o que o parser leria como autoridade dela. */
+    private val USUARIO_NA_AUTORIDADE = Regex("^$AUTORIDADE_COM_USUARIO", RegexOption.IGNORE_CASE)
+
+    /**
+     * O mesmo cinto sem a âncora, para o texto que nenhum parser lê: a autoridade com credencial pode vir depois de uma
+     * barra (`x https://example.com/r/https://u:p@h/`), e nada diz onde a URL começa. Na URL que o parser lê, a âncora
+     * fica: a autoridade é a que o parser dá, como no canônico (achado do Grok no cross-review da #77, rodada 7,
+     * 06/10/2026).
+     */
+    private val USUARIO_NO_TEXTO = Regex(AUTORIDADE_COM_USUARIO, RegexOption.IGNORE_CASE)
+
+    /**
+     * O link que sai redigido do registro, da tela e do contexto enviado ao agente (decisão 2 do operador,
+     * 05/10/2026): o que carrega credencial. O canônico redige todo link recusado, `javascript:` e `ftp://`
+     * inclusive; aqui os demais aparecem por inteiro, para serem achados e corrigidos. Por isso a regra não olha o
+     * esquema nem o motivo da recusa, e sim o que qualquer leitor do porte lê como credencial: o padrão de segredo
+     * conhecido ([Saneamento.ocultarSegredos]); o usuário na autoridade, em toda grafia, parseável ou não
+     * ([USUARIO_NA_AUTORIDADE]) sobre o texto aparado, que é o que a normalização lê (o destino entre `<` e `>` guarda os
+     * espaços à volta); e o usuário, a senha e o parâmetro de credencial ([ParametroSensivel]) que o parser lê da URL de
+     * qualquer esquema, sem os caracteres de controle que só serviriam para o parser não a ler (dentro do nome da
+     * credencial, `tok<U+0001>en`, o controle também esconde o sufixo da leitura textual). O que nenhum parser lê é
+     * lido como texto inteiro: o cinto da autoridade corre sem âncora sobre o texto todo ([USUARIO_NO_TEXTO]), porque a
+     * autoridade com credencial pode vir depois de uma barra, e o texto passa pela regra do parâmetro com o caminho todo
+     * ([comoTexto]). O registro de bloqueio não é lugar onde a credencial sobreviva (achados do Codex, do DeepSeek e do
+     * Grok no cross-review da #77, rodadas 5 a 7, 06/10/2026).
+     *
+     * Todo link que esta regra redige, [normalizar] recusa, ou o portão do saneamento em [auditar] recusa: o padrão de
+     * segredo altera o texto saneado; o cinto da autoridade é a mesma recusa de credencial em [normalizar]; a leitura
+     * do parser recusa usuário, senha e parâmetro lá; e o texto sem parser já é "URL malformada" lá. Por isso a linha
+     * redigida nunca leva uma URL normalizada.
+     */
+    private fun sensivel(url: String, analisador: AnalisadorDeUrl): Boolean {
+        if (Saneamento.ocultarSegredos(url) != url) return true
+        val legivel = EspacoUnicode.aparar(url).filterNot { controle(it.code) || it == '\u202E' }
+        if (USUARIO_NA_AUTORIDADE.containsMatchIn(legivel)) return true
+        val analisada = analisador.analisar(legivel)
+            ?: return USUARIO_NO_TEXTO.containsMatchIn(legivel) || ParametroSensivel.tem(comoTexto(legivel))
+        return analisada.usuario.isNotEmpty() || analisada.senha != null || ParametroSensivel.tem(analisada)
+    }
+
+    /**
+     * A URL que nenhum parser lê, como texto: o que vem antes do primeiro `?` ou `#` é o caminho inteiro, com a barra
+     * inicial que [UrlAnalisada.segmentosDoCaminho] exige, para a regra do segmento valer em cada pedaço entre `/` e
+     * `\` (`https://exa mple.com/api_key=x/y` tem a chave com valor no quarto pedaço); a query e o fragmento, como na
+     * URL. Usuário e senha ficam com o cinto da autoridade, em [sensivel].
+     */
+    private fun comoTexto(url: String): UrlAnalisada {
+        val semFragmento = url.substringBefore('#')
+        return UrlAnalisada(
+            esquema = "",
+            host = null,
+            usuario = "",
+            senha = null,
+            caminho = "/" + semFragmento.substringBefore('?'),
+            serializada = url,
+            query = if ('?' in semFragmento) semFragmento.substringAfter('?') else null,
+            fragmento = if ('#' in url) url.substringAfter('#') else null,
+        )
+    }
+
+    /**
+     * `rejected_url_for_record`: a URL que pode ser gravada de um link redigido. Para `http` e `https`, só
+     * `esquema://host[:porta]/`, sem usuário, senha, caminho, query e fragmento; o resto, e o que não parseia, é
+     * `<blocked URL>`. O link redigido nunca é coletado. Pública porque o coletor (`:core:provedores`) grava com ela o
+     * registro de bloqueio (`blocked_request_record`).
+     */
+    public fun urlParaRegistro(url: String, analisador: AnalisadorDeUrl): String {
+        val analisada = analisador.analisar(url) ?: return URL_BLOQUEADA
+        if (analisada.esquema != "http" && analisada.esquema != "https") return URL_BLOQUEADA
+        val depoisDoEsquema = analisada.serializada.substringAfter("://")
+        val autoridade = depoisDoEsquema.substringBefore('/').substringBefore('?').substringBefore('#').substringAfterLast('@')
+        return Saneamento.texto("${analisada.esquema}://$autoridade/", 2_048)
+    }
+
+    /** `redacted_extracted_link`: mesmas posições, URL redigida, sem âncora e com o contexto redigido. */
+    private fun redigido(extraido: LinkExtraido, analisador: AnalisadorDeUrl): LinkExtraido = extraido.copy(
+        urlOriginal = urlParaRegistro(extraido.urlOriginal, analisador),
+        textoDaAncora = null,
+        textoAoRedor = CONTEXTO_REDIGIDO,
+    )
+
+    /**
+     * `source_with_rejected_urls_masked`: o texto com cada URL sensível trocada por espaços, caractere a caractere,
+     * na posição que a extração deu, e também cada literal de URL sensível que o padrão da máscara ([MASCARAVEL])
+     * ache no texto, dentro de código, âncora e definição inclusive. As quebras de linha ficam. É deste texto que
+     * sai o contexto dos outros links.
+     */
+    internal fun textoMascarado(texto: String, extraidos: List<LinkExtraido>, analisador: AnalisadorDeUrl): String {
+        val caracteres = texto.toCharArray()
+        fun mascarar(inicio: Int, fim: Int) {
+            for (i in inicio until fim) if (caracteres[i] != '\r' && caracteres[i] != '\n') caracteres[i] = ' '
+        }
+        for (link in extraidos) {
+            if (sensivel(link.urlOriginal, analisador)) mascarar(link.urlInicio, link.urlFim)
+        }
+        for (achado in MASCARAVEL.findAll(texto)) {
+            val literal = limparCaudaSolta(achado.value)
+            if (sensivel(literal, analisador)) {
+                mascarar(achado.range.first, achado.range.first + literal.length)
+            }
+        }
+        return String(caracteres)
+    }
+
+    /**
+     * `safe_context_link`: a âncora e o contexto do link vêm da extração do texto mascarado, achado pelo mesmo
+     * início e pela mesma URL; se não for achado, fica sem âncora e com o contexto redigido.
+     */
+    private fun contextoSeguro(extraido: LinkExtraido, mascarados: List<LinkExtraido>): LinkExtraido =
+        mascarados.firstOrNull { it.inicio == extraido.inicio && it.urlOriginal == extraido.urlOriginal }
+            ?: extraido.copy(textoDaAncora = null, textoAoRedor = CONTEXTO_REDIGIDO)
+
+    // ── a auditoria (`run_link_integrity_audit_for_source`, linhas 803–958 em 16a8cff) ───────────────
 
     /** `save_record_unlocked`: só se grava registro com esquema e identificador válidos. */
     private fun gravar(registro: RegistroDeLinks, linha: LinhaDeLink) {
@@ -596,6 +920,7 @@ public object IntegridadeDeLinks {
         val ocorrencias = TreeMap<String, Int>(OrdemRust)
         val linhas = mutableListOf<LinhaDeLink>()
         val extraidos = extrair(texto)
+        val mascarados = extrair(textoMascarado(texto, extraidos, analisador))
         if (extraidos.size > MAXIMO_DE_OCORRENCIAS) {
             throw Falha(
                 "link-integrity capacity exceeded: found ${extraidos.size} link occurrences; " +
@@ -604,30 +929,31 @@ public object IntegridadeDeLinks {
         }
         for (extraido in extraidos) {
             val normalizacao = normalizar(extraido.urlOriginal, analisador).let { lida ->
-                // Divergência do canônico, corrigindo uma falha dele: o Rust
-                // guarda a URL normalizada saneada (cortada em 1.000 pontos de
-                // código, com padrão de segredo trocado por `<redacted>`) e
-                // coleta essa URL alterada — a revisão aprovaria evidência de
-                // outro destino. Aqui a URL que o saneamento alteraria é
-                // recusada: o que se coleta, o que se revisa e o que está no
-                // texto são a mesma URL.
+                // `normalized_url_is_safe_to_collect`: a URL que o saneamento
+                // alteraria (cortada em 1.000 pontos de código, ou com padrão de
+                // segredo trocado por `<redacted>`) é recusada, para o que se
+                // coleta, o que se revisa e o que está no texto serem a mesma
+                // URL. Nasceu no porte, como divergência do Rust de `68528f9`,
+                // que coletava a URL alterada; o canônico passou a fazer o
+                // mesmo em `16a8cff`.
                 if (lida is Normalizacao.Normalizada && Saneamento.texto(lida.url, 1000) != lida.url) {
                     Normalizacao.Recusada(URL_ALTERADA_PELO_SANEAMENTO)
                 } else {
                     lida
                 }
             }
-            val chave = (normalizacao as? Normalizacao.Normalizada)?.url ?: extraido.urlOriginal
+            // O link sensível sai redigido; os outros levam a âncora e o contexto do texto mascarado. A ocorrência do
+            // redigido é contada pela URL redigida: dois links recusados da mesma origem ficam com ids distintos.
+            val redigir = sensivel(extraido.urlOriginal, analisador)
+            val seguro = if (redigir) redigido(extraido, analisador) else contextoSeguro(extraido, mascarados)
+            val chave = if (redigir) seguro.urlOriginal else (normalizacao as? Normalizacao.Normalizada)?.url ?: extraido.urlOriginal
             val ocorrencia = (ocorrencias[chave] ?: 0) + 1
             ocorrencias[chave] = ocorrencia
             var linha = when (normalizacao) {
                 is Normalizacao.Normalizada ->
-                    linhaBase(extraido, impressao, normalizacao.url, normalizacao.mudancas, ocorrencia, relogio())
+                    linhaBase(seguro, impressao, normalizacao.url, normalizacao.mudancas, ocorrencia, relogio())
                 is Normalizacao.Recusada -> {
-                    val malformada = salvarDaAuditoria(
-                        registro,
-                        linhaMalformada(extraido, impressao, ocorrencia, normalizacao.motivo, relogio()),
-                    )
+                    val malformada = salvarDaAuditoria(registro, linhaMalformada(seguro, impressao, ocorrencia, normalizacao.motivo, relogio()))
                     linhas += malformada
                     continue
                 }
@@ -683,7 +1009,7 @@ public object IntegridadeDeLinks {
     public fun exigeResolucaoEditorial(resultado: ResultadoDosLinks): Boolean =
         resultado.falhas > 0 || resultado.revisaoPendente > 0
 
-    // ── listagem, revisão e correção (linhas 690–966) ────────────────────────
+    // ── listagem, revisão e correção (linhas 960–1260 em 16a8cff) ─────────────────────────────────
 
     /** `LinkIntegrityListRequest`. */
     public data class PedidoDeListagem(
@@ -728,15 +1054,38 @@ public object IntegridadeDeLinks {
         return Listagem(itens.subList(inicio, fim), if (fim < total) fim.toString() else null, total)
     }
 
-    /** `LinkIntegrityReviewRequest`. */
+    /**
+     * `LinkIntegrityReviewRequest`: a decisão e a versão da linha que a tela mostrou. A URL final e a cadeia
+     * de redirecionamentos são obrigatórias, como no canônico: sem elas, uma decisão tomada sobre a linha lida
+     * valeria para a mesma URL servida por outro caminho de redirecionamento (#77).
+     */
     public data class PedidoDeRevisao(
         val linkId: String,
         val decisao: DecisaoDeRevisao,
         val nota: String,
         val revisor: String,
-        val urlNormalizadaEsperada: String,
-        val sha256Esperado: String?,
+        val esperada: IdentidadeDaEvidencia,
     )
+
+    /**
+     * A versão da evidência que a tela leu (`reviewed_evidence_matches`): a URL normalizada, o hash do conteúdo, a
+     * URL final e a cadeia de redirecionamentos, item a item e em ordem. A decisão só vale para esta versão.
+     */
+    public data class IdentidadeDaEvidencia(
+        val urlNormalizada: String,
+        val sha256: String?,
+        val urlFinal: String?,
+        val cadeia: List<Redirecionamento>,
+    ) {
+        public companion object {
+            public fun de(linha: LinhaDeLink): IdentidadeDaEvidencia =
+                IdentidadeDaEvidencia(linha.urlNormalizada, linha.sha256, linha.urlFinal, linha.cadeiaDeRedirecionamento)
+        }
+    }
+
+    /** `reviewed_evidence_matches`: a linha ainda é a versão que a tela leu. */
+    internal fun evidenciaRevisadaConfere(linha: LinhaDeLink, esperada: IdentidadeDaEvidencia): Boolean =
+        IdentidadeDaEvidencia.de(linha) == esperada
 
     /** `review_link_integrity`: a revisão explícita que tira um link de pendente. */
     public fun revisar(pedido: PedidoDeRevisao, registro: RegistroDeLinks, agora: Instant): LinhaDeLink {
@@ -747,8 +1096,10 @@ public object IntegridadeDeLinks {
             throw Falha("review note must contain at least 10 characters")
         }
         val revisada = atualizar(registro, pedido.linkId, "review") { linha ->
-            if (linha.urlNormalizada != pedido.urlNormalizadaEsperada || linha.sha256 != pedido.sha256Esperado) {
-                throw Falha("link URL or content hash changed since it was read; reload before reviewing")
+            if (!evidenciaRevisadaConfere(linha, pedido.esperada)) {
+                throw Falha(
+                    "link URL, redirect identity, or content hash changed since it was read; reload before reviewing",
+                )
             }
             if (pedido.decisao == DecisaoDeRevisao.ACEITAR) {
                 motivoParaNaoAceitar(linha)?.let { throw Falha(it) }

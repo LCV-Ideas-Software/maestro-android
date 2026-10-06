@@ -22,6 +22,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.lcv.maestro.protocolo.ClassificacaoDoLink
 import dev.lcv.maestro.protocolo.EstadoDaEvidencia
 import dev.lcv.maestro.protocolo.LinhaDeLink
+import dev.lcv.maestro.protocolo.Redirecionamento
 import dev.lcv.maestro.protocolo.StatusDaRevisao
 import dev.lcv.maestro.provedores.ImportacaoDoOperador
 import dev.lcv.maestro.provedores.Provedor
@@ -599,6 +600,25 @@ class LinksScreenTest {
         regra.onNodeWithTag(Marcas.NOTA_DA_REVISAO).performScrollTo().performTextInput("Aguardando a fonte ser conferida.")
 
         c.auditarLinks(id, TEXTO) { url -> c.resultadoDeBusca(url, "Relatório") }
+        regra.waitUntil(5_000) { regra.onAllNodes(hasText("Aguardando a fonte ser conferida.", substring = true)).fetchSemanticsNodes().isEmpty() }
+        regra.onNodeWithTag(Marcas.REGISTRAR_DECISAO).performScrollTo().assertIsNotEnabled()
+        assertEquals(StatusDaRevisao.PENDENTE, linha(id, RELATORIO).statusDaRevisao)
+    }
+
+    @Test
+    fun aLinhaAbertaQueVoltaComOutraCadeiaRecomecaOFormulario() {
+        // #77 (MAEANDR-26): a decisão vale também contra a URL final e a cadeia de redirecionamentos que a tela leu.
+        val id = sessaoComLinks()
+        c.auditarLinks(id, TEXTO) { url -> c.resultadoDeBusca(url, "Relatório") }
+        abrirOLink(id, RELATORIO)
+        regra.onNodeWithTag(Marcas.decisao("quarentena")).performScrollTo().performClick()
+        regra.onNodeWithTag(Marcas.NOTA_DA_REVISAO).performScrollTo().performTextInput("Aguardando a fonte ser conferida.")
+
+        // O mesmo hash; só a URL final e a cadeia mudam.
+        c.auditarLinks(id, TEXTO) { url ->
+            c.resultadoDeBusca(url, "Relatório")
+                .copy(urlFinal = "$url/final", cadeiaDeRedirecionamento = listOf(Redirecionamento("$url/final", 301)))
+        }
         regra.waitUntil(5_000) { regra.onAllNodes(hasText("Aguardando a fonte ser conferida.", substring = true)).fetchSemanticsNodes().isEmpty() }
         regra.onNodeWithTag(Marcas.REGISTRAR_DECISAO).performScrollTo().assertIsNotEnabled()
         assertEquals(StatusDaRevisao.PENDENTE, linha(id, RELATORIO).statusDaRevisao)

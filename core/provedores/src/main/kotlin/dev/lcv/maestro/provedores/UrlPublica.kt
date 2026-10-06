@@ -1,7 +1,7 @@
 package dev.lcv.maestro.provedores
 
 import dev.lcv.maestro.protocolo.IntegridadeDeLinks
-import java.util.Locale
+import dev.lcv.maestro.protocolo.ParametroSensivel
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
@@ -39,55 +39,23 @@ internal object UrlPublica {
         if (analisada.scheme != "https") {
             throw IntegridadeDeLinks.Falha("cleartext http:// links are not collected; only https:// is")
         }
-        if (analisada.username.isNotEmpty() || AnalisadorDeUrlOkHttp.temSenha(url)) {
+        if (analisada.username.isNotEmpty() || analisada.password.isNotEmpty() || AnalisadorDeUrlOkHttp.temSenha(url)) {
             throw IntegridadeDeLinks.Falha("URLs with embedded credentials are blocked")
         }
-        if (analisada.queryParameterNames.any(::chaveSensivel)) {
+        // A mesma regra da normalização (`url_has_sensitive_parameters`, nos dois portões do canônico), lida da URL
+        // inteira, com o fragmento, antes de ele sair (#77).
+        val pedacos = AnalisadorDeUrlOkHttp.analisar(url) ?: throw IntegridadeDeLinks.Falha("URL invalida ou incompleta")
+        if (ParametroSensivel.tem(pedacos)) {
             throw IntegridadeDeLinks.Falha(
                 "URLs with credential-like query parameters are blocked; use an environment-backed connector or " +
                     "operator capture",
             )
         }
-        return analisada.newBuilder().fragment(null).build()
-    }
-
-    /**
-     * A URL como ela pode ser gravada num registro: sem usuário e senha, e
-     * com o valor de toda chave sensível trocado por `<redacted>`. A URL
-     * validada já não os tem; a bloqueada chega como o texto a citou, e o
-     * registro de bloqueio não pode ser o lugar onde a credencial sobrevive.
-     * O canônico grava a URL bruta (`failed_fetch_record` → `base_record`,
-     * só `sanitize_text`): furo 15 da MAESTRO-34. O que o `HttpUrl` não lê
-     * é tratado no texto, com a mesma regra.
-     */
-    fun paraRegistro(url: String): String {
-        val analisada = url.toHttpUrlOrNull()
-        if (analisada != null) {
-            val construtor = analisada.newBuilder().username("").password("").query(null)
-            for (i in 0 until analisada.querySize) {
-                val nome = analisada.queryParameterName(i)
-                construtor.addQueryParameter(nome, if (chaveSensivel(nome)) REDIGIDO else analisada.queryParameterValue(i))
-            }
-            return construtor.build().toString()
+        val semFragmento = analisada.newBuilder().fragment(null).build()
+        if (Erros.sanear(semFragmento.toString(), LIMITE_EM_BYTES) != semFragmento.toString()) {
+            throw IntegridadeDeLinks.Falha("URL contains credential-like material and cannot be stored safely")
         }
-        val semUsuario = USUARIO_NA_AUTORIDADE.replace(url, "$1")
-        return PAR_DA_QUERY.replace(semUsuario) { par ->
-            if (chaveSensivel(par.groupValues[2])) "${par.groupValues[1]}${par.groupValues[2]}=$REDIGIDO" else par.value
-        }
-    }
-
-    private const val REDIGIDO = "<redacted>"
-
-    /** `esquema://` seguido de tudo até o `@` da autoridade. */
-    private val USUARIO_NA_AUTORIDADE = Regex("^([a-zA-Z][a-zA-Z0-9+.-]*://)[^/?#]*@")
-
-    /** Um par `nome=valor` da query, com o separador que o antecede. */
-    private val PAR_DA_QUERY = Regex("([?&])([^=&#]*)=([^&#]*)")
-
-    /** `sensitive_query_key`. */
-    fun chaveSensivel(nome: String): Boolean {
-        val normalizado = nome.lowercase(Locale.ROOT)
-        return CHAVES_SENSIVEIS.any { normalizado == it || normalizado.endsWith(it) }
+        return semFragmento
     }
 
     /** `same_origin`: esquema, host e porta (a porta padrão já preenchida). */
@@ -97,9 +65,4 @@ internal object UrlPublica {
     /** `robots_url_for`: o `/robots.txt` da mesma origem, validado como qualquer URL. */
     fun robotsDe(url: HttpUrl, politica: PoliticaDeRede): HttpUrl =
         validar(url.newBuilder().encodedPath("/robots.txt").query(null).fragment(null).build().toString(), politica)
-
-    private val CHAVES_SENSIVEIS = listOf(
-        "access_token", "api_key", "apikey", "authorization", "credential", "key", "password", "secret",
-        "signature", "sig", "token", "x-amz-credential", "x-amz-signature",
-    )
 }

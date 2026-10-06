@@ -89,12 +89,13 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
     var decisao by mutableStateOf<DecisaoDeRevisao?>(null)
     var nota by mutableStateOf("")
 
-    /** A URL e o hash da linha aberta quando o formulário começou ([escolher]). */
-    private var versaoEscolhida: Pair<String, String?>? = null
+    /** A versão da linha aberta quando o formulário começou ([escolher]). */
+    /** O que a revisão confere (`reviewed_evidence_matches`): o formulário vale só para esta versão da linha. */
+    private var versaoEscolhida: IntegridadeDeLinks.IdentidadeDaEvidencia? = null
 
     fun escolher(linkId: String?) {
         escolhido = linkId
-        versaoEscolhida = conteudo.value?.firstOrNull { it.linha.linkId == linkId }?.linha?.let(::versao)
+        versaoEscolhida = conteudo.value?.firstOrNull { it.linha.linkId == linkId }?.linha?.let(IntegridadeDeLinks.IdentidadeDaEvidencia::de)
         notaDaCaptura = ""
         consulta = ""
         decisao = null
@@ -208,18 +209,15 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
     /**
      * A lista relida. Se o link aberto sumiu dela (o texto mudou), abre o primeiro, e o que se
      * digitou para o anterior é apagado: a nota e a decisão de um link nunca vão para outro
-     * (achado do Codex na #78). O mesmo vale quando a linha aberta volta com outra URL ou outro
-     * hash, como depois da auditoria de outra sessão com o mesmo texto: é outro conteúdo a julgar.
-     * Linha principal.
+     * (achado do Codex na #78). O mesmo vale quando a linha aberta volta com outra URL, outro
+     * hash ou outro caminho de redirecionamento, como depois da auditoria de outra sessão com o
+     * mesmo texto: é outro conteúdo a julgar. Linha principal.
      */
     private fun aplicar(links: List<Link>) {
         conteudo.value = links
         val aberto = links.firstOrNull { it.linha.linkId == escolhido }?.linha ?: links.firstOrNull()?.linha
-        if (aberto?.linkId != escolhido || aberto?.let(::versao) != versaoEscolhida) escolher(aberto?.linkId)
+        if (aberto?.linkId != escolhido || aberto?.let(IntegridadeDeLinks.IdentidadeDaEvidencia::de) != versaoEscolhida) escolher(aberto?.linkId)
     }
-
-    /** O que a revisão confere (`urlNormalizadaEsperada` e `sha256Esperado`): o formulário vale só para ela. */
-    private fun versao(linha: LinhaDeLink): Pair<String, String?> = linha.urlNormalizada to linha.sha256
 
     private fun ler(): List<Link> {
         val linhas = d.links.linhas(id)
@@ -329,7 +327,10 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
         }
     }
 
-    /** `review_link_integrity` pelo operador, com a decisão e a nota escolhidas, contra a URL e o hash que a tela mostrou. */
+    /**
+     * `review_link_integrity` pelo operador, com a decisão e a nota escolhidas, contra a versão que a tela
+     * mostrou: a URL, o hash, a URL final e a cadeia de redirecionamentos da ficha.
+     */
     fun revisar(linha: LinhaDeLink) {
         if (bloqueadaPelaExecucao()) return
         val decisaoDoPedido = decisao ?: return
@@ -342,8 +343,7 @@ class LinksViewModel(private val d: Dependencias, private val id: String) : View
                         decisao = decisaoDoPedido,
                         nota = notaDoPedido,
                         revisor = "operator",
-                        urlNormalizadaEsperada = linha.urlNormalizada,
-                        sha256Esperado = linha.sha256,
+                        esperada = IntegridadeDeLinks.IdentidadeDaEvidencia.de(linha),
                     ),
                     d.links.registroDaTela(id),
                     d.relogio(),

@@ -154,8 +154,10 @@ Medido no `maestro-app` em `68528f9`, o Rust tem cinco:
 2. citações ABNT (`abnt_citation.rs`, 1.769 linhas), que **sem manifesto de
    citações recusa toda citação detectada** (`structured_manifest_missing`);
 3. no máximo 30 ocorrências de link;
-4. o motor de integridade de links (`link_integrity.rs`, 1.069 linhas), que
-   coleta cada link pelo motor de evidências (`web_evidence.rs`, 3.660 linhas);
+4. o motor de integridade de links (`link_integrity.rs`; 1.069 linhas em
+   `68528f9`, 1.814 em `16a8cff`, o canônico da MAESTRO-34 que a
+   [#77](https://github.com/LCV-Ideas-Software/maestro-android/issues/77) portou), que coleta cada link pelo motor de evidências
+   (`web_evidence.rs`, 3.660 linhas em `68528f9`, 4.567 em `16a8cff`);
 5. **nenhum link sai sem revisão explícita** contra a URL e o hash do conteúdo
    atuais; resposta HTTP bem-sucedida é só `verified_but_weak`.
 
@@ -205,8 +207,10 @@ escolheu os cinco. O que a escolha pede, e como fica:
   desktop (`LinkIntegrityPanel.tsx`, `maestro-app` `0e17817`), com os rótulos
   e os avisos dele palavra por palavra. A recusa do motor vai no aviso, depois
   da frase do desktop, que a engole. O revisor é `operator`, a nota tem pelo
-  menos dez pontos de código, e a decisão vale contra a URL e o hash que a
-  tela mostrou. Com a sessão na fila ou em execução, a revisão e as propostas
+  menos dez pontos de código, e a decisão vale contra a URL, o hash, a URL
+  final e a cadeia de redirecionamentos que a tela mostrou
+  (`reviewed_evidence_matches`, `16a8cff`; #77). Com a sessão na fila ou em
+  execução, a revisão e as propostas
   esperam (decisão 24 do operador, 29/09/2026): a auditoria da sessão regrava
   as mesmas linhas e guarda o que leu, e uma decisão feita nesse meio-tempo
   podia se perder ou não chegar ao revisor. A captura segue liberada, porque
@@ -365,38 +369,32 @@ escolheu os cinco. O que a escolha pede, e como fica:
   a recusa sem exceção cancelava o trabalho. O texto da notificação deixa de
   dizer que a sessão seguiu como estava, o que a recusa não garante. As duas
   perguntas saíram da revisão da #81.
-- **Lacuna medida, fora desta entrega:** no canônico atual (`0e17817`,
-  MAESTRO-34), a revisão confere também a URL final e a cadeia de
-  redirecionamentos; o motor do Android, portado de `68528f9`, confere a URL e
-  o hash. O porte está na
-  [#77](https://github.com/LCV-Ideas-Software/maestro-android/issues/77)
-  (MAEANDR-26).
+- **Porte do canônico, fechado na [#77](https://github.com/LCV-Ideas-Software/maestro-android/issues/77) (MAEANDR-26):** o motor de
+  links é o de `16a8cff` (MAESTRO-34). A revisão confere também a URL final e
+  a cadeia de redirecionamentos; os links são achados na árvore da
+  `commonmark-java`, com posições de origem, e não por expressão regular; uma
+  regra só de parâmetro sensível, decodificada pela plataforma, serve à
+  normalização e à coleta; e o link recusado por credencial sai redigido do
+  registro, da tela e do contexto do agente. Onde o porte difere de `16a8cff`
+  por decisão do operador está listado no fim desta seção.
+
+Três pontos que a PR #57 corrigiu aqui o `maestro-app` adotou depois, no
+MAESTRO-34 (`16a8cff`), e a #77 os reportou de lá, iguais: **só se aceita link
+cuja verificação mecânica passou** (`mechanically_acceptable`: só passa
+evidência pronta, fresca e sem interação pendente; cada linha guarda a
+classificação mecânica à parte da que a revisão escreve; a linha conta como
+bloqueada sempre que alguém precisa agir antes de a evidência valer, o mesmo
+predicado da quarentena, e só a coleta que terminou sem pendência e falhou
+conta como erro); **aceitar link HTTP(S) exige o hash do conteúdo da
+evidência** (`valid_content_hash`, 64 dígitos hexadecimais em qualquer caixa,
+decisão 5 do operador na #77); e **URL que o saneamento alteraria fica
+bloqueada** (`normalized_url_is_safe_to_collect`).
 
 Onde o porte é **mais estrito que o canônico**, de propósito. Salvo os dois
 últimos, que são decisões do operador, os pontos corrigem defeitos que a
 revisão do Codex achou na PR #57 e depois do merge dela, e que também estão
 no Rust em `68528f9`:
 
-- **só se aceita link cuja verificação mecânica passou.** O Rust só conferia o
-  código HTTP: página de captcha, de login ou de paywall, ou evidência
-  bloqueada, servida com 200, podia ser aceita como suporte. Só passa evidência
-  pronta e sem interação pendente. Na fila, em coleta, vencida ou à espera do
-  operador, ou com pedido de consentimento ou de confirmação de download, ela
-  vai para quarentena, qualquer que seja o código HTTP guardado nela de uma
-  coleta anterior. A linha conta como bloqueada sempre que alguém precisa
-  agir antes de a evidência valer (bloqueada, coleta que não terminou, ação
-  do operador, interação pendente, captcha incluído) — o mesmo predicado da
-  quarentena; só a coleta que terminou sem pendência e falhou conta como erro.
-  Cada linha guarda a classificação mecânica à parte da que a revisão escreve
-  (`mechanical_classification`), e um aceite anterior só é preservado enquanto
-  a verificação nova ainda passar;
-- **aceitar link HTTP(S) exige o hash do conteúdo da evidência.** O Rust
-  conferia hash ausente com hash ausente, e o aceite, preso a conteúdo nenhum,
-  sobrevivia a qualquer mudança do destino;
-- **URL que o saneamento alteraria fica bloqueada.** O Rust guarda a URL
-  normalizada já saneada — cortada em 1.000 pontos de código, com padrão de
-  segredo trocado por `<redacted>` — e coleta essa URL alterada: a revisão
-  aprovaria evidência de outro destino;
 - **sem manifesto, nota de rodapé, `<cite>`, `<blockquote>`, `<q>` e `apud`,
   `ibid.`, `op. cit.` bloqueiam** mesmo num texto sem citação autor-data; no
   Rust esses sinais só eram conferidos com manifesto;
@@ -461,6 +459,62 @@ no Rust em `68528f9`:
   pelas telas de anexos e de nova sessão (nesta, de novo no início, contra o
   protocolo que a sessão recebe), com o hash esperado na mensagem; a
   auditoria continua a dá-las, na mesma ordem.
+
+Onde o porte **difere do canônico `16a8cff` por decisão do operador**, na
+[#77](https://github.com/LCV-Ideas-Software/maestro-android/issues/77) (05/10/2026; decisões na descrição da issue e na Discussion
+#94):
+
+- **`mailto:` continua aceitável**, com nota e sem hash (decisão 1). No
+  canônico, `mechanically_acceptable` o recusa, e o texto fica preso até o
+  endereço sair. O esquema vai para caixa baixa na URL normalizada, como na
+  crate `url` (`MAILTO:` é `mailto:`);
+- **só o link recusado por credencial embutida, parâmetro de credencial ou
+  padrão de segredo sai redigido** (`<blocked URL>`, `<redacted context>`;
+  decisão 2). O canônico redige todo link recusado, `javascript:` e `ftp://`
+  inclusive, e ninguém acha pela tela qual link do texto é. A URL que o
+  próprio link recusado vizinho carrega é mascarada do contexto e da âncora
+  dos outros, como no canônico. Além dele, porque pela decisão 2 o link
+  recusado por outro motivo sairia por inteiro, a redação não olha o esquema
+  nem o motivo da recusa, e sim o que qualquer leitor do porte lê como
+  credencial: o padrão de segredo; o usuário na autoridade em toda grafia,
+  parseável ou não (os esquemas especiais do WHATWG, `http`, `https`, `ftp`,
+  `ws` e `wss`, com qualquer sequência de barras, `https:/u:p@h`,
+  `ftp:u:p@h`, e a autoridade sem esquema, `//u:p@h`); e o usuário, a senha
+  ou o parâmetro de credencial que o parser lê de qualquer esquema
+  (`ftp://h/?token=x`, `javascript:go?token=x`), sem os caracteres de
+  controle, ou que o texto traz quando nenhum parser a lê, lido como texto
+  inteiro: o cinto da autoridade sem âncora sobre o texto todo, porque a
+  autoridade com credencial pode vir depois de uma barra
+  (`<prefixo https://u:p@h/>`, `<x https://example.com/r/https://u:p@h/>`),
+  e a regra do segmento sobre o caminho todo
+  (`<https://exa mple.com/api_key=x/y>`, `<https://exa mple.com/?secret=1>`).
+  Na URL que o parser lê, a autoridade é a que o parser dá, como no canônico:
+  `https://example.com/r/https://u:p@h/` tem autoridade `example.com` e um
+  caminho. O texto é lido aparado, como na normalização (o destino entre `<`
+  e `>` guarda os espaços à volta). O literal mascarado segue o mesmo padrão. E a
+  credencial na autoridade é recusada em qualquer esquema que a tenha, como o
+  parser a lê ou como o texto a mostra, não só em http e https como no
+  canônico: `mailto://u:p@h/` iria com a senha para a URL normalizada de um
+  link aceitável, e em `mailto://u:p@exa_mple.org/` o `java.net.URI` nem lê
+  a credencial. Assim todo link redigido é também recusado, e nunca leva uma
+  URL normalizada (cross-review da #77, 06/10/2026);
+- **a regra de parâmetro sensível no caminho só vale com valor no segmento**
+  (`/token=abc/x`, `/key:abc`; decisão 4). O ramo do canônico que também
+  recusa o nome seguido de outro segmento (`/password/reset`,
+  `/CryptoKey/type`) não foi portado: falso positivo apontado na medição da
+  #77. A regra é uma só para a normalização e a coleta, como no canônico, e
+  decodifica a URL com `java.net.URLDecoder` e o decodificador estrito de
+  UTF-8 da plataforma, não com um decodificador escrito à mão;
+- **HTML cru não é tratado no extrator.** O portão `raw_html_in_final_text`
+  recusa o texto antes de o motor de links o ler (decisão de 25/09/2026,
+  Discussion #59), e a parte do canônico que acha links dentro de HTML não
+  tem o que achar aqui;
+- **bibliotecas diferentes, limites iguais.** A extração lê a árvore da
+  `commonmark-java` com posições de origem, e não os eventos da
+  `pulldown-cmark`, com os limites de aninhamento padrão de cada uma. O
+  título de definição de referência não fechado, que a `commonmark-java`
+  0.30.0 deixa sem posição, reprova o texto em vez de auditar um link sem
+  posição, até a correção da biblioteca.
 
 ### 2.3 O cliente web
 
@@ -1702,7 +1756,13 @@ de teste, porque compra confiança sem entregá-la.
   candidato final porta as suítes do Rust e acrescenta o que elas não cobrem
   por serem ASCII e só usarem `\n`: posição em bytes UTF-8, `\r` sozinho,
   espaço e dígito Unicode, fronteira de palavra do Rust, janela de contexto
-  em bytes. As expressões regulares não usam `\s`, `\d`, `\w`, `\b` nem
+  em bytes. O motor de links porta as suítes de `16a8cff` e fixa o que a
+  `commonmark-java` faz de diferente da `pulldown-cmark`: posições em UTF-16,
+  autolink de e-mail com `mailto:`, definição de referência repetida ou sem
+  uso, e a sentinela do título de definição não fechado. Cada regra do porte
+  tem a sua mutação numa matriz de desarme (registrada na #77), que só conta
+  a mutação como pega quando um teste nomeado reprova. As expressões
+  regulares não usam `\s`, `\d`, `\w`, `\b` nem
   `(?U)`: no Android o `java.util.regex` é a ICU, em que
   `UNICODE_CHARACTER_CLASS` lança exceção, e na JVM dos testes aquelas classes
   são ASCII. Como a JVM não prova o que a ICU faz, o emulador do
@@ -2091,18 +2151,6 @@ não o declarava e mandava medir em aparelho. Declara, na página de mudanças d
 comportamento do Android 15, e agora está na seção 4.1. Ausência de um fato em
 duas páginas não é ausência do fato.
 
-### Aberta, porte do canônico
-
-- **A revisão de link confere também a URL final e a cadeia de
-  redirecionamentos.** No canônico atual (`maestro-app` `0e17817`,
-  MAESTRO-34), a revisão só vale se a linha ainda tiver a URL normalizada, o
-  hash, a URL final e a cadeia de redirecionamentos lidos; o motor do Android,
-  portado de `68528f9`, confere os dois primeiros. Medido ao portar a tela de
-  links (seção 2.2) e registrado na
-  [#77](https://github.com/LCV-Ideas-Software/maestro-android/issues/77)
-  (MAEANDR-26); o porte mede tudo o que o MAESTRO-34 mudou no motor, não só a
-  revisão.
-
 ### Aberta, por decisão do operador
 
 - **Conectores extras de busca de evidências.** O desktop aceita, além do
@@ -2133,6 +2181,10 @@ duas páginas não é ausência do fato.
 - **Retenção no provedor?** Resolvida na seção 6.4: `store: false` explícito.
 - **Onde fica a chave?** Resolvida pelo operador em 21/09/2026: no aparelho,
   Android Keystore direto.
+- **A revisão de link confere também a URL final e a cadeia de
+  redirecionamentos?** Resolvida na [#77](https://github.com/LCV-Ideas-Software/maestro-android/issues/77) (MAEANDR-26), 05/10/2026:
+  o motor foi portado inteiro de `16a8cff` (MAESTRO-34), não só a revisão.
+  Seção 2.2.
 
 ### Fora deste repositório, aberta, com prazo
 

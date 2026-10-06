@@ -173,7 +173,7 @@ public class Retomada(
                 anterior.execucaoAtual?.let { banco.execucoes().uma(it) }?.takeIf { it.fim == null }
                     ?.chamadaEmVoo?.let(Agentes::porChave)?.let { provedor ->
                         val mensagem = RepositorioDeSessoes.mensagemDeChamadaIndeterminada(provedor)
-                        val execucaoMorta = anterior.execucaoAtual!!
+                        val execucaoMorta = anterior.execucaoAtual
                         if (banco.sessoes().interromper(id, mensagem, agora(), execucaoMorta) == 0) throw CasPerdido()
                         banco.eventos().inserir(
                             EventoDaSessao(em = agora(), agente = provedor, status = EventoDaSessao.ERRO, mensagem = mensagem).paraEntidade(id),

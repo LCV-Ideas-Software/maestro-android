@@ -1,6 +1,5 @@
 package dev.lcv.maestro.protocolo
 
-import java.net.URI
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -20,13 +19,7 @@ class AuditoriaFinalTest {
 
     private val agora: Instant = Instant.parse("2026-09-24T12:00:00Z")
 
-    private val analisador = IntegridadeDeLinks.AnalisadorDeUrl { url ->
-        runCatching { URI(url) }.getOrNull()?.let { uri ->
-            uri.scheme?.let { esquema ->
-                IntegridadeDeLinks.UrlAnalisada(esquema.lowercase(), uri.host, "", null, uri.rawPath ?: "", url)
-            }
-        }
-    }
+    private val analisador = IntegridadeDeLinks.AnalisadorDeUrl { url -> urlDeTeste(url) }
 
     private val registro = object : IntegridadeDeLinks.RegistroDeLinks {
         val linhas = HashMap<String, LinhaDeLink>()
@@ -167,6 +160,19 @@ class AuditoriaFinalTest {
         val quebrado = AuditoriaFinal.MotorDeLinks { throw IntegridadeDeLinks.Falha("disco cheio") }
         val falha = assertNotNull(AuditoriaFinal.falha("Texto limpo.", quebrado, agora))
         assertEquals("link_integrity_engine", gate(falha))
+    }
+
+    @Test
+    fun `o extrator que reprova o texto na contagem de links reprova a auditoria, nao a sessao`() {
+        // Achado do Codex na PR #96 (06/10/2026): o extrator passou a falhar fechado no título de definição não fechado
+        // (defeito da commonmark-java 0.30.0, issue #460 do projeto dela), e a contagem de ocorrências corria fora do
+        // tratamento que converte a falha do motor em reprovação estruturada; a exceção derrubava a sessão.
+        val falha = assertNotNull(
+            AuditoriaFinal.falha("[1]: https://example.org/a\n(ver tambem https://example.org/b\n\n[1]", motor, agora),
+        )
+        assertEquals("link_integrity_engine", gate(falha))
+        assertTrue(falha.motivo.contains("link-integrity"))
+        assertEquals(0, chamadasAoMotor)
     }
 
     @Test
