@@ -368,7 +368,7 @@ public object IntegridadeDeLinks {
         return construtor.toString()
     }
 
-    /** `count_link_occurrences`. */
+    /** `count_link_occurrences`; lança [Falha] quando [extrair] reprova o texto, e quem conta a trata como a auditoria. */
     public fun contarOcorrencias(texto: String): Int = extrair(texto).size
 
     // ── normalização e identidade (`normalize_url` a `base_row`, linhas 392–497 em 16a8cff) ──────────

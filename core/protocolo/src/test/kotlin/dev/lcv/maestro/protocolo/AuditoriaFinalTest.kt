@@ -163,6 +163,19 @@ class AuditoriaFinalTest {
     }
 
     @Test
+    fun `o extrator que reprova o texto na contagem de links reprova a auditoria, nao a sessao`() {
+        // Achado do Codex na PR #96 (06/10/2026): o extrator passou a falhar fechado no título de definição não fechado
+        // (defeito da commonmark-java 0.30.0, issue #460 do projeto dela), e a contagem de ocorrências corria fora do
+        // tratamento que converte a falha do motor em reprovação estruturada; a exceção derrubava a sessão.
+        val falha = assertNotNull(
+            AuditoriaFinal.falha("[1]: https://example.org/a\n(ver tambem https://example.org/b\n\n[1]", motor, agora),
+        )
+        assertEquals("link_integrity_engine", gate(falha))
+        assertTrue(falha.motivo.contains("link-integrity"))
+        assertEquals(0, chamadasAoMotor)
+    }
+
+    @Test
     fun `evidencia do operador pausa antes do proximo revisor pago`() {
         val falha = assertNotNull(
             AuditoriaFinal.falhaDeEvidenciaDoOperador(

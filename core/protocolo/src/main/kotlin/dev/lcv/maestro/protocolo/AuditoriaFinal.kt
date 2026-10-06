@@ -33,6 +33,16 @@ public object AuditoriaFinal {
 
     private fun texto(valor: String?) = ValorJson.texto(valor)
 
+    /** O motor de links que falhou fechado, na contagem ou na auditoria: a reprovação estruturada do canônico. */
+    private fun falhaDoMotor(erro: IntegridadeDeLinks.Falha): Falha = Falha(
+        "final candidate link-integrity engine failed closed",
+        ValorJson.objeto(
+            "gate" to texto("link_integrity_engine"),
+            "error" to texto(Saneamento.texto(erro.message.orEmpty(), 500)),
+            "policy" to texto("link_integrity_must_be_observable_before_release"),
+        ),
+    )
+
     /** `final_release_audit_failure`: a auditoria sem manifesto. */
     public fun falha(texto: String, motorDeLinks: MotorDeLinks, agora: Instant): Falha? =
         falhaComCitacoes(texto, null, null, null, motorDeLinks, agora)
@@ -87,7 +97,14 @@ public object AuditoriaFinal {
                 ),
             )
         }
-        val ocorrencias = IntegridadeDeLinks.contarOcorrencias(texto)
+        // A contagem lê o texto com o mesmo extrator da auditoria e falha fechada como ela (o parágrafo sem posição de
+        // origem, defeito da commonmark-java 0.30.0); a falha vira a mesma reprovação estruturada, e não derruba a
+        // sessão (achado do Codex na PR #96, 06/10/2026).
+        val ocorrencias = try {
+            IntegridadeDeLinks.contarOcorrencias(texto)
+        } catch (erro: IntegridadeDeLinks.Falha) {
+            return falhaDoMotor(erro)
+        }
         if (ocorrencias > IntegridadeDeLinks.MAXIMO_DE_OCORRENCIAS) {
             return Falha(
                 "final candidate exceeds link audit capacity",
@@ -102,14 +119,7 @@ public object AuditoriaFinal {
         val links = try {
             motorDeLinks.auditar(texto)
         } catch (erro: IntegridadeDeLinks.Falha) {
-            return Falha(
-                "final candidate link-integrity engine failed closed",
-                ValorJson.objeto(
-                    "gate" to texto("link_integrity_engine"),
-                    "error" to texto(Saneamento.texto(erro.message.orEmpty(), 500)),
-                    "policy" to texto("link_integrity_must_be_observable_before_release"),
-                ),
-            )
+            return falhaDoMotor(erro)
         }
         if (IntegridadeDeLinks.exigeResolucaoEditorial(links)) {
             return Falha(
