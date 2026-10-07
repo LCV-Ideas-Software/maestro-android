@@ -4,7 +4,8 @@ All material changes to Maestro Android are recorded here.
 
 ## [Unreleased]
 
-Nothing yet.
+- Update the official `actions/upload-artifact` to v7.0.2 and `actions/download-artifact` to v8.0.2 at complete commit SHAs (LCV-334).
+
 
 ## [1.0.0] - 2026-10-06
 
