@@ -47,7 +47,11 @@ a `gradle/libs.versions.toml` version catalog, and the Kotlin Gradle Plugin
 declared. Its `minSdk`, 34 in MAEANDR-14, is 36 (Android 16) by the
 operator's decision of 04/10/2026 for every `*-android` app (MAEANDR-30).
 No signing material lives here; it is injected at build time by the
-publishing workflow.
+publishing workflow. The published build goes through R8
+(`optimization { enable = true }`, the AGP 9.3+ DSL): code and resources are
+shrunk, optimized and obfuscated, and the App Bundle carries the R8 metadata and
+the mapping Google Play uses to deobfuscate crashes (#104). Every `*-android`
+app ships every version that way (operator rule of 06/10/2026).
 
 The first module of the port is `:core:protocolo` — pure Kotlin, no Android
 dependency, tested on the JVM. It carries the approved-content lock: text is
@@ -265,11 +269,14 @@ analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
   `lintDebug` and unit tests — including those of `:core:protocolo`, which run
   on the JVM — with the same JDK the publishing workflow uses. The job is a
   required check in the repository ruleset. The instrumented tests of
-  `:core:seguranca`, `:core:sessao` and `:app` do not run in CI: an emulator on
-  the hosted runner took 16 to 30 minutes per pull request (operator decision
-  of 06/10/2026, #97). They run locally, on the emulator managed by the Android
-  Gradle Plugin (Gradle Managed Devices), as the gate of every pull request
-  before the push, and the result is recorded in the pull request.
+  `:core:seguranca`, `:core:sessao` and `:app`, and the `:teste-release`
+  module, which installs the R8-minified release build signed with the debug
+  key and drives it from outside its process with UI Automator (#104), do not
+  run in CI: an emulator on the hosted runner took 16 to 30 minutes per pull
+  request (operator decision of 06/10/2026, #97). They run locally, on the
+  emulator managed by the Android Gradle Plugin (Gradle Managed Devices), as
+  the gate of every pull request before the push, and the result is recorded in
+  the pull request.
 - GitHub CodeQL Default setup analyzes the supported content. The duplicate
   advanced-setup workflow is not maintained in this repository.
 - Dependency Review evaluates pull requests to `main`.

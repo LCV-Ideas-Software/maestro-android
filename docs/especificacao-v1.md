@@ -2038,6 +2038,24 @@ de teste, porque compra confiança sem entregá-la.
   conferido de novo depois da auditoria do portão e o HTML cru que a auditoria
   real recusa antes de virar texto final.
 
+- **`:teste-release`, o aplicativo minificado.** O R8 renomeia e apaga código,
+  e o defeito que ele causa só aparece com o aplicativo rodando. Este módulo
+  (`com.android.test`, o tipo oficial de módulo para testar o build de
+  release, no padrão do `:teste-release` da calculadora-android) instala o
+  tipo `minificado` do `:app`, que é o release com o R8 assinado com a chave
+  de depuração, e o percorre de fora do processo, pelo UI Automator: as telas e
+  as licenças (a commonmark-java com a extensão de tabelas); a pilha da
+  navegação depois de a rotação recriar a Activity (o serializador do
+  kotlinx.serialization); o teto gravado e relido depois de fechar o
+  aplicativo (o Room e o JSON das tarifas, pelo Jackson); e o teste de uma
+  chave falsa no Claude. A Anthropic recusa a chave (HTTP 401, sem custo), e o
+  pedido leva só o texto fixo do teste de chaves. A recusa passa pelo Keystore,
+  pelo OkHttp e pelo TLS, e a tela só mostra a mensagem do provedor se o Jackson
+  a extrair do JSON. É a única chamada de teste a um provedor real, porque só
+  ela prova a rede no aplicativo minificado. Um controle com uma regra do R8 que
+  quebra a leitura de texto do Jackson derruba esse fluxo (06/10/2026, #104).
+  Roda no portão local, no emulador gerenciado, como os outros instrumentados.
+
 Nenhum teste embute chave de API, nem sequer inválida com forma de chave real —
 o *secret scanning* da frota não distingue chave falsa de chave vazada, e nem
 deveria.
@@ -2091,6 +2109,13 @@ Decisões de produto vigentes, no mesmo espírito das da calculadora:
 A publicação segue a esteira já em paridade (seção 3), com notas de versão em
 `play/release-notes/pt-BR.txt` e o teto de 500 caracteres por idioma verificado
 antes do build.
+
+O build publicado passa pelo R8 (`optimization { enable = true }`, a DSL do
+AGP 9.3 ou mais novo): código e recursos reduzidos, otimizados e ofuscados, com
+o metadado do R8 (`r8.json`) e o mapeamento dentro do bundle, de onde a Play
+tira os índices de otimização e desofusca as falhas. É regra da frota desde
+06/10/2026: todo aplicativo `*-android` sai, em todas as versões, com esses
+índices atendidos (#104). O teste do aplicativo minificado está na seção 8.
 
 **Dois canais de distribuição** (decisão do operador de 25/09/2026, comum aos
 três aplicativos Android da LCV Ideas & Software): na Play Store o aplicativo

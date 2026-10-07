@@ -10,11 +10,30 @@ Nothing yet.
 
 ### Changed
 
-- Version 1.0.0, `versionCode` 2: the first version prepared for publication
+- Version 1.0.0, `versionCode` 3: the first version prepared for publication
   on Google Play from this repository (#100, MAEANDR-33); the Release
   `v01.00.00` is recorded after Play reports it published. `versionCode` 1 was
-  the bundle of 17/09/2026 (MAEANDR-9) on the internal track. The store's
-  release notes live in `play/release-notes/pt-BR.txt`.
+  the bundle of 17/09/2026 (MAEANDR-9) on the internal track, and `versionCode`
+  2 was the first 1.0.0 bundle, uploaded to the production draft without R8 and
+  replaced there before review (#104). The store's release notes live in
+  `play/release-notes/pt-BR.txt`.
+- The published build goes through R8 (#104, MAEANDR-34): the AGP 9.3+
+  `optimization { enable = true }` shrinks, optimizes and obfuscates code and
+  resources, and the App Bundle carries the R8 metadata (`r8.json`) and the
+  mapping Google Play uses for its optimization figures and to deobfuscate
+  crashes. Measured on the local bundle: 98.2% obfuscation, 97.5% optimization
+  and 98.2% shrinking, with the DEX down from 30.5 MB in three files to 4.0 MB
+  in one. Every `*-android` app ships every version this way (operator rule of
+  06/10/2026).
+- A `:teste-release` module (`com.android.test` with UI Automator 2.4.0, the
+  calculadora-android pattern) installs the minified build and drives it from
+  outside its process: the screens and the licences, the navigation stack
+  across an Activity recreation, the settings saved and read back after the app
+  is closed, and a key test that the provider refuses. That refusal, a fake key
+  sent to Anthropic at no cost, is the only test call to a real provider; it is
+  the one flow that proves OkHttp and TLS in the minified app. A control R8 rule
+  that breaks Jackson's text reads makes the flow fail. The module runs locally
+  on the managed emulator, with the other instrumented suites.
 - The specification's section 11 records the operator's decision of
   06/10/2026: the three on-device measurements it kept open (WorkManager
   against an own foreground service, the per-call timeout with maximum

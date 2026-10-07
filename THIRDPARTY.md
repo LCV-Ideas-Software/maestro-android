@@ -264,6 +264,13 @@ the kotlinx.serialization compiler plugins, `ui-tooling`, `ui-test-manifest`,
 `androidx.test.ext:junit`, `kotlinx-coroutines-test`, JUnit and `kotlin-test`)
 never reach a release binary and are not listed.
 
+### `:teste-release`
+
+A test-only module (`com.android.test`) that installs the R8-minified build of
+`:app` and drives it from outside its process. Its dependencies
+(`androidx.test.uiautomator:uiautomator` 2.4.0, `androidx.test:runner` and
+`androidx.test.ext:junit`) never reach a distributed binary and are not listed.
+
 ## Accepted upstream constraints
 
 ### OpenSSF Scorecard runtime image

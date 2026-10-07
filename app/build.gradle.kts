@@ -24,8 +24,10 @@ android {
         minSdk = 36
         targetSdk = 37
         // 1.0.0, a primeira publicação na Play (#100). O versionCode 1 foi o do
-        // bundle de 17/09/2026 (MAEANDR-9) na faixa interna; a Play exige um maior.
-        versionCode = 2
+        // bundle de 17/09/2026 (MAEANDR-9) na faixa interna; o 2, o primeiro
+        // bundle da 1.0.0, foi ao rascunho da produção sem o R8 e é trocado por
+        // este antes da revisão (#104). A Play exige sempre um maior.
+        versionCode = 3
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -48,6 +50,35 @@ android {
                     apiLevel = 37
                     systemImageSource = "google"
                 }
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // R8 no build publicado (#104): reduz, otimiza e ofusca o código e os
+            // recursos, e grava o `r8.json` e o mapeamento no metadado do bundle,
+            // de onde a Play tira as porcentagens e desofusca as falhas. É a DSL
+            // do AGP 9.3+, que já inclui as regras padrão do Android. Room,
+            // WorkManager, OkHttp, Compose, DataStore e kotlinx.serialization
+            // trazem as suas regras. O Jackson não traz, e o aplicativo o usa só
+            // pelo modelo de árvore (`readTree`, `ObjectNode`), sem ligar JSON a
+            // classes próprias, o que o `:teste-release` confere no minificado;
+            // o aplicativo não usa reflexão própria.
+            optimization {
+                enable = true
+            }
+        }
+        // O release minificado, assinado com a chave de depuração, só para o
+        // `:teste-release` instalar e percorrer de fora do processo (padrão
+        // oficial dos módulos de teste do build de release). A otimização é
+        // repetida aqui de propósito: o teste vale para o que a Play recebe.
+        create("minificado") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            optimization {
+                enable = true
             }
         }
     }

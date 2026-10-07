@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  O teste roda no próprio processo e precisa enxergar o aplicativo para abri-lo:
+  desde o Android 11, um pacote só vê outro declarado aqui (visibilidade de
+  pacotes), como no manifesto da amostra oficial de Macrobenchmark. A internet é
+  do próprio teste, que sonda o provedor antes de exigir a recusa da chave.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <queries>
+        <package android:name="dev.lcv.maestro" />
+    </queries>
+</manifest>
