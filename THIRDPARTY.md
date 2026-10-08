@@ -10,7 +10,7 @@ Action dependencies remain defined by those pinned upstream actions.
 | Component | Version | Commit SHA | License | Purpose |
 | --- | --- | --- | --- | --- |
 | `actions/checkout` | v7.0.1 | `3d3c42e5aac5ba805825da76410c181273ba90b1` | [MIT](https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/LICENSE) | Read repository content and complete Git history |
-| `github/codeql-action` | v4.38.0 | `b96794f015dfd88f77b49b1c93e0fa7110f94c63` | [MIT](https://github.com/github/codeql-action/blob/b96794f015dfd88f77b49b1c93e0fa7110f94c63/LICENSE) | Upload Scorecard SARIF; source analysis uses GitHub-managed CodeQL Default setup |
+| `github/codeql-action` | v4.38.3 | `24c54180a607b1449ed407dd24f251e4e9147c8d` | [MIT](https://github.com/github/codeql-action/blob/24c54180a607b1449ed407dd24f251e4e9147c8d/LICENSE) | Upload Scorecard SARIF; source analysis uses GitHub-managed CodeQL Default setup |
 | `actions/dependency-review-action` | v5.0.0 | `a1d282b36b6f3519aa1f3fc636f609c47dddb294` | [MIT](https://github.com/actions/dependency-review-action/blob/a1d282b36b6f3519aa1f3fc636f609c47dddb294/LICENSE) | Review dependency changes in pull requests |
 | `zizmorcore/zizmor-action` | v0.6.4 | `cc914d7f3750a2d13d75c7f184a1060aa0e9d482` | [MIT](https://github.com/zizmorcore/zizmor-action/blob/cc914d7f3750a2d13d75c7f184a1060aa0e9d482/LICENSE) | Audit GitHub Actions and upload SARIF |
 | `ossf/scorecard-action` | v2.4.4 | `2d1146689b8cda280b9bc96326124645441f03bc` | [Apache-2.0](https://github.com/ossf/scorecard-action/blob/2d1146689b8cda280b9bc96326124645441f03bc/LICENSE) | Assess supply-chain posture |
