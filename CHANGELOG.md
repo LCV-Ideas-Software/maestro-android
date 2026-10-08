@@ -8,6 +8,8 @@ All material changes to Maestro Android are recorded here.
 
 - Update the official `actions/upload-artifact` to v7.0.2 and `actions/download-artifact` to v8.0.2 at complete commit SHAs (LCV-334).
 
+- Mark the item in section 11 of the specification about the Maestro AI web calling `POST /v1/sonar` as resolved: ADMIAPP-28 was completed on 22/09/2026 by LCV-Ideas-Software/admin-app#652, ahead of the 27/09/2026 deadline (MAEANDR-36).
+
 
 ## [1.0.0] - 2026-10-06
 
