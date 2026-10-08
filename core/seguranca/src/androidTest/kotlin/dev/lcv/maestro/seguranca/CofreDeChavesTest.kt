@@ -71,9 +71,10 @@ import org.junit.runner.RunWith
  * autenticação de todos os aplicativos dele, e o teste não toca na trava de
  * ninguém.
  *
- * **No emulador do portão local, pular é falha.** O portão de cada PR passa o
- * argumento `emuladorDaCi=true` ao executor de testes (o nome vem de quando
- * esse emulador rodava na CI, até 06/10/2026); com ele, um emulador que
+ * **No emulador do portão local, pular é falha.** O comando do portão, no
+ * README ("Automation baseline"), passa o argumento `emuladorDaCi=true` ao
+ * executor de testes (o nome vem de quando esse emulador rodava na CI, até
+ * 06/10/2026); com ele, um emulador que
  * aparecesse com trava ou com StrongBox reprovaria a verificação, em vez de
  * pular todos os casos e passar sem ter provado nada.
  *
