@@ -4,6 +4,8 @@ All material changes to Maestro Android are recorded here.
 
 ## [Unreleased]
 
+- Update the official CodeQL SARIF upload Action to v4.38.3 at its complete release commit SHA (LCV-336).
+
 - Update the official `actions/upload-artifact` to v7.0.2 and `actions/download-artifact` to v8.0.2 at complete commit SHAs (LCV-334).
 
 
