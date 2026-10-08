@@ -1730,7 +1730,9 @@ conta do usuário. Fica declarado:
   **Para exibir**, arredonda a meio para cima (`HALF_UP`), na escala de 2 casas.
   Exibição nunca alimenta soma nem comparação. Uma versão anterior desta frase
   mandava somar em 2 casas: uma chamada de US$ 0,004 somaria zero, e o teto
-  nunca dispararia. Decisão do operador em 23/09/2026.
+  nunca dispararia. Em 23/09/2026, quando o Claude perguntou como ficava, o
+  operador escolheu a opção "Somar em 8 casas (Recomendado)", registrada no
+  [complemento da Discussion #111](https://github.com/LCV-Ideas-Software/maestro-android/discussions/111#discussioncomment-18824370).
 - **A comparação é `custo_acumulado + estimativa <= max_cost_usd`.** Igualdade
   **permite** a chamada. "Teto" é o valor máximo que se pode gastar, não o
   primeiro valor proibido — e gastar exatamente o que se autorizou é o que o

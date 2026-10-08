@@ -65,15 +65,16 @@ import org.junit.runner.RunWith
  * conta como autenticação, e `locksettings verify` autentica de novo, sem
  * tela: é assim que o teste abre e fecha a janela.
  *
- * **Só roda em aparelho sem trava de tela nenhuma**, como o emulador da CI. Num
- * aparelho que já tem trava, a classe inteira pula: remover a trava de um
- * aparelho de verdade apagaria as chaves presas à autenticação de todos os
- * aplicativos dele, e o teste não toca na trava de ninguém.
+ * **Só roda em aparelho sem trava de tela nenhuma**, como o emulador
+ * gerenciado do portão local. Num aparelho que já tem trava, a classe inteira
+ * pula: remover a trava de um aparelho de verdade apagaria as chaves presas à
+ * autenticação de todos os aplicativos dele, e o teste não toca na trava de
+ * ninguém.
  *
- * **No emulador da CI, pular é falha.** A CI passa o argumento
- * `emuladorDaCi=true` ao executor de testes; com ele, um emulador que
- * aparecesse com trava ou com StrongBox reprovaria a verificação, em vez de
- * pular todos os casos e passar sem ter provado nada.
+ * **Com o argumento `emuladorDaCi=true` no executor de testes, pular é
+ * falha** (o nome vem de quando o emulador rodava na CI, até 06/10/2026): um
+ * emulador que aparecesse com trava ou com StrongBox reprovaria a
+ * verificação, em vez de pular todos os casos e passar sem ter provado nada.
  *
  * Nenhum teste usa valor com forma de chave real.
  */
@@ -122,7 +123,7 @@ class CofreDeChavesTest {
 
     private val noEmuladorDaCi = InstrumentationRegistry.getArguments().getString("emuladorDaCi") == "true"
 
-    /** Pula num aparelho qualquer; reprova no emulador da CI. */
+    /** Pula num aparelho qualquer; reprova quando o executor recebe `emuladorDaCi=true`. */
     private fun exigirQueNao(motivo: String, condicao: Boolean) {
         if (noEmuladorDaCi) assertFalse(motivo, condicao) else assumeFalse(motivo, condicao)
     }

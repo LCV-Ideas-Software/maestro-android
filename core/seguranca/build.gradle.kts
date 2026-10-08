@@ -17,11 +17,12 @@ android {
 
     // Os testes deste módulo são instrumentados: o Keystore só existe em
     // aparelho ou emulador. O emulador é gerenciado pelo próprio Android
-    // Gradle Plugin (Gradle Managed Devices, a solução oficial do Google), e é
-    // o mesmo na CI e na máquina de quem desenvolve. Decisão do operador de
-    // 23/09/2026: os casos 2 a 5 da seção 8 rodam aqui, em toda PR. O caso 1
-    // exige o hardware de StrongBox, que o emulador não tem, e não há aparelho
-    // com ele disponível; o teste existe e só roda onde houver o hardware.
+    // Gradle Plugin (Gradle Managed Devices, a solução oficial do Google).
+    // Desde 06/10/2026 ele não roda na CI (Discussion #99): os casos 2 a 5 da
+    // seção 8 rodam nele na máquina de quem desenvolve, antes do push de cada
+    // PR. O caso 1 exige o hardware de StrongBox, que o emulador não tem, e
+    // não há aparelho com ele disponível; o teste existe e só roda onde houver
+    // o hardware.
     testOptions {
         managedDevices {
             localDevices {
@@ -43,8 +44,8 @@ dependencies {
 
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)
-    // Só para os testes: este é o único módulo com emulador na CI, e as
-    // expressões regulares do `:core:protocolo` precisam ser provadas na ICU
-    // do aparelho, não só na JVM (ProtocoloNoAparelhoTest).
+    // Só para os testes: as expressões regulares do `:core:protocolo`
+    // precisam ser provadas na ICU do aparelho, não só na JVM
+    // (ProtocoloNoAparelhoTest).
     androidTestImplementation(project(":core:protocolo"))
 }

@@ -27,9 +27,10 @@ import org.junit.runner.RunWith
  * O mesmo vale para o decodificador de UTF-8 dos anexos: o do Android não é o
  * do OpenJDK, e o manifesto só pode ser lido se for UTF-8 válido.
  *
- * Mora aqui porque este é o único módulo com emulador na CI (Gradle Managed
- * Devices, verificação obrigatória). Cada caso repete, pela API pública, um
- * caso que o `:core:protocolo` já prova na JVM.
+ * Mora aqui porque, quando foi escrito (PR #57), este era o único módulo com
+ * testes instrumentados no emulador gerenciado (Gradle Managed Devices). Cada
+ * caso repete, pela API pública, um caso que o `:core:protocolo` já prova na
+ * JVM.
  */
 @RunWith(AndroidJUnit4::class)
 class ProtocoloNoAparelhoTest {
