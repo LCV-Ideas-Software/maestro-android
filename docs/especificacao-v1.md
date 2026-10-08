@@ -2249,7 +2249,7 @@ duas páginas não é ausência do fato.
   o motor foi portado inteiro de `16a8cff` (MAESTRO-34), não só a revisão.
   Seção 2.2.
 
-### Fora deste repositório, aberta, com prazo
+### Fora deste repositório, resolvida
 
 - **O Maestro AI web chama `POST /v1/sonar`**, medido em
   `admin-motor/src/handlers/routes/maestro-ai/sessions.ts` em 21/09/2026 — o
@@ -2257,7 +2257,10 @@ duas páginas não é ausência do fato.
   especificação nem deste repositório, mas é achado com data e está registrado
   no rastreador do `admin-app`: Linear ADMIAPP-28 e a gêmea
   `LCV-Ideas-Software/admin-app#646`, com prioridade Alta e prazo 27/09/2026.
-  Aqui fica só a referência cruzada.
+  Aqui fica só a referência cruzada. **Estado em 22/09/2026, às 19:54
+  (Brasília):** resolvida antes do prazo. A ADMIAPP-28 foi concluída com a
+  `LCV-Ideas-Software/admin-app#652`, que migrou o Maestro AI web para a Agent
+  API da Perplexity.
 
 ---
 
