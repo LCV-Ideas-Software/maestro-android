@@ -276,21 +276,7 @@ analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
   request (operator decision of 06/10/2026, #97). They run locally, on the
   emulator managed by the Android Gradle Plugin (Gradle Managed Devices), as
   the gate of every pull request before the push, and the result is recorded in
-  the pull request. The gate command, run from the repository root:
-
-  ```
-  ./gradlew :core:seguranca:api37DebugAndroidTest :core:sessao:api37DebugAndroidTest \
-    :app:api37DebugAndroidTest :teste-release:api37MinificadoAndroidTest --max-workers=1 \
-    -Pandroid.testoptions.manageddevices.emulator.gpu=swiftshader_indirect \
-    -Pandroid.testInstrumentationRunnerArguments.emuladorDaCi=true \
-    -Pandroid.testInstrumentationRunnerArguments.notClass=dev.lcv.maestro.seguranca.CofreDeChavesStrongBoxTest
-  ```
-
-  With `emuladorDaCi=true`, a security case that would be skipped on the
-  managed emulator fails instead; the name dates from when that emulator ran
-  in CI. `CofreDeChavesStrongBoxTest` needs StrongBox hardware, which the
-  emulator does not have. The pull request body records the command and how
-  many cases ran in each module.
+  the pull request.
 - GitHub CodeQL Default setup analyzes the supported content. The duplicate
   advanced-setup workflow is not maintained in this repository.
 - Dependency Review evaluates pull requests to `main`.

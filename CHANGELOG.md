@@ -12,7 +12,7 @@ All material changes to Maestro Android are recorded here.
 
 - Correct two places in the specification that credited the operator without his literal words: section 2.2 now quotes the question he answered on 29/09/2026 when the `<queries>` declaration was removed, and section 6.1 records that the key-test wording was proposed by Claude and chosen by the operator on 28/09/2026 (decision 22, Discussion #111) (MAEANDR-37).
 
-- Correct the last places that still credited the operator without his choice or described the emulator in CI: section 7.1 of the specification now quotes the option he chose on 23/09/2026, "Somar em 8 casas (Recomendado)", recorded in the complement of Discussion #111, and the comments in `core/seguranca/build.gradle.kts`, `CofreDeChavesTest` and `ProtocoloNoAparelhoTest` now say that the instrumented tests run on the managed emulator of the local gate, which left CI on 06/10/2026 (Discussion #99). The README now records the local gate command, with the `emuladorDaCi=true` argument that turns a skipped security case into a failure (MAEANDR-38).
+- Correct the last places that still credited the operator without his choice or described the emulator in CI: section 7.1 of the specification now quotes the option he chose on 23/09/2026, "Somar em 8 casas (Recomendado)", recorded in the complement of Discussion #111, and the comments in `core/seguranca/build.gradle.kts`, `CofreDeChavesTest` and `ProtocoloNoAparelhoTest` now say that the instrumented tests run on the managed emulator of the local gate, which left CI on 06/10/2026 (Discussion #99) (MAEANDR-38).
 
 
 ## [1.0.0] - 2026-10-06
