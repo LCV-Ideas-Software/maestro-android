@@ -244,8 +244,9 @@ escolheu os cinco. O que a escolha pede, e como fica:
   Sem `<queries>` no manifesto: a documentação oficial de visibilidade de
   pacotes diz que `startActivity` não depende dela para abrir uma URL, e o
   aparelho sem navegador chega como `ActivityNotFoundException`, que o
-  registro anota (decisão do operador de 29/09/2026, que revogou a parte da
-  emenda A10 do plano do `:app` que pedia a declaração).
+  registro anota. A emenda A10 do plano do `:app` pedia a declaração. Em
+  29/09/2026, quando o Claude perguntou se ela ficava ou saía, o operador
+  respondeu "2. Porque há algo que não é necessário?", e ela saiu.
 - **Propostas de correção:** Crossref ou OpenAlex, fora da linha principal.
   Cada resultado é guardado como evidência, como o canônico faz, com o item
   JSON como corpo; o disco que falha ao guardar um deles é a falha da busca.
@@ -1542,8 +1543,10 @@ O que é verdade, e é o que a tela de configurações dirá com estas palavras:
   que não é exportável;
 - ela é **enviada, por TLS, apenas ao provedor a que pertence**, e só quando o
   usuário roda uma sessão com aquele provedor ativo ou pede o teste das chaves
-  (redação acrescentada pelo operador em 28/09/2026, quando o "Testar chaves"
-  do web foi portado);
+  (redação proposta pelo Claude quando o "Testar chaves" do web foi portado, e
+  escolhida pelo operador em 28/09/2026 na opção "Acrescentar o teste
+  (Recomendado)": é a decisão 22, registrada na
+  [Discussion #111](https://github.com/LCV-Ideas-Software/maestro-android/discussions/111));
 - **nenhum servidor da LCV Ideas & Software** a recebe, vê ou guarda — não há
   servidor nosso no caminho;
 - ela **nunca é exibida de volta** depois de gravada: a tela mostra

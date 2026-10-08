@@ -10,6 +10,8 @@ All material changes to Maestro Android are recorded here.
 
 - Mark the item in section 11 of the specification about the Maestro AI web calling `POST /v1/sonar` as resolved: ADMIAPP-28 was completed on 22/09/2026 by LCV-Ideas-Software/admin-app#652, ahead of the 27/09/2026 deadline (MAEANDR-36).
 
+- Correct two places in the specification that credited the operator without his literal words: section 2.2 now quotes the question he answered on 29/09/2026 when the `<queries>` declaration was removed, and section 6.1 records that the key-test wording was proposed by Claude and chosen by the operator on 28/09/2026 (decision 22, Discussion #111) (MAEANDR-37).
+
 
 ## [1.0.0] - 2026-10-06
 
