@@ -76,6 +76,18 @@ class ConfiguracoesGravacaoTest {
     }
 
     @Test
+    fun oProtocoloLongoEOPiorCasoVoltamInteirosDaLinha() {
+        // Os 181 508 caracteres do protocolo do operador, que o teto antigo cortava (MAEANDR-39).
+        val protocolo = "Revisão editorial: coesão, ênfase e coerência. ".repeat(4_000).take(181_507) + "."
+        assertEquals(protocolo, ok(PedidoDeConfiguracoes(protocolo = protocolo, tetoDeCustoUsd = BigDecimal.ONE)).protocolo)
+        assertEquals(protocolo, repositorio.carregar().protocolo)
+        // O pior caso dos 640 KB: 160 000 caracteres de 4 bytes, lidos de volta da linha.
+        val piorCaso = "😀".repeat(160_000)
+        assertEquals(piorCaso, ok(PedidoDeConfiguracoes(protocolo = piorCaso)).protocolo)
+        assertEquals(piorCaso, repositorio.carregar().protocolo)
+    }
+
+    @Test
     fun emailDeContatoObedeceARegraDoAgenteDeColeta() {
         assertNull(ok(PedidoDeConfiguracoes(tetoDeCustoUsd = BigDecimal.ONE)).emailDeContato)
         assertEquals("leitor@example.com", ok(PedidoDeConfiguracoes(emailDeContato = Campo.Presente(" leitor@example.com "))).emailDeContato)

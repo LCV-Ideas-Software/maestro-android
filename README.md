@@ -7,7 +7,9 @@ the reviewed governance, security, release and documentation baseline and,
 since 21/09/2026, the native port. Version 1.0.0 (06/10/2026) is the first
 version prepared for public release on Google Play; the publication is
 recorded here, as the Release `v01.00.00`, only after Play reports it
-published.
+published. Version 1.0.1 measures the editorial protocol in UTF-8 bytes, so a
+long protocol is no longer cut at 160,000 characters, and ships only the
+pt-BR and en-US resources.
 
 ## Canonical tracking
 

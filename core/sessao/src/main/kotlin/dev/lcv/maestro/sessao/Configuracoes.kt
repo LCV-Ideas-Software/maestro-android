@@ -120,7 +120,7 @@ public class RepositorioDeConfiguracoes(
 
     private fun salvarDentroDaTransacao(pedido: PedidoDeConfiguracoes): Resultado<Configuracoes> {
         val atual = banco.configuracoes().carregar()
-        val protocolo = Texto.sanear(pedido.protocolo ?: atual?.protocolo ?: PROTOCOLO_PADRAO, 160_000)
+        val protocolo = Texto.sanearEmBytes(pedido.protocolo ?: atual?.protocolo ?: PROTOCOLO_PADRAO, MAX_BYTES_DO_PROTOCOLO)
         val tetoDeCustoUsd = pedido.tetoDeCustoUsd ?: atual?.let { Dinheiro.deE8(it.tetoDeCustoE8) } ?: BigDecimal.ZERO
         val limiteBruto = when (val campo = pedido.tetoDeMinutos) {
             is Campo.Presente -> campo.valor
@@ -181,6 +181,17 @@ public class RepositorioDeConfiguracoes(
          */
         public const val TETO_DE_MINUTOS: Int = 300
 
+        /**
+         * O teto do protocolo editorial em bytes UTF-8: os 640 KB que a linha da
+         * sessão reserva para ele, com o pedido e o texto ao lado, abaixo dos
+         * 2 MiB do `CursorWindow` (decisão do operador de 27/09/2026; ver
+         * [Artefatos.MAX_BYTES_DO_TEXTO]). Antes se contava como 160 000 pontos
+         * de código de até 4 bytes cada, o que cortava sem aviso um protocolo de
+         * 181 508 caracteres em português, de 1 ou 2 bytes quase todos. O pior
+         * caso continua o mesmo (decisão do operador de 08/10/2026, MAEANDR-39).
+         */
+        public const val MAX_BYTES_DO_PROTOCOLO: Int = 640_000
+
         /** As recusas do `saveSettings` do web, que a tela também aplica antes de salvar, na ordem do web. */
         public const val MENSAGEM_PROTOCOLO_CURTO: String = "Protocolo editorial integral deve ter pelo menos 100 caracteres."
         public const val MENSAGEM_TETO_POSITIVO: String = "Teto financeiro em USD deve ser positivo."
@@ -232,7 +243,7 @@ Do not reproduce this protocol in artifacts. Read it, obey it, and cite only the
             val taxas = configuracoes.taxas
             val titulo = Texto.sanear(pedido.titulo?.takeIf { it.isNotEmpty() } ?: "Sessao Maestro AI", 200)
             val texto = Texto.sanear(pedido.pedido, 40_000)
-            val protocolo = Texto.sanear(configuracoes.protocolo, 160_000)
+            val protocolo = Texto.sanearEmBytes(configuracoes.protocolo, MAX_BYTES_DO_PROTOCOLO)
             val elegibilidade = elegibilidade(taxas, chaves)
             val elegiveis = Provedor.entries.filter { elegibilidade[it] == Elegibilidade.ELEGIVEL }
             val agenteInicial = Agentes.sanear(pedido.agenteInicial, elegiveis.firstOrNull() ?: Provedor.CLAUDE)
