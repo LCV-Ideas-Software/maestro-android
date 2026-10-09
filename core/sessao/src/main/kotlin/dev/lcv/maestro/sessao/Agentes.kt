@@ -71,6 +71,31 @@ public object Texto {
         val semNulo = (valor ?: "").replace("\u0000", "")
         return EspacoUnicode.primeirosPontosDeCodigo(TrimJs.aparar(semNulo), maximo)
     }
+
+    /**
+     * Como [sanear], mas com o teto em bytes UTF-8, o que a linha do banco de
+     * fato gasta, e sem partir um ponto de código. O web corta o protocolo em
+     * 160 000 caracteres; aqui o protocolo é medido em bytes (desvio declarado,
+     * decisão do operador de 08/10/2026, MAEANDR-39).
+     */
+    public fun sanearEmBytes(valor: String?, maximoDeBytes: Int): String {
+        val aparado = TrimJs.aparar((valor ?: "").replace("\u0000", ""))
+        var indice = 0
+        var bytes = 0
+        while (indice < aparado.length) {
+            val pontoDeCodigo = aparado.codePointAt(indice)
+            val tamanho = when {
+                pontoDeCodigo < 0x80 -> 1
+                pontoDeCodigo < 0x800 -> 2
+                pontoDeCodigo < 0x10000 -> 3
+                else -> 4
+            }
+            if (bytes + tamanho > maximoDeBytes) break
+            bytes += tamanho
+            indice += Character.charCount(pontoDeCodigo)
+        }
+        return aparado.substring(0, indice)
+    }
 }
 
 /**

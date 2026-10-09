@@ -23,13 +23,22 @@ android {
         // `docs/especificacao-v1.md`.
         minSdk = 36
         targetSdk = 37
-        // 1.0.0, a primeira publicação na Play (#100). O versionCode 1 foi o do
-        // bundle de 17/09/2026 (MAEANDR-9) na faixa interna; o 2, o primeiro
-        // bundle da 1.0.0, foi ao rascunho da produção sem o R8 e é trocado por
-        // este antes da revisão (#104). A Play exige sempre um maior.
-        versionCode = 3
-        versionName = "1.0.0"
+        // 1.0.1 (MAEANDR-39): o protocolo editorial medido em bytes e só pt-BR e
+        // en-US no pacote. O versionCode 1 foi o do bundle de 17/09/2026
+        // (MAEANDR-9) na faixa interna; o 2, o primeiro bundle da 1.0.0, foi
+        // trocado pelo 3 antes da revisão (#104); o 3 é a 1.0.0, a primeira
+        // publicação na Play (#100). A Play exige sempre um maior.
+        versionCode = 4
+        versionName = "1.0.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // Só os recursos de português do Brasil e de inglês dos EUA vão no pacote;
+    // os dos outros idiomas que as bibliotecas trazem ficam fora (decisão do
+    // operador de 08/10/2026, MAEANDR-39). O formato é o da documentação do
+    // AGP 9.4.1; o `resourceConfigurations` do `defaultConfig` está obsoleto.
+    androidResources {
+        localeFilters += listOf("pt-rBR", "en-rUS")
     }
 
     buildFeatures {

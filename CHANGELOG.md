@@ -4,16 +4,25 @@ All material changes to Maestro Android are recorded here.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-08
+
+### Changed
+
+- Version 1.0.1, `versionCode` 4 (MAEANDR-39). The editorial protocol is
+  measured in UTF-8 bytes, up to the same 640,000 bytes the session row
+  reserves for it below the 2 MiB `CursorWindow` (operator decision of
+  27/09/2026), instead of 160,000 code points of up to 4 bytes each. The
+  worst case is unchanged, and the operator's 181,508-character protocol,
+  which the old cut truncated without notice, is kept whole (operator
+  decision of 08/10/2026: "muda o teto, claro.").
+- The package ships only the pt-BR and en-US resources, plus the defaults
+  (`androidResources.localeFilters`, the form the AGP 9.4.1 documentation
+  gives; operator decision of 08/10/2026: "somente pt_BR e en_US").
 - Update the official CodeQL SARIF upload Action to v4.38.3 at its complete release commit SHA (LCV-336).
-
 - Update the official `actions/upload-artifact` to v7.0.2 and `actions/download-artifact` to v8.0.2 at complete commit SHAs (LCV-334).
-
 - Mark the item in section 11 of the specification about the Maestro AI web calling `POST /v1/sonar` as resolved: ADMIAPP-28 was completed on 22/09/2026 by LCV-Ideas-Software/admin-app#652, ahead of the 27/09/2026 deadline (MAEANDR-36).
-
 - Correct two places in the specification that credited the operator without his literal words: section 2.2 now quotes the question he answered on 29/09/2026 when the `<queries>` declaration was removed, and section 6.1 records that the key-test wording was proposed by Claude and chosen by the operator on 28/09/2026 (decision 22, Discussion #111) (MAEANDR-37).
-
 - Correct the last places that still credited the operator without his choice or described the emulator in CI: section 7.1 of the specification now quotes the option he chose on 23/09/2026, "Somar em 8 casas (Recomendado)", recorded in the complement of Discussion #111, and the comments in `core/seguranca/build.gradle.kts`, `CofreDeChavesTest` and `ProtocoloNoAparelhoTest` now say that the instrumented tests run on the managed emulator of the local gate, which left CI on 06/10/2026 (Discussion #99) (MAEANDR-38).
-
 
 ## [1.0.0] - 2026-10-06
 
