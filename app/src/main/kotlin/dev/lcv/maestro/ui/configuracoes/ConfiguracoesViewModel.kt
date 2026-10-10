@@ -111,20 +111,37 @@ class ConfiguracoesViewModel(private val d: Dependencias) : ViewModel() {
         }
     }
 
-    /** `applySettings`: o formulário volta ao que está gravado. */
-    private fun aplicar(configuracoes: Configuracoes) {
-        teto = configuracoes.tetoDeCustoUsd.toPlainString()
-        limiteDeMinutos = configuracoes.tetoDeMinutos?.toString() ?: ""
+    /** O formulário de custos, limite de tempo, tarifas, protocolo e e-mail como foi enviado a uma gravação. */
+    private data class Formulario(
+        val teto: String,
+        val limiteDeMinutos: String,
+        val taxas: Map<Provedor, TaxasDigitadas>,
+        val protocolo: String,
+        val email: String,
+    )
+
+    /**
+     * `applySettings`: o formulário volta ao que está gravado. Depois de uma gravação, com o formulário [enviado],
+     * só o campo que ainda tem o que foi enviado recebe o valor gravado, já normalizado pelo núcleo; o que a pessoa
+     * digitou enquanto a gravação corria fica (MAEANDR-40).
+     */
+    private fun aplicar(configuracoes: Configuracoes, enviado: Formulario? = null) {
+        fun gravadoSeNaoMudou(atual: String, doEnvio: String?, gravado: String) =
+            if (enviado == null || atual == doEnvio) gravado else atual
+        teto = gravadoSeNaoMudou(teto, enviado?.teto, configuracoes.tetoDeCustoUsd.toPlainString())
+        limiteDeMinutos = gravadoSeNaoMudou(limiteDeMinutos, enviado?.limiteDeMinutos, configuracoes.tetoDeMinutos?.toString() ?: "")
         Provedor.entries.forEach { agente ->
             val atuais = configuracoes.taxas[agente]
+            val digitadas = taxas[agente] ?: TaxasDigitadas("", "", "")
+            val enviadas = enviado?.taxas?.get(agente)
             taxas[agente] = TaxasDigitadas(
-                entrada = atuais?.entradaPorMilhao?.toPlainString() ?: "",
-                saida = atuais?.saidaPorMilhao?.toPlainString() ?: "",
-                busca = atuais?.requisicoesPorMil?.toPlainString() ?: "",
+                entrada = gravadoSeNaoMudou(digitadas.entrada, enviadas?.entrada, atuais?.entradaPorMilhao?.toPlainString() ?: ""),
+                saida = gravadoSeNaoMudou(digitadas.saida, enviadas?.saida, atuais?.saidaPorMilhao?.toPlainString() ?: ""),
+                busca = gravadoSeNaoMudou(digitadas.busca, enviadas?.busca, atuais?.requisicoesPorMil?.toPlainString() ?: ""),
             )
         }
-        protocolo = configuracoes.protocolo
-        email = configuracoes.emailDeContato ?: ""
+        protocolo = gravadoSeNaoMudou(protocolo, enviado?.protocolo, configuracoes.protocolo)
+        email = gravadoSeNaoMudou(email, enviado?.email, configuracoes.emailDeContato ?: "")
         _estado.update { it.copy(carregado = true) }
     }
 
@@ -153,7 +170,8 @@ class ConfiguracoesViewModel(private val d: Dependencias) : ViewModel() {
         viewModelScope.launch {
             when (val guarda = withContext(Dispatchers.IO) { d.cofre.guardar(provedor, chave) }) {
                 is Guarda.Guardada -> {
-                    chavesDigitadas[provedor] = ""
+                    // Só sai a chave que foi enviada: a digitada durante a gravação fica (MAEANDR-40).
+                    if (chavesDigitadas[provedor] == chave) chavesDigitadas[provedor] = ""
                     avisar(Mensagem.DeRecurso(R.string.chave_guardada))
                     recarregarCofre()
                 }
@@ -193,12 +211,13 @@ class ConfiguracoesViewModel(private val d: Dependencias) : ViewModel() {
         if (_estado.value.salvando) return
         val pedido = montarPedido() ?: return avisar(Mensagem.DeRecurso(R.string.erro_numero))
         recusaDoCliente(pedido)?.let { return avisar(Mensagem.Literal(it)) }
+        val enviado = Formulario(teto, limiteDeMinutos, taxas.toMap(), protocolo, email)
         _estado.update { it.copy(salvando = true) }
         viewModelScope.launch {
             try {
                 when (val resultado = withContext(Dispatchers.IO) { d.configuracoes.salvar(pedido) }) {
                     is Resultado.Ok -> {
-                        aplicar(resultado.valor)
+                        aplicar(resultado.valor, enviado)
                         avisar(Mensagem.DeRecurso(R.string.configuracoes_salvas))
                     }
                     is Resultado.Recusado -> avisar(Mensagem.Literal(resultado.mensagem))

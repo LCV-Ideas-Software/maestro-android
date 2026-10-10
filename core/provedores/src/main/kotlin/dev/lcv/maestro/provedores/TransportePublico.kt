@@ -226,11 +226,23 @@ internal class TransportePublico(
         )
 
         /**
-         * O cliente de produção: novo, limpo e só TLS moderno. Os testes
-         * passam um cliente próprio, que confia no certificado do servidor
-         * falso e, nos casos de texto claro, admite `CLEARTEXT` de propósito.
+         * O cliente de produção: novo, limpo e só TLS moderno. A conexão, o
+         * envio e a leitura esperam até [PRAZO_SEGUNDOS], e não os 10 s padrão
+         * do OkHttp para cada um: o site que levasse mais que isso para aceitar a
+         * conexão ou para começar a responder cairia antes do prazo da chamada,
+         * e a nota diria "timed out after 30 s" de um prazo que não venceu. O
+         * desktop canônico também só tem o prazo total: a conexão segue a
+         * decisão do operador de 09/10/2026, e o envio, incluído pelo Claude
+         * pela mesma regra, foi mantido por decisão dele no mesmo dia. Os
+         * testes passam um cliente próprio, que confia no certificado do
+         * servidor falso e, nos casos de texto claro, admite
+         * `CLEARTEXT` de propósito.
          */
-        fun clienteLimpo(): OkHttpClient =
-            OkHttpClient.Builder().connectionSpecs(listOf(ConnectionSpec.MODERN_TLS)).build()
+        fun clienteLimpo(): OkHttpClient = OkHttpClient.Builder()
+            .connectionSpecs(listOf(ConnectionSpec.MODERN_TLS))
+            .connectTimeout(PRAZO_SEGUNDOS, TimeUnit.SECONDS)
+            .writeTimeout(PRAZO_SEGUNDOS, TimeUnit.SECONDS)
+            .readTimeout(PRAZO_SEGUNDOS, TimeUnit.SECONDS)
+            .build()
     }
 }

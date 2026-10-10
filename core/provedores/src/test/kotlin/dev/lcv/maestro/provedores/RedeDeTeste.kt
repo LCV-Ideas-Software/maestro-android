@@ -44,6 +44,11 @@ internal object RedeDeTeste {
         .readTimeout(prazoDeLeituraMs, TimeUnit.MILLISECONDS)
         .build()
 
+    /** O cliente [base], com os prazos dele, confiando no certificado do servidor falso. */
+    fun confiando(base: OkHttpClient): OkHttpClient = base.newBuilder()
+        .sslSocketFactory(doCliente.sslSocketFactory(), doCliente.trustManager)
+        .build()
+
     val agente = AgenteDeColeta("1.2.3", null)
     val agentePolido = AgenteDeColeta("1.2.3", "leitor@example.com")
     val agora: Instant = Instant.parse("2026-09-25T12:00:00Z")

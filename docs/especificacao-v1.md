@@ -6,10 +6,12 @@ Este documento registra **o que foi decidido e por quê**, para que nenhuma
 escolha precise ser redescoberta ou relitigada.
 
 Toda verificação de documentação de provedor citada aqui foi feita em
-**21/09/2026**, na documentação oficial do próprio provedor, e não de memória.
-A única exceção é a linha do `grok` na seção 5.1, reconfirmada na documentação
-oficial da xAI em **22/09/2026**; as dos outros cinco provedores continuam com a
-data de 21/09.
+**21/09/2026**, na documentação oficial do próprio provedor, e não de memória,
+salvo as reconferências, registradas onde ocorreram: a linha do `grok` na seção
+5.1, em **22/09/2026**; o quadro da seção 5.1 e a linha da xAI na seção 6.4, em
+**23/09/2026**; e, em **09/10/2026**, o controle de raciocínio da DeepSeek na
+seção 5.1, depois da auditoria do Codex de 08/10/2026, e a Perplexity na seção
+6.4.
 
 ## 1. Do que se trata
 
@@ -391,10 +393,10 @@ evidência** (`valid_content_hash`, 64 dígitos hexadecimais em qualquer caixa,
 decisão 5 do operador na #77); e **URL que o saneamento alteraria fica
 bloqueada** (`normalized_url_is_safe_to_collect`).
 
-Onde o porte é **mais estrito que o canônico**, de propósito. Salvo os dois
-últimos, que são decisões do operador, os pontos corrigem defeitos que a
-revisão do Codex achou na PR #57 e depois do merge dela, e que também estão
-no Rust em `68528f9`:
+Onde o porte é **mais estrito que o canônico**, de propósito. Os pontos que
+citam uma decisão do operador ou um achado posterior do Codex vêm dessa
+origem; os demais corrigem defeitos que a revisão do Codex achou na PR #57 e
+depois do merge dela, e que também estão no Rust em `68528f9`:
 
 - **sem manifesto, nota de rodapé, `<cite>`, `<blockquote>`, `<q>` e `apud`,
   `ibid.`, `op. cit.` bloqueiam** mesmo num texto sem citação autor-data; no
@@ -443,10 +445,78 @@ no Rust em `68528f9`:
   (decisão do operador de 24/09/2026). Citar o mesmo autor, ano e localizador
   duas vezes, para duas afirmações, pede duas entradas. No Rust uma entrada
   cobria todas as ocorrências iguais, e a segunda afirmação saía sem
-  verificação própria. Texto com forma de citação dentro da seção de
-  referências, como um título, não consome entrada: só precisa estar
-  representado, como no Rust. A seção termina no próximo cabeçalho, e um
-  apêndice depois dela é corpo;
+  verificação própria. Texto com forma de citação dentro do aparato
+  bibliográfico do item seguinte (a seção de referências e as seções de
+  fontes consultáveis online e de leituras complementares, com os seus
+  subtítulos), como um título, não consome entrada: só precisa estar
+  representado, como no Rust. Cada seção do aparato termina no próximo
+  cabeçalho de nível igual ou menor, ou no fim do texto, e um apêndice com
+  cabeçalho de nível igual ou menor, depois do aparato ou entre as seções
+  dele, é corpo. Nas fontes online, nas leituras complementares e nos
+  subtítulos da seção de referências, a citação deixou de consumir entrada
+  porque as decisões do operador de 09/10/2026 mandam esta regra usar o mesmo
+  corte do item seguinte;
+- **o `original_text` e a forma normalizada de uma citação do manifesto só a
+  localizam no corpo** (o corte da seção de referências, para o original, por
+  achado da auditoria do Codex de 08/10/2026; o das outras seções do aparato e
+  dos subtítulos, e o da forma normalizada, por decisões do operador de
+  09/10/2026, registradas na MAEANDR-40). O corpo é o texto fora do aparato
+  bibliográfico: a seção de referências e as seções de fontes consultáveis
+  online e de leituras complementares, em qualquer ponto do texto. Cada uma
+  destas duas começa num cabeçalho (linha que, aparada, começa com `#`) cujo
+  nome, dobrado como na regra de ordem do aparato
+  (`bibliographic_apparatus_order_invalid`: caixa baixa, sem os acentos do
+  português, só letras e dígitos ASCII), é `fontesonline`,
+  `fontesconsultaveisonline`, `fontesconsultadasonline` ou
+  `leiturascomplementares`. Cada seção do aparato, a de referências
+  inclusive, vai do seu cabeçalho até a próxima linha de cabeçalho de nível
+  igual ou menor (o nível é a quantidade de `#` no começo da linha aparada),
+  ou até o fim do texto: um subtítulo mais fundo, como `### Livros` dentro
+  de `## Leituras complementares`, fica dentro dela, e uma seção com outro
+  cabeçalho de nível igual ou menor, como um apêndice, é corpo. Como no Rust
+  em `68528f9`, a seção de referências só começa no primeiro cabeçalho que
+  ele reconhece (`reference_section`: de um a seis `#` no começo da linha,
+  sem recuo, e só o nome, `Referências`, `Referências bibliográficas` ou
+  `Bibliografia`, sem pontuação, ênfase nem `#` de fechamento). Um segundo
+  cabeçalho de referências de nível igual ou menor fecha a primeira seção, e
+  a seção dele é corpo. Com um cabeçalho de referências que o Rust em
+  `68528f9` não reconhece, como `## Referências:` ou `## **Referências**`,
+  que a regra de ordem do aparato ainda reconhece, a seção inteira fica no
+  corpo, e um trecho dela ainda localiza a citação. O Rust atual
+  (`b056b26`) já lê o cabeçalho de referências pelo parser CommonMark
+  (`reference_heading_bounds`), e o porte segue o canônico fixado, `68528f9`.
+  O original e a forma normalizada são procurados nas
+  partes antes, entre e depois das seções do aparato, cada parte por si, sem
+  juntar o fim de uma ao começo da seguinte, o que formaria uma ocorrência que
+  o texto não tem. No Rust em
+  `68528f9`, os dois eram procurados no texto inteiro: um original que só
+  existia na bibliografia, como o sobrenome do autor de uma referência, dava
+  por presente uma citação que o corpo não faz, e a forma normalizada
+  `(IBGE, 2023)` era achada, dobrada, em `Rio de Janeiro: IBGE, 2023.`, numa
+  referência em que o autor é também a editora. Em 09/10/2026, às 17:35
+  (Brasília), quando o Claude perguntou o que fazer com as fontes consultáveis
+  online e as leituras complementares, que ainda contavam como corpo, o
+  operador escolheu a opção "b. Tirar também essas duas (Recomendado)", que a
+  pergunta descrevia assim: "As duas seções saem do corpo, e a regra de 24/09
+  que conta as citações contra o manifesto usa o mesmo corte. Uma obra só
+  recomendada para leitura deixa de valer como citada. [...]" Às 19:02 do
+  mesmo dia, quando o Claude perguntou se um subtítulo como `### Livros`
+  dentro de `## Leituras complementares` devia continuar dentro da seção, o
+  operador escolheu a opção "a. Sim, ficam dentro (Recomendado)"; e, quando
+  perguntou o que fazer com a forma `(Autor, ano)` achada dentro do aparato,
+  como `IBGE, 2023`, escolheu a opção "Tratar na 1.0.2", que a pergunta
+  descrevia assim: "A forma normalizada também passa a valer só no corpo.
+  Contraria o plano do Codex, que mandou preservá-la, [...]" Por essa decisão
+  do operador, e contra o plano de correções da auditoria do Codex de
+  08/10/2026, que mandava manter a forma normalizada procurada no texto
+  inteiro, como no Rust em `68528f9`, ela também só vale no corpo. A mensagem
+  do bloqueio `manifest_citation_absent_from_text` diz que a busca é só no
+  corpo, fora das três seções do aparato; no Rust ela diz "no texto final". A
+  redação é do Claude, da revisão final de 09/10/2026, consequência do corte;
+  em 09/10/2026, às 22:57, quando o Claude perguntou se a mantinha (opção a,
+  recomendada) ou restaurava a frase canônica (opção b), o operador respondeu
+  "2. a.". A lista de referências continua lida como no Rust, só da seção de
+  referências e até o primeiro cabeçalho de qualquer nível;
 - **manifesto com chave JSON repetida é recusado** (decisão do operador de
   24/09/2026). O Rust o lê primeiro como `Value` e fica com o último valor:
   dois leitores do mesmo arquivo veriam manifestos diferentes;
@@ -1298,7 +1368,7 @@ providing API services for DeepSeek V4 Pro after September 14, 2026."*
 | `claude` | `claude-fable-5-1` | `POST https://api.anthropic.com/v1/messages` | `thinking: {type: "adaptive"}` + `output_config.effort`: `low`…`max` | `max` |
 | `codex` | `gpt-6-astra` | `POST https://api.openai.com/v1/responses` | `reasoning.effort`: `minimal`…`max`, sem padrão; `none` devolve 400 | `max` |
 | `gemini` | `gemini-3.1-pro-preview` | `POST https://generativelanguage.googleapis.com/v1beta/interactions` | `generation_config.thinking_level`: `low`, `medium`, `high` (padrão `high`) | `high` |
-| `deepseek` | `deepseek-v4-pro` | `POST https://api.deepseek.com/chat/completions` | `thinking: {type: "enabled", reasoning_effort}`: `none`, `low`, `high`, `max` | `max` |
+| `deepseek` | `deepseek-v4-pro` | `POST https://api.deepseek.com/chat/completions` | `thinking: {type: "enabled"}` + `reasoning_effort`: `none`, `low`, `high`, `max` | `max` |
 | `grok` | `grok-4.7` | `POST https://api.x.ai/v1/responses` | `reasoning.effort`: `low`, `medium`, `high`, `xhigh` (padrão `high`) | `xhigh` |
 | `perplexity` | `perplexity/sonar` | `POST https://api.perplexity.ai/v1/agent` | `preset`: `fast`, `low`, `medium`, `high`, `xhigh` | `xhigh` |
 
@@ -1315,9 +1385,13 @@ Grok 4.7 128 mil por padrão. A Perplexity não publica o teto do
 **Três linhas mudaram na reconferência de 23/09/2026.** O endereço do Gemini é
 `/v1beta/interactions`, e não `/v1beta2/`, como o quadro dizia: é o endereço do
 exemplo REST oficial, e a Interactions API está disponível para uso geral desde
-junho de 2026. A DeepSeek passou a expor o controle de raciocínio, com o esforço
-**dentro** de `thinking`, como a referência da API documenta. E o modelo da
-Perplexity mudou, pelo motivo do parágrafo sobre a Perplexity, logo abaixo.
+junho de 2026. A DeepSeek passou a expor o controle de raciocínio: `thinking`
+leva só o `type`, e o esforço vai em `reasoning_effort`, **na raiz** do corpo,
+como o guia do modo de raciocínio e a referência da API documentam para o
+formato OpenAI (reconferido em 09/10/2026). Este parágrafo dizia, até a
+auditoria do Codex de 08/10/2026, que o esforço ia **dentro** de `thinking`, e
+o aplicativo o mandava ali. E o modelo da Perplexity mudou, pelo motivo do
+parágrafo sobre a Perplexity, logo abaixo.
 
 Três escolhas são do operador — `claude-fable-5-1`, `gemini-3.1-pro-preview` e o
 uso da API geral do Gemini. As outras decorrem da regra: `gpt-6-astra` é o
@@ -1393,6 +1467,25 @@ completa, com o prazo da seção 4.1.
 Isto é afastamento declarado do padrão da *skill* `claude-api`, que manda usar o
 SDK Java oficial em projetos Kotlin. O padrão supõe JVM de servidor; aqui o alvo
 é Android, e o próprio SDK não afirma suportá-lo.
+
+**Os prazos dos clientes de produção, desde a 1.0.2.** O cliente dos seis
+provedores (`Fabrica.clienteHttpDosProvedores`) e o da conferência de links
+(`TransportePublico.clienteLimpo`, seção 5.4, que também serve a busca de
+evidências no Crossref e no OpenAlex) esperam a conexão, o envio do pedido e
+a leitura até o prazo da chamada, e não os 10 s padrão do OkHttp para cada
+um: 120 s, ou o que resta da sessão, nos provedores e 30 s nos links. A
+leitura do cliente dos provedores é o achado PROV-02 da auditoria do Codex de
+08/10/2026. A do transporte segue a mesma regra num ponto que o Codex não
+listou: o Claude a propôs, e o operador aprovou em 09/10/2026, às 06:42
+("sim"). Para a conexão, às 17:35 do mesmo dia (Brasília), quando o Claude
+perguntou o que fazer com os 10 s para abrir a conexão, o operador escolheu a
+opção "a. Igualar ao desktop (Recomendado)", que a pergunta descrevia assim:
+"A conexão pode usar o prazo inteiro da chamada: 30 s nos links e 2 min nos
+provedores. [...]" O envio, também de 10 s no OkHttp, recebeu o mesmo prazo
+por inclusão do Claude, pela mesma regra: o desktop canônico só tem o prazo
+total. Em 09/10/2026, às 22:57, quando o Claude perguntou se revertia o envio
+aos 10 s padrão (opção a, recomendada) ou o mantinha (opção b), o operador
+respondeu "1. b;": o envio fica com o prazo da chamada, por decisão dele.
 
 ### 5.4 A auditoria de links porta, com o modelo de ameaça invertido
 
@@ -1649,15 +1742,42 @@ A calculadora declarava coleta zero: as fontes eram públicas e sem chave. Aqui
 não dá para herdar isso por omissão.
 
 O aplicativo **não coleta** nada para a LCV: não há servidor nosso no caminho,
-não há analytics, não há identificador persistente próprio. Mas o usuário
-**envia o próprio texto a terceiros** — os seis provedores —, e isso é
-compartilhamento com terceiro no vocabulário do formulário de Segurança de dados
-da Play. A declaração tem de dizer exatamente isso, e a tela que pede a chave
-tem de dizer a mesma coisa antes de a primeira sessão rodar.
+não há analytics, não há identificador persistente próprio. O usuário **envia o
+próprio texto**, do aparelho, direto aos provedores que ele ativou, e nada disso
+chega à LCV. No formulário de Segurança dos dados da Play, o aplicativo declara
+que não coleta nem compartilha dados do usuário, como registra a seção 6.3 da
+política de privacidade 1.5; a política descreve cada envio a terceiros, e a
+tela que pede a chave diz, antes de a primeira sessão rodar, para onde vai o
+que o usuário escreve.
 
-**A frase da tela, desde a 1.0.0 (06/10/2026, #100).** A legenda da tela de
-chaves, logo abaixo da explicação da chave (seção 6.1), diz, palavra por
-palavra: *"O seu texto, o pedido e os anexos da sessão são enviados, por TLS, aos provedores dos agentes que você ativar, e a nenhum outro provedor de inteligência artificial; nenhum servidor da LCV Ideas & Software os recebe, vê ou guarda. Na conferência dos links, os endereços citados no texto vão aos próprios sites e ao serviço de nomes do Google; se você pedir propostas de correção para um link, a sua consulta ou o trecho do texto em torno dele vai ao Crossref e ao OpenAlex. O aplicativo pede que não guardem a conversa aos provedores cuja API oferece essa opção (OpenAI, Google, xAI e Perplexity); a Anthropic e a DeepSeek não a oferecem; e cada provedor ainda aplica a própria política de retenção."* A frase do meio nomeia os dois outros destinos do que o usuário escreve, que a primeira redação ("e a nada mais") negava: os sites citados e o serviço de nomes do Google, na conferência dos links, e o Crossref e o OpenAlex, na busca de evidências (achado do cross-review de 06/10/2026). A última frase é a da seção 6.4, com os provedores nomeados como a seção 5 os mede: a tela não promete retenção zero, porque `store: false` não a garante, nem o pedido a quem não tem o campo (achado do Codex na #102).
+**A frase da tela, desde a 1.0.2.** A legenda da tela de chaves, logo abaixo da
+explicação da chave (seção 6.1), diz, palavra por palavra:
+*"O título, o identificador e o pedido da sessão, o texto de partida e as versões seguintes, o protocolo editorial, os relatórios das revisões anteriores e um resumo do manifesto de citações (quantas citações e fontes ele tem) são enviados, por TLS, aos provedores dos agentes que você ativar, e a nenhum outro provedor de inteligência artificial; nenhum servidor da LCV Ideas & Software os recebe, vê ou guarda. Quando a auditoria reprova o texto em revisão, vai também aos mesmos provedores o resultado dela, que pode incluir citações e referências, links conferidos, propostas de correção e as decisões e justificativas que você registrou. O arquivo anexado não é enviado como tal, e os anexos que não são manifesto de citações não saem do aparelho. Na conferência dos links, os endereços citados no texto vão aos próprios sites, e o nome de cada site, ao serviço de nomes do Google; se você pedir propostas de correção para um link, a sua consulta ou o trecho do texto em torno dele vai ao Crossref e ao OpenAlex. O aplicativo pede à OpenAI, ao Google e à xAI que não guardem a conversa para consulta posterior; na API da Perplexity usada pelo aplicativo, o mesmo pedido só esconde a resposta da consulta posterior e não desliga a guarda; à Anthropic e à DeepSeek esse pedido não vai, porque as APIs delas usadas pelo aplicativo não têm essa opção; e cada provedor ainda aplica a própria política de retenção."*
+É a redação A, a longa, que o Claude propôs ao lado de uma curta: em
+09/10/2026, às 07:19 (Brasília), quando o Claude pediu a escolha entre "A,
+longa (1.411 caracteres)", que lista item por item o que vai, e "B, curta
+(cerca de 950 caracteres)", que mantinha a estrutura do aviso de então e só
+trocava o que estava errado, o operador respondeu "A". A legenda resume a
+seção 6.1 da política de privacidade 1.5 sem contradizê-la. As três
+primeiras frases dizem o que vai aos provedores ativados como o código monta os
+prompts (seções 2.2 e 4.2): nos prompts comuns, do manifesto de citações vão
+só a origem e as contagens (`PromptsDaSessao.resumoDoManifesto`); nos turnos de
+revisão sobre texto reprovado, vai também o pacote da auditoria, que pode trazer
+citações, referências e links (decisão 23, seção 2.2); dos outros anexos não vai
+nada, porque o leitor deles os ignora (`ManifestosDosAnexos`). A frase dos links
+nomeia os outros destinos do que o usuário escreve, que a primeira redação ("e a
+nada mais") negava (achado do cross-review de 06/10/2026), e diz que o serviço
+de nomes do Google recebe só o nome de cada site, como a seção 9. A última frase
+é a da seção 6.4: a tela não promete retenção zero, porque `store: false` não a
+garante, nem o pedido a quem não tem o campo (achado do Codex na #102), e não
+conta a Perplexity entre os provedores que atendem o pedido.
+
+Da 1.0.0 à 1.0.1, a legenda dizia que *"o seu texto, o pedido e os anexos da
+sessão"* eram enviados e contava a Perplexity entre os provedores *"cuja API
+oferece essa opção"* de não guardar a conversa. As duas afirmações estavam
+erradas: o código não envia os anexos como tal, e o `store: false` da Agent API
+não desliga a guarda (seção 6.4). Achado DISCLOSURE-01 da auditoria
+completa do código feita pelo Codex em 08/10/2026.
 
 ### 6.4 `store: false` em todos os provedores que o oferecem
 
@@ -1667,7 +1787,13 @@ omissão:
 - **OpenAI Responses:** `store` é `true` por padrão, com retenção de 30 dias.
 - **Gemini Interactions:** `store` é `true` por padrão, com retenção de 55 dias
   no *tier* pago e 1 dia no gratuito.
-- **Perplexity Agent API:** expõe `store`.
+- **Perplexity Agent API:** expõe `store`, mas o campo não desliga a guarda.
+  Reconferido em 09/10/2026 na página
+  [Conversation State](https://docs.perplexity.ai/docs/agent-api/conversation-state):
+  a Agent API guarda a resposta e o estado da conversa nos servidores dela, e o
+  `store: false` só esconde a resposta da consulta posterior (a consulta devolve
+  404), sem desligar essa guarda; a resposta ainda serve de
+  `previous_response_id`, e a página não publica prazo para a guarda.
 - **xAI Responses:** expõe `store`, sem padrão documentado. Esta seção dizia,
   até a reconferência de 23/09/2026, que a xAI não tinha o campo.
 
@@ -1681,14 +1807,18 @@ quatro provedores que expõem o campo, e ausente nos outros dois.** A
 serialização é por provedor, não uma chave costurada em todos — e a seção 8
 testa exatamente isso, inclusive que os dois sem o campo não o recebem.
 
-**O que `store: false` não faz, e a tela não pode prometer.** Ele impede o
-objeto guardado para consulta posterior, e não a retenção do provedor para
-auditoria de abuso. A xAI é explícita: *"By default, all API requests and
-responses are stored on our servers (encrypted at rest) for 30 days for auditing
-purposes in the event of suspected abuse or misuse"*, e só a retenção zero
-(ZDR), ligada pelo administrador da conta do usuário na xAI, evita isso. A frase
-honesta para a tela é que o aplicativo pede a cada provedor para não guardar a
-conversa, e que cada provedor ainda aplica a própria política de retenção.
+**O que `store: false` não faz, e a tela não pode prometer.** Na OpenAI, no
+Gemini e na xAI, ele impede o objeto guardado para consulta posterior, e não a
+retenção do provedor para auditoria de abuso. A xAI é explícita: *"By default,
+all API requests and responses are stored on our servers (encrypted at rest)
+for 30 days for auditing purposes in the event of suspected abuse or misuse"*,
+e só a retenção zero (ZDR), ligada pelo administrador da conta do usuário na
+xAI, evita isso. Na Perplexity, nem o objeto deixa de ser guardado: o campo só
+o esconde da consulta posterior (item acima). A frase honesta para a tela é que
+o aplicativo pede à OpenAI, ao Google e à xAI que não guardem a conversa para
+consulta posterior; que, na Perplexity, o mesmo pedido só esconde a resposta da
+consulta posterior e não desliga a guarda; que à Anthropic e à DeepSeek esse
+pedido não vai; e que cada provedor ainda aplica a própria política de retenção.
 
 Isso cobra dois preços, ambos aceitos. No Gemini, `store=false` é incompatível
 com execução em segundo plano e impede `previous_interaction_id` — o que apenas
@@ -1801,7 +1931,13 @@ de teste, porque compra confiança sem entregá-la.
   versão, o nome que resolve para rede privada sem abrir socket, o
   *rebinding*, o armazém com reaproveitamento e `304`, e o motor do
   `:core:protocolo` com o parser e a coleta reais (`IntegridadeComRedeTest`).
-  Nenhum teste toca a rede.
+  Pela regra do achado PROV-02 da auditoria do Codex de 08/10/2026, levada ao
+  transporte e aos prazos de conexão e envio em 09/10/2026 (seção 5.3, com a
+  origem de cada prazo), o cliente de produção do transporte
+  (`TransportePublico.clienteLimpo`) recebe a página cujos cabeçalhos só saem
+  depois dos 10 s de leitura padrão do OkHttp, e os prazos de conexão, envio e
+  leitura dele são o da chamada (`TransportePublicoTest`). Nenhum teste toca a
+  rede.
 - **`:core:seguranca`, instrumentado.** O Keystore só existe em aparelho ou
   emulador, então estes testes são instrumentados — e são poucos justamente
   porque a fronteira manteve tudo o mais fora deles. Cinco casos não podem
@@ -1882,7 +2018,12 @@ de teste, porque compra confiança sem entregá-la.
   cancelamento que chegou entre a leitura e a escrita, não reenfileira um
   pedido recusado, e o agendador mantém um trabalho por sessão. Na JVM: o
   escalonador do web (`EscalonamentoTest`, os casos de `sessions.test.ts`),
-  o orçamento de seis horas e as citações da sessão. A
+  o orçamento de seis horas, as citações da sessão e, pelo achado PROV-02 da
+  auditoria do Codex de 08/10/2026, o cliente HTTP de produção dos provedores,
+  que conclui com um POST só a resposta que começa a chegar depois dos 10 s de
+  leitura padrão do OkHttp, com o prazo de leitura e, desde 09/10/2026, os de
+  conexão e envio (seção 5.3) iguais ao da chamada
+  (`ClienteHttpDosProvedoresTest`). A
   primeira pull request (26/09/2026) provou a metade que já existia, no mesmo
   emulador gerenciado do `:core:seguranca`, no portão de toda pull request: `preparar` reivindica a sessão
   (execução e cerca) e uma sessão cancelada ou reconciliada não é
@@ -2018,8 +2159,15 @@ de teste, porque compra confiança sem entregá-la.
   teclado e os avisos aparecem acima dele (`TecladoTest`). Os testes de tela
   rodam sem o teclado do sistema, que o `Cenario` intercepta
   (`InterceptPlatformTextInput`): o texto entra pela ação semântica do campo, e
-  o toque seguinte não corre contra a animação do teclado. Na JVM: o
-  renderizador do texto final, o tipo da captura, os
+  o toque seguinte não corre contra a animação do teclado. Pelo achado
+  GOV-UI-01 da auditoria do Codex de 08/10/2026: a chave digitada enquanto o
+  cofre grava, que fica no campo, quer a gravação falhe, quer dê certo; e os
+  campos das configurações mudados durante a gravação, que ficam no
+  formulário, enquanto os que ninguém mudou recebem o valor gravado. Na JVM:
+  pelo achado DISCLOSURE-01 da mesma auditoria, a legenda da tela de chaves,
+  que não diz que os anexos vão aos provedores e não conta a Perplexity entre
+  os que atendem o pedido de não guardar a conversa (`TextoParaProvedoresTest`);
+  o renderizador do texto final, o tipo da captura, os
   rótulos do painel do desktop, a regra do manifesto do formulário, que não
   deixa começar durante a leitura dele, e a ordem das releituras das telas de
   anexos e de links (`OrdemDasLeituras`); na tela de anexos, o manifesto de
@@ -2081,7 +2229,8 @@ Decisões de produto vigentes, no mesmo espírito das da calculadora:
 - o texto do usuário vai aos provedores que ele mesmo escolheu ativar; fora
   deles, só os sites citados e o `dns.google`, na conferência dos links, e o
   Crossref e o OpenAlex, na busca de evidências, recebem partes dele (os
-  endereços citados, a consulta ou o trecho em torno do link), como a legenda da
+  endereços citados, aos sites; o nome de cada site, ao `dns.google`; a consulta
+  ou o trecho em torno do link, ao Crossref e ao OpenAlex), como a legenda da
   tela de chaves diz (seção 6.3); o aplicativo não entra no backup na nuvem, e o
   banco local e o segredo cifrado ficam **fora também da transferência entre
   aparelhos** (seção 4.2);
@@ -2164,10 +2313,11 @@ apontada na calculadora, e não se repete.
 
 **Decisão do operador de 06/10/2026, 16:16 (Brasília):** *"Não haverá aparelho
 conectado via usb para isso. Então descarta."* As três medições abaixo ficam
-registradas pelo que eram e com o estado em que pararam; a 1.0.0 saiu sem elas,
-com os valores vigentes (seções 4.1, 5.1 e 6.2), e nenhum deles muda sem uma
-decisão nova. Se um dia houver aparelho e chaves para medir, a medição volta
-como issue própria, não como pendência silenciosa aqui. Registro na
+registradas pelo que eram e com o estado em que pararam; a 1.0.0 foi enviada à
+revisão sem elas, com os valores vigentes (seções 4.1, 5.1 e 6.2), e nenhum
+deles muda sem uma decisão nova. Se um dia houver aparelho e chaves para
+medir, a medição volta como issue própria, não como pendência silenciosa aqui.
+Registro na
 [Discussion #101](https://github.com/LCV-Ideas-Software/maestro-android/discussions/101)
 e na [#100](https://github.com/LCV-Ideas-Software/maestro-android/issues/100).
 
@@ -2246,7 +2396,9 @@ duas páginas não é ausência do fato.
   consumo.
 - **SDK oficial ou REST?** Resolvida por medição na seção 5.3: REST para os
   seis, porque nenhum provedor publica SDK Android.
-- **Retenção no provedor?** Resolvida na seção 6.4: `store: false` explícito.
+- **Retenção no provedor?** Resolvida na seção 6.4: `store: false` explícito
+  nos quatro provedores que expõem o campo, sem promessa de retenção zero — na
+  Perplexity, ele não desliga a guarda.
 - **Onde fica a chave?** Resolvida pelo operador em 21/09/2026: no aparelho,
   Android Keystore direto.
 - **A revisão de link confere também a URL final e a cadeia de

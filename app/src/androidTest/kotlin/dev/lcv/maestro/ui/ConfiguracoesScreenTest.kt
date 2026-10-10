@@ -5,6 +5,8 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
@@ -128,13 +130,30 @@ class ConfiguracoesScreenTest {
         regra.esperarTexto("Não foi possível abrir o navegador para a política de privacidade: failed to open system default browser", substring = true)
     }
 
-    /** Seção 6.3: a tela que pede a chave diz, antes da primeira sessão, para onde vai o texto (e a frase de retenção da 6.4). */
+    /** A legenda da tela de chaves, palavra por palavra: o resumo da seção 6.1 da política de privacidade 1.5. */
+    private val legendaAprovada =
+        "O título, o identificador e o pedido da sessão, o texto de partida e as versões seguintes, o protocolo editorial, " +
+            "os relatórios das revisões anteriores e um resumo do manifesto de citações (quantas citações e fontes ele tem) " +
+            "são enviados, por TLS, aos provedores dos agentes que você ativar, e a nenhum outro provedor de inteligência artificial; " +
+            "nenhum servidor da LCV Ideas & Software os recebe, vê ou guarda. " +
+            "Quando a auditoria reprova o texto em revisão, vai também aos mesmos provedores o resultado dela, que pode incluir " +
+            "citações e referências, links conferidos, propostas de correção e as decisões e justificativas que você registrou. " +
+            "O arquivo anexado não é enviado como tal, e os anexos que não são manifesto de citações não saem do aparelho. " +
+            "Na conferência dos links, os endereços citados no texto vão aos próprios sites, e o nome de cada site, ao serviço de nomes do Google; " +
+            "se você pedir propostas de correção para um link, a sua consulta ou o trecho do texto em torno dele vai ao Crossref e ao OpenAlex. " +
+            "O aplicativo pede à OpenAI, ao Google e à xAI que não guardem a conversa para consulta posterior; " +
+            "na API da Perplexity usada pelo aplicativo, o mesmo pedido só esconde a resposta da consulta posterior e não desliga a guarda; " +
+            "à Anthropic e à DeepSeek esse pedido não vai, porque as APIs delas usadas pelo aplicativo não têm essa opção; " +
+            "e cada provedor ainda aplica a própria política de retenção."
+
+    /**
+     * Seção 6.3: a tela que pede a chave diz, antes da primeira sessão, o que vai aos provedores e o que dos anexos
+     * fica no aparelho, com a frase de retenção da 6.4 — inteira, visível e na árvore de acessibilidade.
+     */
     @Test
     fun aTelaDasChavesDizParaOndeVaiOTexto() {
         abrirConfiguracoes()
-        regra.onNodeWithTag(Marcas.TEXTO_PARA_PROVEDORES).performScrollTo()
-            .assert(hasText("O seu texto, o pedido e os anexos da sessão são enviados, por TLS, aos provedores dos agentes que você ativar, e a nenhum outro provedor de inteligência artificial", substring = true))
-            .assert(hasText("cada provedor ainda aplica a própria política de retenção", substring = true))
+        regra.onNodeWithTag(Marcas.TEXTO_PARA_PROVEDORES).performScrollTo().assertIsDisplayed().assertTextEquals(legendaAprovada)
     }
 
     @Test
@@ -363,5 +382,86 @@ class ConfiguracoesScreenTest {
         esperarPilula(Provedor.CLAUDE, "não configurada")
         regra.onAllNodes(hasText("configurada") and hasAnyAncestor(hasTestTag(Marcas.pilulaDaChave(Provedor.CLAUDE))))
             .assertCountEquals(0)
+        // A releitura antiga ficou presa até o teste a soltar, e não até o prazo vencer.
+        assertEquals(0, c.cofre.travasVencidas.get())
+    }
+
+    // MAEANDR-40: o que se digita enquanto a gravação corre fica no formulário.
+
+    /** O campo da chave é de senha: a semântica dá os pontos no `EditableText` e o que foi digitado no `InputText`. */
+    private fun chaveDigitada(texto: String) = SemanticsMatcher.expectValue(SemanticsProperties.InputText, AnnotatedString(texto))
+
+    /** Espera o aviso sair: o `Snackbar` cobre o pé da tela, e um toque no botão que está embaixo dele cairia no aviso. */
+    private fun esperarAvisoSair(texto: String) {
+        regra.waitUntil(15_000) { regra.onAllNodesWithText(texto).fetchSemanticsNodes().isEmpty() }
+    }
+
+    /**
+     * Só sai do campo a chave que foi ao cofre: a digitada enquanto ele grava fica, quer a gravação falhe, quer dê
+     * certo; sem nada digitado no meio, a chave guardada sai do campo, como antes.
+     */
+    @Test
+    fun aChaveDigitadaDuranteAGravacaoFicaNoCampo() {
+        c.cofre.respostas += Guarda.Falhou("disco que não grava")
+        abrirConfiguracoes()
+        digitar(Marcas.chave(Provedor.CLAUDE), "sk-teste-1")
+        // A gravação que vai falhar fica presa no cofre, e nesse meio-tempo a pessoa digita outra chave.
+        val primeira = CountDownLatch(1)
+        c.cofre.gravacaoPresa = primeira
+        regra.onNodeWithTag(Marcas.salvarChave(Provedor.CLAUDE)).performScrollTo().performClick()
+        regra.waitUntil(5_000) { c.cofre.gravacaoPresa == null }
+        digitar(Marcas.chave(Provedor.CLAUDE), "sk-teste-2")
+        primeira.countDown()
+        regra.esperarTexto("O cofre de chaves não gravou a chave; tente de novo. Motivo: disco que não grava")
+        regra.onNodeWithTag(Marcas.chave(Provedor.CLAUDE)).assert(chaveDigitada("sk-teste-2"))
+        esperarAvisoSair("O cofre de chaves não gravou a chave; tente de novo. Motivo: disco que não grava")
+        // A que dá certo, com a chave nova, também fica presa; a terceira, digitada durante ela, fica no campo.
+        val segunda = CountDownLatch(1)
+        c.cofre.gravacaoPresa = segunda
+        regra.onNodeWithTag(Marcas.salvarChave(Provedor.CLAUDE)).performScrollTo().performClick()
+        regra.waitUntil(5_000) { c.cofre.gravacaoPresa == null }
+        digitar(Marcas.chave(Provedor.CLAUDE), "sk-teste-3")
+        segunda.countDown()
+        regra.esperarTexto("Chave guardada neste aparelho.")
+        regra.onNodeWithTag(Marcas.chave(Provedor.CLAUDE)).assert(chaveDigitada("sk-teste-3"))
+        esperarAvisoSair("Chave guardada neste aparelho.")
+        // Sem nada digitado durante a gravação, a chave guardada sai do campo.
+        regra.onNodeWithTag(Marcas.salvarChave(Provedor.CLAUDE)).performScrollTo().performClick()
+        regra.waitUntil(5_000) { regra.onAllNodes(hasTestTag(Marcas.chave(Provedor.CLAUDE)) and chaveDigitada("")).fetchSemanticsNodes().isNotEmpty() }
+        assertEquals(
+            listOf(Provedor.CLAUDE to "sk-teste-1", Provedor.CLAUDE to "sk-teste-2", Provedor.CLAUDE to "sk-teste-3"),
+            c.cofre.guardadas.toList(),
+        )
+        // As duas gravações ficaram presas até o teste as soltar, e não até o prazo vencer.
+        assertEquals(0, c.cofre.travasVencidas.get())
+    }
+
+    /** O mesmo nas configurações: o campo mudado durante a gravação fica, e o que ninguém mudou recebe o gravado. */
+    @Test
+    fun oQueSeDigitaDuranteAGravacaoDasConfiguracoesFicaNoFormulario() {
+        abrirConfiguracoes()
+        digitar(Marcas.CAMPO_TETO, "12.5")
+        digitar(Marcas.entrada(Provedor.DEEPSEEK), "1")
+        digitar(Marcas.CAMPO_EMAIL, " pessoa@exemplo.org ")
+        // A gravação fica presa no meio da transação, e nesse meio-tempo a pessoa muda o teto e uma tarifa.
+        val trava = CountDownLatch(1)
+        c.bancoCheio.tabelaTravada = "configuracoes"
+        c.bancoCheio.trava = trava
+        regra.onNodeWithTag(Marcas.SALVAR_CONFIGURACOES).performScrollTo().performClick()
+        digitar(Marcas.CAMPO_TETO, "7")
+        digitar(Marcas.saida(Provedor.DEEPSEEK), "5")
+        // Ainda gravando: as mudanças vieram durante a gravação, e não depois dela.
+        regra.onNodeWithTag(Marcas.SALVAR_CONFIGURACOES).assertIsNotEnabled()
+        trava.countDown()
+        regra.esperarTexto("Configurações salvas.")
+        // Gravou-se o que foi enviado; o que mudou durante a gravação fica no formulário, para a próxima.
+        val salvas = c.configuracoes.carregar()
+        assertEquals(0, BigDecimal("12.5").compareTo(salvas.tetoDeCustoUsd))
+        assertEquals(0, BigDecimal("3.96").compareTo(salvas.taxas.getValue(Provedor.DEEPSEEK).saidaPorMilhao))
+        regra.onNodeWithTag(Marcas.CAMPO_TETO).assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("7")))
+        regra.onNodeWithTag(Marcas.saida(Provedor.DEEPSEEK)).assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("5")))
+        // Os campos que ninguém mudou recebem o gravado: a tarifa abaixo do padrão sobe para ele, e o e-mail vem aparado.
+        regra.onNodeWithTag(Marcas.entrada(Provedor.DEEPSEEK)).assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("1.32")))
+        regra.onNodeWithTag(Marcas.CAMPO_EMAIL).assertTextEquals("pessoa@exemplo.org")
     }
 }

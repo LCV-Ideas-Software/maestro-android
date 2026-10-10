@@ -71,6 +71,9 @@ dependencies {
     testImplementation(kotlin("test-junit5"))
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
+    // O cliente HTTP de produção dos provedores contra um servidor local, na
+    // JVM: a resposta que passa dos 10 s de leitura padrão do OkHttp.
+    testImplementation(libs.okhttp.mockwebserver)
 
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)

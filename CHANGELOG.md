@@ -4,6 +4,105 @@ All material changes to Maestro Android are recorded here.
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-10-10
+
+### Fixed
+
+- DeepSeek receives the maximum reasoning effort where its API documents it:
+  `reasoning_effort` at the root of the request body, with `thinking` carrying
+  only its `type` (PROV-01 of the joint plan of Codex's audit of 08/10/2026,
+  MAEANDR-40). The request used to nest the field inside `thinking`. The
+  provider test now checks the body actually sent, and the table of section 5.1
+  of the specification and the paragraph below it say what the official
+  thinking-mode guide and API reference say.
+- The production HTTP client of the six providers waits for the response up to
+  the per-call deadline (`ClienteDeProvedores.PRAZO_POR_CHAMADA`, 120 s) instead
+  of OkHttp's default 10 s read timeout (PROV-02). A provider that takes more
+  than 10 s to start answering, which maximum reasoning without streaming can
+  take, failed as a network error and was asked a second time. The
+  session's remaining time still bounds every call, and injected clients keep
+  their own settings. The link-audit transport
+  (`TransportePublico.clienteLimpo()`) had the same mismatch, 30 s per call
+  against 10 s of reading, and now reads up to its 30 s; the evidence search
+  (Crossref and OpenAlex, `BuscaDeEvidencias`) uses the same client and gets
+  the same 30 s. By the operator's decision of 09/10/2026, both clients also
+  give the connection the whole call deadline, instead of OkHttp's default
+  10 s, as the canonical desktop does with its single total timeout. Claude
+  applied the same rule to the sending of the request, also 10 s by default,
+  and the operator kept it on 09/10/2026. A link whose connection timed out
+  at 10 s used to be noted as timed out after 30 s.
+- The ABNT audit locates a manifest citation, by its `original_text` or by its
+  normalized form, only in the body, outside the bibliographic apparatus, each
+  part of the body on its own (PROTO-ABNT-01). The apparatus is the references
+  section and, by the operator's decisions of 09/10/2026, the "Fontes
+  consultáveis online" and "Leituras complementares" sections; each section
+  runs to the next heading with the same number of `#` or fewer, so deeper
+  subheadings stay inside. A work that only appears in the bibliography, such
+  as an author's surname in a reference or "IBGE, 2023" where the institutional
+  author is also the publisher, no longer counts as cited. The normalized form
+  used to be looked for in the whole text, as in the canonical implementation
+  at `68528f9` and as Codex's plan kept it; the operator decided otherwise. A
+  citation-shaped text inside the apparatus, like a title, only needs to be
+  represented in the manifest and takes no entry of its own: this already held
+  for the references section up to its first subheading, and now also holds
+  for its deeper subheadings and for the two other sections, which used to
+  count as body. The message of `manifest_citation_absent_from_text` now says
+  the citation was not found in the body (Claude's wording, kept by the
+  operator on 09/10/2026). The list of references is still read up to the
+  first heading of any level, as in the canonical implementation. The
+  specification lists this among the points where the port is stricter than
+  the canonical implementation.
+- Saving an API key or the general settings no longer erases what was typed
+  while the save was running (GOV-UI-01): the key field is cleared only if it
+  still holds the key that was saved, and each settings field takes the saved
+  value only if it still holds what was sent.
+- The minified-app test that rotates the screen and goes back
+  (`aPilhaDeTelasVoltaDepoisDeRecriarAActivity`) taps Back only when the
+  geometry the accessibility layer reports agrees with the display: natural
+  rotation, the active window and its root the size of the display, the status
+  bar at the top, and the app's Back button enabled, in the same window and
+  below the bar (TEST-R8-01). On 08/10/2026 the tap was built from the
+  landscape geometry after the return to portrait and landed in the status bar.
+  The wait uses the official UI Automator 2.4.0 conditions, with no sleep and no
+  retry.
+- The same test's scrolling search (`esperarRolando`) ends by progress, not by
+  the clock: it gives up only after reaching both ends of the screen without
+  the element, never before its minimum wait, with a cap of 60 scrolls as a
+  guard. On 09/10/2026 a slow emulator fitted 10 scrolls in the 40 s budget,
+  against 34 in a normal run, and the licences screen was not reached
+  (operator's choice of 09/10/2026, 23:27, on Claude's recommendation).
+- The key screen's notice of what goes to the AI providers agrees with privacy
+  policy 1.5 (DISCLOSURE-01). The attached file is not sent as such,
+  attachments that are not citation manifests do not leave the device, and
+  only a summary of the citation manifest goes, plus the audit result when the
+  audit rejects the text under review. On the Perplexity Agent API, the
+  `store: false` the app sends only hides the response from later retrieval
+  and does not stop retention. The name service receives each site's name, not
+  the whole address. Sections 6.3, 6.4, 8, 9 and 11 of the specification
+  follow, and section 6.3 records the Play Data safety declaration as policy
+  1.5 publishes it: no user data collected or shared.
+
+### Changed
+
+- Version 1.0.2, `versionCode` 5 (MAEANDR-40). Version 1.0.1 (`versionCode` 4)
+  replaced 1.0.0 in Google Play's review on 08/10/2026, and 1.0.0 left the
+  review unpublished.
+- `THIRDPARTY.md` lists the resolved versions (DOC-01), Jackson Core and
+  Databind 2.22.3 and SLF4J API and NOP 2.0.20, and the SLF4J heading of
+  `NOTICE` names 2.0.20. "The last two rows" names FastDoubleParser and
+  Schubfach, the `gradle/actions` row records v6.4.0, the commit the workflows
+  use, and the Jackson jar sizes are measured on 2.22.3. Four
+  `:core:provedores` jar sizes that were in decimal kB are now in KiB, like the
+  rest of the file, and the `actions/upload-artifact` row no longer lists
+  instrumented test results, which left CI on 06/10/2026.
+- `SECURITY.md`, `CONTRIBUTING.md`, `README.md`, the opening of `NOTICE` and
+  the repository's public page describe the Android application that exists,
+  instead of a future one.
+- The instrumented test doubles that hold a key read or save, or a database
+  read or write, to stage a race, and the licences screen test's own held
+  reading, count a hold that runs out on its own, and the four tests with no
+  other proof that the operation was held check that none did.
+
 ## [1.0.1] - 2026-10-08
 
 ### Changed

@@ -153,6 +153,7 @@ class LicencasScreenTest {
         // garante é o `withContext`, que entrega o cancelamento, e não o erro do bloco, à corrotina já cancelada.
         val chamadas = AtomicInteger(0)
         val segunda = CountDownLatch(1)
+        val vencidas = AtomicInteger(0)
         regra.setContent {
             MaestroTheme {
                 val estado = remember { SnackbarHostState() }
@@ -164,7 +165,7 @@ class LicencasScreenTest {
                             when (chamadas.incrementAndGet()) {
                                 1 -> throw IOException("primeira")
                                 2 -> {
-                                    segunda.await(10, TimeUnit.SECONDS)
+                                    if (!segunda.await(10, TimeUnit.SECONDS)) vencidas.incrementAndGet()
                                     throw IOException("cancelada")
                                 }
                                 else -> contexto.assets.open(nome).bufferedReader().use { it.readText() }
@@ -188,5 +189,7 @@ class LicencasScreenTest {
         }
         assertTrue("a tentativa cancelada avisou", avisou.isFailure)
         regra.onNodeWithText("Componentes de terceiros").assertExists()
+        // A segunda tentativa ficou presa até o teste a soltar, e não até o prazo vencer.
+        assertEquals(0, vencidas.get())
     }
 }

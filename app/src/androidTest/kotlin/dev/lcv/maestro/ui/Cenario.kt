@@ -102,18 +102,29 @@ internal class CofreFalso : CofreDaTela {
 
     @Volatile var trava: Boolean = true
 
+    /**
+     * Quantas travas deste cofre venceram o prazo sem o teste soltá-las. A trava vencida solta a operação sozinha, e
+     * o teste da corrida passaria sem prová-la: quem depende só da trava confere que nenhuma venceu.
+     */
+    val travasVencidas = AtomicInteger()
+
     /** Posta, a próxima leitura das chaves tira a foto e espera aqui antes de devolver: a releitura antiga e lenta (#81). */
     @Volatile var chavesPresas: java.util.concurrent.CountDownLatch? = null
 
     override suspend fun chaves(): Map<Provedor, Boolean?> {
         val foto = synchronized(presentes) { presentes.toMap() }
         val trava = synchronized(this) { chavesPresas.also { chavesPresas = null } }
-        trava?.await(10, java.util.concurrent.TimeUnit.SECONDS)
+        if (trava != null && !trava.await(10, java.util.concurrent.TimeUnit.SECONDS)) travasVencidas.incrementAndGet()
         return foto
     }
 
+    /** Posta, a próxima gravação anota a chave e espera aqui antes de responder: a gravação lenta, durante a qual a pessoa digita (MAEANDR-40). */
+    @Volatile var gravacaoPresa: java.util.concurrent.CountDownLatch? = null
+
     override suspend fun guardar(provedor: Provedor, chave: String): Guarda {
         guardadas += provedor to chave
+        val trava = synchronized(this) { gravacaoPresa.also { gravacaoPresa = null } }
+        if (trava != null && !trava.await(10, java.util.concurrent.TimeUnit.SECONDS)) travasVencidas.incrementAndGet()
         val resposta = if (respostas.isEmpty()) Guarda.Guardada(NivelDoCofre.AMBIENTE_SEGURO) else respostas.removeAt(0)
         if (resposta is Guarda.Guardada) {
             presentes[provedor] = true
