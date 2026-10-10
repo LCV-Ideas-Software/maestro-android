@@ -14,11 +14,11 @@ Action dependencies remain defined by those pinned upstream actions.
 | `actions/dependency-review-action` | v5.0.0 | `a1d282b36b6f3519aa1f3fc636f609c47dddb294` | [MIT](https://github.com/actions/dependency-review-action/blob/a1d282b36b6f3519aa1f3fc636f609c47dddb294/LICENSE) | Review dependency changes in pull requests |
 | `zizmorcore/zizmor-action` | v0.6.4 | `cc914d7f3750a2d13d75c7f184a1060aa0e9d482` | [MIT](https://github.com/zizmorcore/zizmor-action/blob/cc914d7f3750a2d13d75c7f184a1060aa0e9d482/LICENSE) | Audit GitHub Actions and upload SARIF |
 | `ossf/scorecard-action` | v2.4.4 | `2d1146689b8cda280b9bc96326124645441f03bc` | [Apache-2.0](https://github.com/ossf/scorecard-action/blob/2d1146689b8cda280b9bc96326124645441f03bc/LICENSE) | Assess supply-chain posture |
-| `actions/upload-artifact` | v7.0.2 | `cf430e030ddbb5b0abf93d22962f4752f3646cd9` | [MIT](https://github.com/actions/upload-artifact/blob/cf430e030ddbb5b0abf93d22962f4752f3646cd9/LICENSE) | Retain the Scorecard SARIF and the instrumented test results; carry the Play-signed APK to the release job |
+| `actions/upload-artifact` | v7.0.2 | `cf430e030ddbb5b0abf93d22962f4752f3646cd9` | [MIT](https://github.com/actions/upload-artifact/blob/cf430e030ddbb5b0abf93d22962f4752f3646cd9/LICENSE) | Retain the Scorecard SARIF; carry the Play-signed APK to the release job |
 | `actions/download-artifact` | v8.0.2 | `9000827ccba6bdab643e8b6fd33ac0654aef8333` | [MIT](https://github.com/actions/download-artifact/blob/9000827ccba6bdab643e8b6fd33ac0654aef8333/LICENSE) | Fetch the Play-signed APK in the release job |
 | `actions/attest` | v4.2.2 | `1e69f48acb82d1966a394da916b4c1698aa569d6` | [MIT](https://github.com/actions/attest/blob/1e69f48acb82d1966a394da916b4c1698aa569d6/LICENSE) | Build provenance attestation for the released APK |
 | `actions/setup-java` | v6.0.1 | `de7274f081f381c8f8158605e0321c36c376e2e6` | [MIT](https://github.com/actions/setup-java/blob/de7274f081f381c8f8158605e0321c36c376e2e6/LICENSE) | Provide the JDK the Android build requires |
-| `gradle/actions` (`setup-gradle`, `wrapper-validation`) | v6.3.0 | `9c971963bec38e04b3d30dcc455b5382be2fdbfb` | [MIT, with a proprietary vendored component](https://github.com/gradle/actions/blob/9c971963bec38e04b3d30dcc455b5382be2fdbfb/LICENSE) | Validate the Gradle wrapper and run Gradle |
+| `gradle/actions` (`setup-gradle`, `wrapper-validation`) | v6.4.0 | `3f5f9adaf7d9fecd50b5935e54106014257a94e6` | [MIT, with a proprietary vendored component](https://github.com/gradle/actions/blob/3f5f9adaf7d9fecd50b5935e54106014257a94e6/LICENSE) | Validate the Gradle wrapper and run Gradle |
 | `google-github-actions/auth` | v3.0.0 | `7c6bc770dae815cd3e89ee6cdf493a5fab2cc093` | [Apache-2.0](https://github.com/google-github-actions/auth/blob/7c6bc770dae815cd3e89ee6cdf493a5fab2cc093/LICENSE) | Exchange the OIDC token for Google credentials (Workload Identity Federation) |
 | `actions/configure-pages` | v6.0.0 | `45bfe0192ca1faeb007ade9deae92b16b8254a0d` | [MIT](https://github.com/actions/configure-pages/blob/45bfe0192ca1faeb007ade9deae92b16b8254a0d/LICENSE) | Configure the Pages build |
 | `actions/upload-pages-artifact` | v5.0.0 | `fc324d3547104276b827a68afc52ff2a11cc49c9` | [MIT](https://github.com/actions/upload-pages-artifact/blob/fc324d3547104276b827a68afc52ff2a11cc49c9/LICENSE) | Upload the sanitized `site/` artifact |
@@ -40,8 +40,8 @@ commit-history releases.
 
 | Component | Version | License | Purpose |
 | --- | --- | --- | --- |
-| `com.fasterxml.jackson.core:jackson-databind` | 2.22.2 | [Apache-2.0](https://github.com/FasterXML/jackson-databind/blob/jackson-databind-2.22.2/LICENSE) | Read the `maestro_revision_report` in `:core:protocolo` |
-| `com.fasterxml.jackson.core:jackson-core` | 2.22.2 | [Apache-2.0](https://github.com/FasterXML/jackson-core/blob/jackson-core-2.22.2/LICENSE) | Transitive: the streaming parser, and `StreamReadFeature.STRICT_DUPLICATE_DETECTION` |
+| `com.fasterxml.jackson.core:jackson-databind` | 2.22.3 | [Apache-2.0](https://github.com/FasterXML/jackson-databind/blob/jackson-databind-2.22.3/LICENSE) | Read the `maestro_revision_report` in `:core:protocolo` |
+| `com.fasterxml.jackson.core:jackson-core` | 2.22.3 | [Apache-2.0](https://github.com/FasterXML/jackson-core/blob/jackson-core-2.22.3/LICENSE) | Transitive: the streaming parser, and `StreamReadFeature.STRICT_DUPLICATE_DETECTION` |
 | `com.fasterxml.jackson.core:jackson-annotations` | 2.22 | [Apache-2.0](https://github.com/FasterXML/jackson-annotations/blob/jackson-annotations-2.22/LICENSE) | Transitive of `jackson-databind` |
 | FastDoubleParser, shaded inside `jackson-core` | bundled | MIT, © 2023 Werner Randelshofer | Number parsing inside `jackson-core`; not a separate artifact |
 | Schubfach, copied inside `jackson-core` | bundled | MIT, © 2018-2020 Raffaello Giulietti | Number writing inside `jackson-core`; not a separate artifact |
@@ -49,8 +49,8 @@ commit-history releases.
 
 Version alignment across the three is held by the `jackson-bom` platform that
 `jackson-databind` brings in, so the catalogue pins one version and the BOM
-constrains the rest. Measured contribution to the runtime classpath: 1 668 KB,
-580 KB and 82 KB respectively, 2 330 KB in total before shrinking.
+constrains the rest. Measured contribution to the runtime classpath: 1 670 KB,
+581 KB and 82 KB respectively, 2 333 KB in total before shrinking.
 
 The `maestro_revision_report` is JSON by contract — the canonical prompt asks
 for "JSON-like audit data" and already declares a truncated report a contract
@@ -62,7 +62,7 @@ granted. `STRICT_DUPLICATE_DETECTION`, which FasterXML documents as disabled by
 default, is what closes duplicate `block_id`, `protocol_basis` and
 `change_type` fields without any logic of our own.
 
-The last two rows are not declared anywhere in the dependency graph: they were
+FastDoubleParser and Schubfach are not declared anywhere in the dependency graph: they were
 found by reading `META-INF/NOTICE` inside `jackson-core-2.22.2.jar`, which
 records both as bundled MIT code and names their licence files. Each of the
 three jars also carries its own `META-INF/LICENSE` (Apache-2.0) and
@@ -98,8 +98,8 @@ notices have to travel this way.
 | `com.squareup.okhttp3:okhttp-dnsoverhttps` | 5.5.0 | [Apache-2.0](https://github.com/square/okhttp/blob/parent-5.5.0/LICENSE.txt) | OkHttp's official DNS-over-HTTPS resolver. Every name the link audit resolves goes to Google Public DNS (`dns.google`) over HTTPS, and every answer is checked against the blocked ranges before any connection (operator's decision of 25/09/2026) |
 | `com.github.crawler-commons:crawler-commons` | 1.6 | [Apache-2.0](https://github.com/crawler-commons/crawler-commons/blob/crawler-commons-1.6/LICENSE) | The reference `robots.txt` parser for RFC 9309 (`SimpleRobotRulesParser`), used by the link audit in place of a parser of our own (operator's decision of 25/09/2026) |
 | `commons-io:commons-io` | 2.21.0 | [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) | Transitive of `crawler-commons`; its jar carries the `META-INF/NOTICE.txt` reproduced below |
-| `org.slf4j:slf4j-api` | 2.0.19 | [MIT](https://www.slf4j.org/license.html), © 2004-2023 QOS.ch | Transitive of `crawler-commons`, which logs through it |
-| `org.slf4j:slf4j-nop` | 2.0.19 | [MIT](https://www.slf4j.org/license.html), © 2004-2023 QOS.ch | The official no-operation binding, on the runtime and test runtime classpaths, so SLF4J neither logs nor warns on stderr |
+| `org.slf4j:slf4j-api` | 2.0.20 | [MIT](https://www.slf4j.org/license.html), © 2004-2023 QOS.ch | Transitive of `crawler-commons`, which logs through it |
+| `org.slf4j:slf4j-nop` | 2.0.20 | [MIT](https://www.slf4j.org/license.html), © 2004-2023 QOS.ch | The official no-operation binding, on the runtime and test runtime classpaths, so SLF4J neither logs nor warns on stderr |
 | `com.squareup.okio:okio` (`okio-jvm`) | 3.18.1 | [Apache-2.0](https://github.com/square/okio/blob/parent-3.18.1/LICENSE.txt) | Transitive of OkHttp |
 | `org.jetbrains.kotlinx:kotlinx-coroutines-core` (`-jvm`) | 1.11.0 | [Apache-2.0](https://github.com/Kotlin/kotlinx.coroutines/blob/1.11.0/LICENSE.txt) | Suspending provider calls and cancellable waits |
 | `org.jetbrains.kotlin:kotlin-stdlib` | 2.4.20 | [Apache-2.0](https://github.com/JetBrains/kotlin/blob/v2.4.20/license/LICENSE.txt) | The Kotlin standard library, needed by every Kotlin module, `:core:protocolo` included; it was missing from this inventory |
@@ -108,9 +108,9 @@ The module also uses `jackson-databind`, recorded above, to build the request
 bodies and read the responses, and since the link audit's network side it
 depends on `:core:protocolo` as `api`, so any binary that includes it also
 carries `commonmark`, recorded above. Measured contribution to the runtime
-classpath: 939 KB (`okhttp-jvm`), 7 KB (`okhttp-coroutines`), 22 KB
-(`okhttp-dnsoverhttps`), 383 KB (`okio-jvm`), 240 KB (`crawler-commons`),
-585 KB (`commons-io`), 70 KB (`slf4j-api`), 5 KB (`slf4j-nop`), 1 540 KB
+classpath: 939 KB (`okhttp-jvm`), 7 KB (`okhttp-coroutines`), 21 KB
+(`okhttp-dnsoverhttps`), 383 KB (`okio-jvm`), 235 KB (`crawler-commons`),
+572 KB (`commons-io`), 69 KB (`slf4j-api`), 5 KB (`slf4j-nop`), 1 540 KB
 (`kotlinx-coroutines-core-jvm`) and 1 810 KB (`kotlin-stdlib`), before
 shrinking.
 
@@ -143,8 +143,8 @@ available, which the row's link does. The APK carries that notice, the
 `commons-io` notice and the SLF4J licence in the repository `NOTICE`, with the
 Apache-2.0 text in `LICENSES/Apache-2.0.txt`, since the first pull request of
 `:app`. The SLF4J rows were 2.0.17 in this inventory until 28/09/2026; the
-version catalog resolves both artifacts to 2.0.19, and the copyright line is
-the one in each 2.0.19 jar.
+version catalog resolves both artifacts to 2.0.20, and the copyright line is
+the one in each 2.0.20 jar.
 
 Test-only dependencies (`mockwebserver3`, `okhttp-tls`, `kotlinx-coroutines-test`,
 JUnit and `kotlin-test`) never reach a distributed binary and are not listed.

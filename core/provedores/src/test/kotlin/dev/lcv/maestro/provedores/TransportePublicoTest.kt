@@ -273,6 +273,37 @@ class TransportePublicoTest {
         assertEquals("text/html; charset=utf-8", cabecalhos["content-type"])
     }
 
+    /**
+     * O cliente de produção espera a leitura até o prazo da chamada
+     * ([TransportePublico.PRAZO_SEGUNDOS]), e não os 10 s padrão do OkHttp: uma
+     * página que leva mais que isso para começar a responder chega, em vez de
+     * virar "timed out". O teste espera de verdade, uns 11 s.
+     */
+    @Test
+    fun `resposta que comeca depois de 10 s e antes de 30 s chega pelo cliente de producao`() {
+        // A conexão, o envio e a leitura têm o prazo da chamada. A espera de
+        // 11 s, abaixo, prova que a leitura passa do padrão do OkHttp; estas
+        // igualdades prendem os valores.
+        val limpo = TransportePublico.clienteLimpo()
+        val prazo = TransportePublico.PRAZO_SEGUNDOS * 1_000
+        assertEquals(prazo, limpo.connectTimeoutMillis.toLong())
+        assertEquals(prazo, limpo.writeTimeoutMillis.toLong())
+        assertEquals(prazo, limpo.readTimeoutMillis.toLong())
+        // Os cabeçalhos saem 11 s depois do pedido: um pouco além dos 10 s de
+        // leitura padrão do OkHttp, e dentro dos 30 s da chamada.
+        servidor.enqueue(MockResponse.Builder().headersDelay(11, TimeUnit.SECONDS).body("tarde").build())
+        val producao = TransportePublico(
+            RedeDeTeste.confiando(TransportePublico.clienteLimpo()),
+            Dns.SYSTEM,
+            RedeDeTeste.politica(),
+            RedeDeTeste.agente,
+        )
+        val resposta = executar(servidor.url("/x").toString(), transporte = producao)
+        assertEquals(200, resposta.status)
+        assertEquals("tarde", String(resposta.corpo))
+        assertEquals(1, servidor.requestCount)
+    }
+
     @Test
     fun `prazo estourado, TLS recusado e as demais excecoes viram as notas que o protocolo classifica`() {
         servidor.enqueue(MockResponse.Builder().body("lento").bodyDelay(3, TimeUnit.SECONDS).build())

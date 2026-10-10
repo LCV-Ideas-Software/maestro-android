@@ -1,8 +1,8 @@
 Maestro Android
 Copyright © 2026 LCV Ideas & Software
 
-This repository contains the public governance, documentation, and automation
-baseline for the Android edition of Maestro Editorial AI, independently
+This repository contains the Android application of Maestro Editorial AI and
+its public governance, documentation, and automation baseline, independently
 developed and maintained by LCV Ideas & Software.
 
 Original repository content is licensed under the GNU Affero General Public
@@ -274,7 +274,7 @@ Copyright 2002-2025 The Apache Software Foundation
 This product includes software developed at
 The Apache Software Foundation (https://www.apache.org/).
 
-SLF4J (slf4j-api and slf4j-nop 2.0.19)
+SLF4J (slf4j-api and slf4j-nop 2.0.20)
 
 Copyright (c) 2004-2023 QOS.ch
 All rights reserved.

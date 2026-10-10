@@ -1,6 +1,6 @@
 # Contributing to Maestro Android
 
-This public repository is the future Android edition of Maestro Editorial AI.
+This public repository is the Android edition of Maestro Editorial AI.
 Contributions must preserve its privacy boundaries and the repository's
 security and release gates.
 
@@ -47,9 +47,6 @@ Before opening or updating a pull request:
 3. run only checks that apply to the current repository state and preserve the
    static site's public-content and no-indexing boundaries;
 4. record exact validation evidence in the pull request and linked work item.
-
-Do not create a fake Gradle project or execute Android build gates before a
-real application scaffold exists.
 
 ## Inbound rights
 

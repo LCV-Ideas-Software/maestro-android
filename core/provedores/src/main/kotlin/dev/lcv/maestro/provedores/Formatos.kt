@@ -24,8 +24,10 @@ internal object Json {
 /**
  * O contrato de um provedor: cabeçalhos, corpo e leitura da resposta. Cada
  * formato vem da documentação oficial do provedor, reconferida em 23/09/2026
- * (MAEANDR-19). O web e o desktop não servem de fonte para o corpo: nenhum
- * dos dois usa os transportes novos da seção 5.1.
+ * (MAEANDR-19); o controle de raciocínio da DeepSeek, de novo em 09/10/2026
+ * (MAEANDR-40). O web e o desktop não servem de fonte para o corpo, que vem
+ * da documentação oficial; o desktop serve de conferência cruzada da
+ * DeepSeek, cujo corpo manda os mesmos campos desde 05/10/2026 (`fde74fd`).
  *
  * O raciocínio vai no máximo de cada provedor, por decisão do operador de
  * 23/09/2026. `store: false` vai explícito nos quatro que o expõem (OpenAI,
@@ -193,8 +195,9 @@ internal sealed interface Formato {
 
     /**
      * DeepSeek Chat Completions. Sem `store`: a API não declara o campo.
-     * `thinking.reasoning_effort` fica dentro de `thinking`, como a referência
-     * da API documenta.
+     * `thinking` leva só o `type`; o esforço vai em `reasoning_effort`, na
+     * raiz do corpo, como o guia do modo de raciocínio e a referência da API
+     * documentam para o formato OpenAI.
      */
     data object DeepSeek : Formato {
         override fun cabecalhos(chave: String) = mapOf("Authorization" to "Bearer $chave")
@@ -207,10 +210,8 @@ internal sealed interface Formato {
             }
             put("max_tokens", pedido.maxTokensDeSaida)
             put("stream", false)
-            putObject("thinking").apply {
-                put("type", "enabled")
-                put("reasoning_effort", "max")
-            }
+            putObject("thinking").put("type", "enabled")
+            put("reasoning_effort", "max")
         }
 
         /**

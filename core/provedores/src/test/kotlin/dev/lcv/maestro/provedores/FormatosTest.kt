@@ -92,7 +92,7 @@ class FormatosTest {
             Provedor.CLAUDE to listOf("/output_config/effort" to "max", "/thinking/type" to "adaptive"),
             Provedor.CODEX to listOf("/reasoning/effort" to "max"),
             Provedor.GEMINI to listOf("/generation_config/thinking_level" to "high"),
-            Provedor.DEEPSEEK to listOf("/thinking/type" to "enabled", "/thinking/reasoning_effort" to "max"),
+            Provedor.DEEPSEEK to listOf("/thinking/type" to "enabled", "/reasoning_effort" to "max"),
             Provedor.GROK to listOf("/reasoning/effort" to "xhigh"),
             Provedor.PERPLEXITY to listOf("/preset" to "xhigh"),
         )
@@ -103,6 +103,17 @@ class FormatosTest {
                 assertEquals(valor, enviado.json.at(caminho).textValue(), "$provedor $caminho")
             }
         }
+    }
+
+    @Test
+    fun `o esforco da DeepSeek vai na raiz do corpo, e nao dentro de thinking`() {
+        // No formato OpenAI, o guia do modo de raciocínio e a referência da API
+        // põem `reasoning_effort` na raiz; `thinking` leva só o `type`, e a
+        // referência não declara esforço dentro dele.
+        val (_, deepseek) = chamarERegistrar(Provedor.DEEPSEEK, RESPOSTAS.getValue(Provedor.DEEPSEEK))
+        assertEquals("max", deepseek.json.at("/reasoning_effort").textValue())
+        assertEquals("enabled", deepseek.json.at("/thinking/type").textValue())
+        assertTrue(deepseek.json.at("/thinking/reasoning_effort").isMissingNode, "o esforço vai na raiz, não dentro de thinking")
     }
 
     @Test

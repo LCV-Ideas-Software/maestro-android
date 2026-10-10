@@ -2,10 +2,10 @@
 
 ## Supported state
 
-Only the current `main` branch is maintained. This repository presently
-contains public governance, static documentation, automation, and an inert Code
-Quality probe; it does not contain an Android application or production
-runtime.
+Only the current `main` branch is maintained. This repository contains the
+source code of the Maestro AI Android application (the `:app` module and the
+`:core:*` modules it is built on) and its tests, together with public
+governance, static documentation, automation, and an inert Code Quality probe.
 
 ## Reporting a vulnerability
 
@@ -26,7 +26,7 @@ through their owning system and report only non-secret metadata.
 ## Scope
 
 In scope: repository automation, dependencies and supply-chain configuration,
-publication boundaries, security documentation, the Pages surface, and future
+publication boundaries, security documentation, the Pages surface, and
 application code committed here.
 
 Out of scope: social engineering, physical attacks, denial-of-service testing

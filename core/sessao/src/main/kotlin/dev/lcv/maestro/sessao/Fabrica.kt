@@ -87,7 +87,7 @@ public class Fabrica(
     public fun buscaDeEvidencias(): BuscaDeEvidencias = BuscaDeEvidencias(resolvedor, agenteDeColeta(), evidencias)
 
     /** O cliente dos seis provedores: novo, limpo e só TLS moderno, como o transporte da auditoria. */
-    private val cliente = ClienteDeProvedores(OkHttpClient.Builder().connectionSpecs(listOf(ConnectionSpec.MODERN_TLS)).build(), cofre)
+    private val cliente = ClienteDeProvedores(clienteHttpDosProvedores(), cofre)
 
     /** O "Testar chaves" da tela de configurações, sobre o mesmo cliente das sessões. */
     public val testeDeChaves: TesteDeChaves = TesteDeChaves(cliente::chamar)
@@ -146,5 +146,25 @@ public class Fabrica(
         public fun instalar(fabrica: Fabrica) {
             doProcesso = fabrica
         }
+
+        /**
+         * O `OkHttpClient` de produção dos seis provedores. A conexão, o envio
+         * do pedido e a leitura esperam até [ClienteDeProvedores.PRAZO_POR_CHAMADA],
+         * e não os 10 s padrão do OkHttp para cada um: a resposta que levasse
+         * mais que isso para começar a chegar cairia por prazo de leitura antes
+         * do prazo da chamada e seria repetida, num segundo POST pago; a conexão
+         * ou o envio lentos também cairiam antes do prazo da chamada. Com o valor
+         * do teto, nenhum desses prazos vence antes do prazo da chamada, que o
+         * [ClienteDeProvedores] fixa no menor entre esse teto e o tempo que resta
+         * da sessão. O desktop canônico também só tem o prazo total: a conexão
+         * segue a decisão do operador de 09/10/2026, e o envio, incluído pelo
+         * Claude pela mesma regra, foi mantido por decisão dele no mesmo dia.
+         */
+        internal fun clienteHttpDosProvedores(): OkHttpClient = OkHttpClient.Builder()
+            .connectionSpecs(listOf(ConnectionSpec.MODERN_TLS))
+            .connectTimeout(ClienteDeProvedores.PRAZO_POR_CHAMADA)
+            .writeTimeout(ClienteDeProvedores.PRAZO_POR_CHAMADA)
+            .readTimeout(ClienteDeProvedores.PRAZO_POR_CHAMADA)
+            .build()
     }
 }

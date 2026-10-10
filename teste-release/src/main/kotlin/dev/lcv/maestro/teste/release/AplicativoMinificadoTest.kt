@@ -5,17 +5,23 @@
 package dev.lcv.maestro.teste.release
 
 import android.content.Intent
+import android.graphics.Rect
 import android.os.SystemClock
 import android.util.Log
+import android.view.Surface
+import android.view.accessibility.AccessibilityWindowInfo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.BySelector
+import androidx.test.uiautomator.Condition
 import androidx.test.uiautomator.Direction
 import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
+import androidx.test.uiautomator.boundsInScreen
+import androidx.test.uiautomator.waitForRootInActiveWindow
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -76,7 +82,7 @@ class AplicativoMinificadoTest {
         assertNotNull("a tela de configurações não voltou depois da rotação", aparelho.wait(Until.findObject(By.text(CHAVES)), ESPERA))
         aparelho.setOrientationNatural()
         assertNotNull("a tela de configurações não voltou depois da segunda rotação", aparelho.wait(Until.findObject(By.text(CHAVES)), ESPERA))
-        achar(By.desc(VOLTAR)).click()
+        voltarNaGeometriaAtual().click()
         assertNotNull("voltar não levou à tela inicial", aparelho.wait(Until.findObject(By.text(PEDIDO_EDITORIAL)), ESPERA))
         assertTrue("o processo do aplicativo morreu", processoVivo())
     }
@@ -193,18 +199,32 @@ class AplicativoMinificadoTest {
      * tela de configurações tem nove telas de altura, e a busca que trocava de sentido a cada tentativa oscilava no
      * meio dela sem chegar às licenças (medido em 06/10/2026). O fim é a tela que não muda depois de rolar, porque o
      * retorno de `scroll` não é confiável no Compose (medido na calculadora-android).
+     *
+     * A busca termina pelo progresso, não pelo relógio: só desiste depois de chegar ao fim nos dois sentidos sem achar
+     * o elemento, e nunca antes de [espera], que é o tempo que o elemento que aparece sozinho, sem rolar, tem para
+     * chegar. Num emulador lento cada rolagem pode levar segundos, e um prazo em segundos fazia a busca desistir no
+     * meio da tela (medido em 09/10/2026: 10 rolagens em 40 s, contra 34 numa rodada normal, e a tela de licenças
+     * ficou sem ser achada). [ROLAGENS_NO_MAXIMO] é só a guarda contra uma tela que nunca para de mudar.
      */
     private fun esperarRolando(seletor: BySelector, espera: Long): UiObject2? {
         val limite = SystemClock.uptimeMillis() + espera
         var sentido = Direction.DOWN
-        while (SystemClock.uptimeMillis() < limite) {
+        var fimEmbaixo = false
+        var fimEmCima = false
+        var rolagens = 0
+        while (true) {
             aparelho.findObject(seletor)?.let { return it }
+            val percorrida = (fimEmbaixo && fimEmCima) || rolagens >= ROLAGENS_NO_MAXIMO
+            if (percorrida && SystemClock.uptimeMillis() >= limite) return null
             val antes = retrato()
             aparelho.findObject(By.scrollable(true))?.scroll(sentido, 0.6f)
             aparelho.waitForIdle()
-            if (retrato() == antes) sentido = if (sentido == Direction.DOWN) Direction.UP else Direction.DOWN
+            rolagens++
+            if (retrato() == antes) {
+                if (sentido == Direction.DOWN) fimEmbaixo = true else fimEmCima = true
+                sentido = if (sentido == Direction.DOWN) Direction.UP else Direction.DOWN
+            }
         }
-        return aparelho.findObject(seletor)
     }
 
     /**
@@ -219,6 +239,69 @@ class AplicativoMinificadoTest {
 
     private fun achar(seletor: BySelector): UiObject2 =
         requireNotNull(aparelho.wait(Until.findObject(seletor), ESPERA)) { "não achei $seletor na tela" }
+
+    /**
+     * O Voltar, só quando a geometria que a acessibilidade informa concorda com a do display. A rotação do UI Automator
+     * espera só o valor da rotação do display, e a acessibilidade pode continuar com a geometria velha: o toque montado
+     * com ela cai fora do Voltar (medido em 08/10/2026: display em 1080×2400, janela ainda em 2400×1080, Voltar em
+     * (601, 11)–(686, 97), toque em (643, 54), dentro da barra de status). Cada leitura limpa o cache da acessibilidade
+     * e exige a rotação natural, a janela ativa e a raiz do tamanho do display, a barra de status no alto e da largura
+     * dele, e o Voltar do aplicativo, habilitado, da mesma janela e inteiro abaixo da barra; sem a barra, a leitura é
+     * recusada. Cada leitura completa nova vai para o log, aceita ou recusada; o prazo é o `ESPERA`, mais a leitura em
+     * curso, que espera a raiz por até `ESPERA_DA_RAIZ`.
+     */
+    private fun voltarNaGeometriaAtual(): UiObject2 {
+        var leitura = "sem a raiz da janela ativa"
+        val condicao = object : Condition<UiDevice, UiObject2?> {
+            override fun apply(aparelho: UiDevice): UiObject2? {
+                val raiz = try {
+                    aparelho.waitForRootInActiveWindow(timeoutMs = ESPERA_DA_RAIZ, clearCache = true)
+                } catch (_: IllegalStateException) {
+                    leitura = "sem a raiz da janela ativa"
+                    return null
+                }
+                return try {
+                    val rotacao = aparelho.displayRotation
+                    val display = Rect(0, 0, aparelho.displayWidth, aparelho.displayHeight)
+                    val janela = Rect().also { raiz.window?.getBoundsInScreen(it) }
+                    val quadroDaRaiz = raiz.boundsInScreen()
+                    val pacote = raiz.packageName?.toString()
+                    // A barra de status: janela do sistema no alto, da largura do display e mais baixa que meia tela, o
+                    // que deixa de fora janela de tela cheia do sistema. Só entram janelas com raiz.
+                    val barra = aparelho.windowRoots.mapNotNull { it.window }
+                        .filter { it.type == AccessibilityWindowInfo.TYPE_SYSTEM }
+                        .map { sistema -> Rect().also { sistema.getBoundsInScreen(it) } }
+                        .filter { it.top == 0 && it.width() == display.width() && it.height() < display.height() / 2 }
+                        .maxByOrNull { it.bottom }
+                    val alvo = aparelho.findObject(By.desc(VOLTAR))
+                    val janelaDoAlvo = alvo?.accessibilityNodeInfo?.windowId
+                    val pacoteDoAlvo = alvo?.applicationPackage
+                    val habilitado = alvo?.isEnabled == true
+                    // O clique do `UiObject2` toca no centro destes limites.
+                    val limites = alvo?.visibleBounds
+                    val concorda = alvo != null && limites != null && barra != null &&
+                        rotacao == Surface.ROTATION_0 && janela == display && quadroDaRaiz == janela &&
+                        pacote == PACOTE && janelaDoAlvo == raiz.windowId && pacoteDoAlvo == PACOTE && habilitado &&
+                        !limites.isEmpty && janela.contains(limites) && limites.top >= barra.bottom
+                    val doVoltar = when (alvo) {
+                        null -> "não achado"
+                        else -> "de $pacoteDoAlvo, habilitado $habilitado, na janela $janelaDoAlvo em $limites"
+                    }
+                    val nova = "rotação $rotacao, display $display, janela ${raiz.windowId} em $janela, " +
+                        "raiz de $pacote em $quadroDaRaiz, barra de status em $barra, Voltar $doVoltar"
+                    if (nova != leitura) Log.i(ROTULO, "geometria ${if (concorda) "aceita" else "recusada"}: $nova")
+                    leitura = nova
+                    if (concorda) alvo else null
+                } catch (_: StaleObjectException) {
+                    null
+                }
+            }
+
+            override fun toString() = "Condition[o Voltar na geometria do display]"
+        }
+        val voltar = aparelho.wait(condicao, ESPERA)
+        return requireNotNull(voltar) { "a geometria do Voltar não concordou com a do display: $leitura" }
+    }
 
     /** O teclado na tela cobre os botões de baixo; voltar o fecha, e só é pedido com ele aberto, para não sair da tela. */
     private fun esconderOTeclado() {
@@ -270,9 +353,13 @@ class AplicativoMinificadoTest {
         const val ROTULO = "AplicativoMinificado"
         const val ESPERA = 15_000L
         const val ESPERA_REDE = 60_000L
-        // A tela de configurações tem nove telas de altura; descer e voltar cabe com folga.
+        // Tempo mínimo das buscas que rolam a tela; o fim delas é o progresso, não o relógio (`esperarRolando`).
         const val ESPERA_ROLANDO = 40_000L
+        // A tela de configurações tem nove telas de altura: descer e voltar cabe em 30 rolagens de 60 %.
+        const val ROLAGENS_NO_MAXIMO = 60
         const val ESPERA_DO_PIN = 8_000L
+        // Na recriação da Activity a janela ativa fica um instante sem raiz; cada leitura espera por ela até isto.
+        const val ESPERA_DA_RAIZ = 1_000L
         const val PIN = "1234"
 
         const val PEDIDO_EDITORIAL = "Pedido editorial"

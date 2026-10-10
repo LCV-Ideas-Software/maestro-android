@@ -444,9 +444,12 @@ public object AuditoriaAbnt {
     }
 
     /**
-     * A seção de referências: do cabeçalho (`reference_section`, Rust linha
-     * 389) até a linha que, aparada, começa com `#`, ou até o fim do texto.
-     * As linhas terminam em `\n`, como no `str::lines` do Rust.
+     * A faixa de onde se lê a lista de referências: do cabeçalho
+     * (`reference_section`, Rust linha 389) até a linha que, aparada, começa
+     * com `#`, ou até o fim do texto. As linhas terminam em `\n`, como no
+     * `str::lines` do Rust. No corte do corpo e na regra de 24/09/2026, a
+     * seção de referências vai até o próximo cabeçalho de nível igual ou
+     * menor, com os subtítulos ([faixasDoAparato]).
      */
     private fun faixaDaSecaoDeReferencias(texto: String): IntRange? {
         val cabecalho = CABECALHO_DE_REFERENCIAS.find(texto) ?: return null
@@ -460,6 +463,72 @@ public object AuditoriaAbnt {
         }
         return cabecalho.range.first until texto.length
     }
+
+    /**
+     * As faixas do aparato bibliográfico, na ordem em que aparecem no texto e
+     * sem sobreposição. O aparato é a seção de referências, que começa no
+     * mesmo cabeçalho de [faixaDaSecaoDeReferencias], e, por decisão do
+     * operador de 09/10/2026, cada seção de fontes consultáveis online ou de
+     * leituras complementares. Reconhecer essas seções em qualquer ponto do
+     * texto, pelo cabeçalho cujo nome, dobrado como na regra de ordem do
+     * aparato ([bloqueiosDePolitica]), está em [OUTRAS_SECOES_DO_APARATO], é
+     * implementação dessa decisão. A linha de prosa com o mesmo nome, sem
+     * `#`, não abre seção.
+     *
+     * Cabeçalho, aqui, é a linha que, aparada, começa com `#`, e o nível dele
+     * é a quantidade de `#` no começo dela. Por outra decisão do operador do
+     * mesmo dia, cada seção do aparato vai do seu cabeçalho até a próxima
+     * linha de cabeçalho de nível igual ou menor, ou até o fim do texto: um
+     * subtítulo mais fundo, como `### Livros` dentro de `## Leituras
+     * complementares`, fica dentro, e uma seção com outro cabeçalho de nível
+     * igual ou menor, como um apêndice, é corpo. A lista de referências
+     * continua lida só até o primeiro cabeçalho de qualquer nível, como no
+     * canônico ([faixaDaSecaoDeReferencias]).
+     *
+     * Uma seção do aparato que começa dentro de outra é mais funda que ela,
+     * senão a teria fechado, e termina antes dela ou junto. Por isso basta
+     * seguir, numa só passada, a seção de fora que está aberta: cada faixa é
+     * uma dessas seções de fora, e duas faixas seguidas se tocam quando o
+     * cabeçalho que fecha uma abre a seguinte.
+     */
+    private fun faixasDoAparato(texto: String): List<IntRange> {
+        val referencias = CABECALHO_DE_REFERENCIAS.find(texto)?.range?.first
+        val faixas = mutableListOf<IntRange>()
+        var inicio = 0
+        // O nível da seção de fora que está aberta; 0 quando nenhuma está.
+        var nivelAberto = 0
+        var linha = 0
+        while (linha < texto.length) {
+            val quebra = texto.indexOf('\n', linha).let { if (it < 0) texto.length else it }
+            val aparada = EspacoUnicode.aparar(texto.substring(linha, quebra))
+            val nivel = aparada.takeWhile { it == '#' }.length
+            if (nivel > 0) {
+                if (nivelAberto > 0 && nivel <= nivelAberto) {
+                    faixas.add(inicio until linha)
+                    nivelAberto = 0
+                }
+                val abreSecao = linha == referencias ||
+                    dobrarAscii(EspacoUnicode.aparar(aparada.trimStart('#'))) in OUTRAS_SECOES_DO_APARATO
+                if (nivelAberto == 0 && abreSecao) {
+                    inicio = linha
+                    nivelAberto = nivel
+                }
+            }
+            linha = quebra + 1
+        }
+        if (nivelAberto > 0) faixas.add(inicio until texto.length)
+        return faixas
+    }
+
+    /**
+     * Os nomes dobrados das outras seções do aparato, além da de referências:
+     * as de fontes consultáveis online e de leituras complementares, os
+     * mesmos da regra de ordem do aparato ([bloqueiosDePolitica]). A seção
+     * sai do corpo onde quer que esteja; quem confere a ordem é a regra de
+     * ordem.
+     */
+    private val OUTRAS_SECOES_DO_APARATO =
+        setOf("fontesonline", "fontesconsultaveisonline", "fontesconsultadasonline", "leiturascomplementares")
 
     private val CABECALHO_DE_REFERENCIAS = Regex(
         "^#{1,6}${TextoRust.ESPACO}*(?:refer[eê]ncias(?:${TextoRust.ESPACO}+bibliogr[aá]ficas)?" +
@@ -915,6 +984,33 @@ public object AuditoriaAbnt {
         val claimsVistos = HashSet<String>()
         val citacoes = mutableListOf<Citacao>()
         val textoDobrado = TextoDobrado(texto)
+        // Divergência do canônico, corrigindo uma falha dele (achado da
+        // auditoria do Codex de 08/10/2026): o `original_text` era procurado no
+        // texto inteiro, e um trecho que só existe na seção de referências — o
+        // sobrenome do autor de uma delas — dava por localizada uma citação que
+        // o corpo não faz. Agora ele só vale no corpo, fora de todo o aparato
+        // bibliográfico ([faixasDoAparato]): a seção de referências e, por
+        // decisão do operador de 09/10/2026, as fontes consultáveis online e as
+        // leituras complementares. Assim, uma obra só recomendada para leitura
+        // deixa de valer como citada. A forma normalizada também só vale no
+        // corpo, por outra decisão do operador do mesmo dia, contra o plano do
+        // Codex, que mandava mantê-la procurada no texto inteiro, como no
+        // canônico. No texto inteiro, a forma `(IBGE, 2023)` achava a citação
+        // em `Rio de Janeiro: IBGE, 2023.`, numa referência em que o autor é
+        // também a editora. O corpo são as partes antes, entre e depois das
+        // seções do aparato (um apêndice com cabeçalho de nível igual ou menor
+        // é corpo), cada parte por si, porque, juntas, o fim de uma e o começo
+        // da seguinte formariam uma ocorrência que o texto não tem. As faixas
+        // são medidas e cortadas no texto, antes do dobramento: o dobrado e a
+        // chave canônica têm outro comprimento.
+        val aparato = faixasDoAparato(texto)
+        val partesDoCorpo = if (aparato.isEmpty()) {
+            listOf(textoDobrado)
+        } else {
+            val inicios = listOf(0) + aparato.map { it.last + 1 }
+            val fins = aparato.map { it.first } + texto.length
+            inicios.zip(fins) { inicio, fim -> TextoDobrado(texto.substring(inicio, fim)) }
+        }
         for (citacao in manifesto.citacoes.take(MAXIMO_DE_CITACOES)) {
             val claimId = Saneamento.curto(citacao.claimId, 120)
             val fonteId = Saneamento.curto(citacao.fonteId, 120)
@@ -1017,12 +1113,13 @@ public object AuditoriaAbnt {
             }
             val normalizada = citacaoNoTexto(citacao, fonte)
             val originalPresente = preenchido(citacao.textoOriginal)
-                ?.let { textoDobrado.contem(it) } ?: false
-            val normalizadaPresente = textoDobrado.contem(normalizada)
+                ?.let { original -> partesDoCorpo.any { it.contem(original) } } ?: false
+            val normalizadaPresente = partesDoCorpo.any { it.contem(normalizada) }
             if (!originalPresente && !normalizadaPresente) {
                 bloqueios += bloqueio(
                     "manifest_citation_absent_from_text",
-                    "A citacao do manifesto nao foi localizada no texto final.",
+                    "A citacao do manifesto nao foi localizada no corpo do texto final, fora das referencias, " +
+                        "das fontes consultaveis online e das leituras complementares.",
                     "error", claimId, fonteId, citacao.textoOriginal, false,
                 )
             }
@@ -1092,12 +1189,18 @@ public object AuditoriaAbnt {
         // ocorrência no corpo consome uma entrada própria do manifesto. Lá uma
         // entrada cobria todas as ocorrências iguais, e a segunda afirmação com
         // o mesmo autor, ano e localizador saía sem verificação própria. A
-        // ocorrência dentro da seção de referências (num título, por exemplo)
-        // não consome entrada: só precisa estar representada, como no canônico.
-        // A seção vai do cabeçalho à linha que começa o próximo, como em
-        // [secaoDeReferencias]; um apêndice depois dela é corpo.
-        val naSecaoDeReferencias = faixaDaSecaoDeReferencias(texto)?.let { faixa ->
-            lerCitacoesBrutas(texto).filter { it.first in faixa }.mapTo(HashSet()) { it.second.claimId }
+        // ocorrência dentro do aparato bibliográfico (num título de referência,
+        // por exemplo) não consome entrada: só precisa estar representada, como
+        // no canônico. O aparato é o mesmo do corte do `original_text` e da
+        // forma normalizada ([faixasDoAparato]): a seção de referências e, por
+        // decisão do operador de 09/10/2026, as fontes consultáveis online e as
+        // leituras complementares. Por outra decisão do mesmo dia, cada seção
+        // vai do seu cabeçalho até o próximo de nível igual ou menor, ou até o
+        // fim do texto, com os subtítulos dentro; um apêndice com cabeçalho de
+        // nível igual ou menor é corpo.
+        val noAparato = aparato.takeIf { it.isNotEmpty() }?.let { faixas ->
+            lerCitacoesBrutas(texto).filter { (posicao, _) -> faixas.any { posicao in it } }
+                .mapTo(HashSet()) { it.second.claimId }
         }.orEmpty()
         val livres = citacoes.toMutableList()
         for (bruta in citacoesBrutas) {
@@ -1106,7 +1209,7 @@ public object AuditoriaAbnt {
                     EspacoUnicode.aparar(estruturada.ano) == EspacoUnicode.aparar(bruta.ano) &&
                     mesmoValorDobrado(estruturada.localizador ?: "", bruta.localizador ?: "")
             }
-            val representada = if (bruta.claimId !in naSecaoDeReferencias) {
+            val representada = if (bruta.claimId !in noAparato) {
                 val indice = livres.indexOfFirst(casa)
                 if (indice >= 0) livres.removeAt(indice)
                 indice >= 0

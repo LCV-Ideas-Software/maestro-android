@@ -49,7 +49,7 @@ class BancoCheio(private val base: SupportSQLiteOpenHelper.Factory = FrameworkSQ
     private fun conferir(sql: String) {
         if (!ESCRITA.containsMatchIn(sql) || sql.contains("room_")) return
         if (releituraQuebrada?.let { sql.contains(it) } == true && lidasDepoisDaEscrita.get() == null) lidasDepoisDaEscrita.set(0)
-        tabelaTravada?.takeIf { sql.contains(it) }?.let { trava?.await(10, TimeUnit.SECONDS) }
+        tabelaTravada?.takeIf { sql.contains(it) }?.let { trava?.let { t -> if (!t.await(10, TimeUnit.SECONDS)) travasVencidas.incrementAndGet() } }
         val naTabela = soNaTabela?.let { sql.contains(it) } ?: true
         if (cheio && naTabela) throw SQLiteFullException(MENSAGEM)
     }
@@ -60,6 +60,12 @@ class BancoCheio(private val base: SupportSQLiteOpenHelper.Factory = FrameworkSQ
      */
     /** Quantas leituras a [leituraQuebrada] já quebrou: prova que uma leitura que falhou não é refeita antes da volta. */
     val quebradas = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /**
+     * Quantas travas deste banco venceram o prazo sem o teste soltá-las. A trava vencida solta a operação sozinha, e
+     * o teste da corrida passaria sem prová-la: quem depende só da trava confere que nenhuma venceu.
+     */
+    val travasVencidas = java.util.concurrent.atomic.AtomicInteger(0)
 
     @Volatile var leituraPresa: CountDownLatch? = null
     @Volatile var tabelaDaLeituraPresa: String? = null
@@ -89,7 +95,7 @@ class BancoCheio(private val base: SupportSQLiteOpenHelper.Factory = FrameworkSQ
         if (tabelaDaLeituraPresa?.let { sql.contains(it) } == true && leituraPresa != null) {
             if (leiturasAntes.getAndDecrement() <= 0) {
                 val trava = synchronized(this) { leituraPresa.also { leituraPresa = null } }
-                trava?.await(10, TimeUnit.SECONDS)
+                if (trava != null && !trava.await(10, TimeUnit.SECONDS)) travasVencidas.incrementAndGet()
                 // Solta, a leitura confere de novo: a releitura antiga que falha depois de outra é o caso a reproduzir (#81).
                 if (leituraQuebrada?.let { sql.contains(it) } == true) {
                     quebradas.incrementAndGet()

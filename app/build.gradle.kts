@@ -23,13 +23,13 @@ android {
         // `docs/especificacao-v1.md`.
         minSdk = 36
         targetSdk = 37
-        // 1.0.1 (MAEANDR-39): o protocolo editorial medido em bytes e só pt-BR e
-        // en-US no pacote. O versionCode 1 foi o do bundle de 17/09/2026
-        // (MAEANDR-9) na faixa interna; o 2, o primeiro bundle da 1.0.0, foi
-        // trocado pelo 3 antes da revisão (#104); o 3 é a 1.0.0, a primeira
-        // publicação na Play (#100). A Play exige sempre um maior.
-        versionCode = 4
-        versionName = "1.0.1"
+        // 1.0.2 (MAEANDR-40): as sete correções do plano da auditoria do Codex.
+        // O versionCode 1 foi o do bundle de 17/09/2026 (MAEANDR-9) na faixa
+        // interna; o 2, o primeiro bundle da 1.0.0, foi trocado pelo 3 antes da
+        // revisão (#104); o 3, a 1.0.0, saiu da revisão sem ser publicado,
+        // substituído pelo 4, a 1.0.1 (MAEANDR-39). A Play exige sempre um maior.
+        versionCode = 5
+        versionName = "1.0.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

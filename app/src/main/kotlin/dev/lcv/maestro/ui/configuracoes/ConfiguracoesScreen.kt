@@ -165,9 +165,9 @@ private fun Chaves(
     Cartao {
         Cabecalho(R.drawable.simbolo_key, stringResource(R.string.ajustes), stringResource(R.string.chaves_dos_agentes))
         Legenda(stringResource(R.string.chaves_explicacao))
-        // Seção 6.3: a tela que pede a chave diz, antes da primeira sessão, que o texto vai aos
-        // provedores ativados (compartilhamento com terceiros, no vocabulário da Play), com a
-        // frase da seção 6.4 sobre o que `store: false` faz e o que não faz.
+        // Seção 6.3: a tela que pede a chave diz, antes da primeira sessão, o que vai aos
+        // provedores ativados e o que dos anexos fica no aparelho, com a frase da seção 6.4
+        // sobre o que o `store: false` faz e o que não faz em cada provedor.
         Legenda(stringResource(R.string.texto_para_provedores), modifier = Modifier.testTag(Marcas.TEXTO_PARA_PROVEDORES))
         // Seção 4.2 e emenda A14: sem trava de tela o Keystore não gera a chave que cifra as de
         // API, e remover a trava apaga a que havia. O cofre não distingue "nunca guardou" de

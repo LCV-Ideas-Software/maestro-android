@@ -211,6 +211,8 @@ class AnexosScreenTest {
         Thread.sleep(1_000)
         regra.waitForIdle()
         regra.onNodeWithTag(Marcas.removerAnexo(anexo.id)).assertExists()
+        // A releitura antiga ficou presa até o teste a soltar, e não até o prazo vencer.
+        assertEquals(0, c.bancoCheio.travasVencidas.get())
     }
 
     @Test

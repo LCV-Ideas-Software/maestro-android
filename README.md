@@ -4,12 +4,12 @@
 
 Public repository for the Android edition of Maestro Editorial AI. It carries
 the reviewed governance, security, release and documentation baseline and,
-since 21/09/2026, the native port. Version 1.0.0 (06/10/2026) is the first
-version prepared for public release on Google Play; the publication is
-recorded here, as the Release `v01.00.00`, only after Play reports it
-published. Version 1.0.1 measures the editorial protocol in UTF-8 bytes, so a
-long protocol is no longer cut at 160,000 characters, and ships only the
-pt-BR and en-US resources.
+since 21/09/2026, the native port. Version 1.0.0 (06/10/2026) was the first
+version sent to Google Play's review; version 1.0.1 (08/10/2026), which
+measures the editorial protocol in UTF-8 bytes and ships only the pt-BR and
+en-US resources, replaced it in that review. Version 1.0.2 brings the fixes of
+the joint plan of Codex's audit of 08/10/2026 (MAEANDR-40). Each publication is
+recorded here as a GitHub Release only after Play reports it published.
 
 ## Canonical tracking
 
@@ -38,8 +38,7 @@ constraints are:
   control;
 - no advertising, analytics, or tracking SDKs.
 
-These are design commitments, not claims that an application has already been
-implemented.
+These are the design commitments of the application in this repository.
 
 ## Current state
 
@@ -113,8 +112,9 @@ character classes and flags passed as options, because Android runs
 
 The second module is `:core:provedores`, also pure Kotlin and tested on the
 JVM against a fake HTTP server. It holds the six AI providers, each built from
-its official API documentation, reconfirmed on 23/09/2026. Every request uses
-reasoning at the provider's maximum and a 64 000-token output ceiling. Four of
+its official API documentation, reconfirmed on 23/09/2026 (DeepSeek's reasoning
+control again on 09/10/2026). Every request uses reasoning at the provider's
+maximum and a 64 000-token output ceiling. Four of
 them get `store: false`; the other two have no such field. The network policy
 comes from the canonical desktop: two attempts at most, and a wait on HTTP 429
 that honours `Retry-After`. The module reads the API key through an interface
@@ -306,8 +306,7 @@ analyzes here, and it stays until Code Quality covers Kotlin (MAEANDR-20).
   history in the corresponding continuous Linear pipeline. This does not
   publish an Android application, npm package, or Windows release.
 - GitHub Pages deploys only the sanitized `site/` directory to
-  <https://maestro-android.lcv.dev>; search indexing remains disabled while the
-  product has no public implementation.
+  <https://maestro-android.lcv.dev>; search indexing remains disabled.
 - `publish-play.yml`, dispatched manually, builds the release App Bundle, sends
   it to the chosen Google Play track and refuses to publish when the digest Play
   received is not the artifact the job built. The release notes travel with it,

@@ -1,5 +1,6 @@
 package dev.lcv.maestro.protocolo
 
+import java.text.Normalizer
 import java.time.Instant
 import java.util.TreeSet
 import kotlin.test.Test
@@ -416,14 +417,337 @@ class AuditoriaAbntTest {
         // bloqueando, como no canônico.
         val semEntrada = textoVerificado.replace("SILVA, Maria. Obra.", "SILVA, Maria. Obra (Souza, 2020).")
         assertTrue(auditar(semEntrada, "protocol-sha256", manifestoVerificado()).temBloqueio("body_citation_not_in_manifest"))
-        // A seção termina no próximo cabeçalho: citação num apêndice depois
-        // dela é do corpo e consome entrada própria.
+        // A seção termina no próximo cabeçalho de nível igual ou menor:
+        // citação num apêndice de mesmo nível depois dela é do corpo e consome
+        // entrada própria.
         val comApendice = "$textoVerificado\n\n## Apendice\nOutra afirmacao (Silva, 2026, p. 12)."
         assertTrue(auditar(comApendice, "protocol-sha256", manifestoVerificado()).temBloqueio("body_citation_not_in_manifest"))
         val duasEntradas = manifestoVerificado().let { base ->
             base.copy(citacoes = base.citacoes + base.citacoes[0].copy(claimId = "claim-2"))
         }
         assertFalse(auditar(comApendice, "protocol-sha256", duasEntradas).temBloqueio("body_citation_not_in_manifest"))
+    }
+
+    /**
+     * O manifesto verificado com uma citação indireta sem localizador para cada `original_text` — `claim-1`, `claim-2`
+     * e assim por diante, todas da mesma fonte —, a forma da prova da auditoria do Codex de 08/10/2026.
+     */
+    private fun comCitacoesIndiretas(vararg originais: String?): ManifestoDeCitacoes = manifestoVerificado().let { base ->
+        base.copy(
+            citacoes = originais.mapIndexed { indice, original ->
+                base.citacoes[0].copy(
+                    claimId = "claim-${indice + 1}",
+                    tipo = TipoDeCitacao.CITACAO_INDIRETA,
+                    localizador = null,
+                    textoOriginal = original,
+                )
+            },
+        )
+    }
+
+    private fun ResultadoAbnt.bloqueiosPorClaim() = bloqueios.map { it.codigo to it.claimId }
+
+    @Test
+    fun `original que so existe na bibliografia nao localiza a citacao do manifesto`() {
+        // Achado da auditoria do Codex de 08/10/2026, com os casos da prova
+        // dele: `SILVA`, que só existe no autor da referência, dava por
+        // localizada uma citação que o corpo não faz, e o par saía pronto.
+        val referencias = "\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026."
+        val semCitacao = "Texto autoral sem citacao.$referencias"
+        val soNaBibliografia = auditar(semCitacao, "protocol-sha256", comCitacoesIndiretas("SILVA"))
+        assertEquals(listOf("manifest_citation_absent_from_text" to "claim-1"), soNaBibliografia.bloqueiosPorClaim())
+        assertEquals(StatusDoParMaestro.NAO_PRONTO, soNaBibliografia.statusDoParMaestro)
+        // Controles, os outros três casos da prova: a citação no corpo está
+        // pronta; o original exato ausente e a fonte sem citação nenhuma
+        // continuam recusados.
+        val noCorpo = auditar("Texto autoral (Silva, 2026).$referencias", "protocol-sha256", comCitacoesIndiretas("(Silva, 2026)"))
+        assertEquals(StatusDoParMaestro.PRONTO, noCorpo.statusDoParMaestro, noCorpo.bloqueios.toString())
+        assertEquals(
+            listOf("manifest_citation_absent_from_text"),
+            auditar(semCitacao, "protocol-sha256", comCitacoesIndiretas("(Silva, 2026)")).bloqueios.map { it.codigo },
+        )
+        assertEquals(
+            listOf("reference_without_body_use"),
+            auditar(semCitacao, "protocol-sha256", comCitacoesIndiretas()).bloqueios.map { it.codigo },
+        )
+        // Controle do que fica como estava: sem `original_text`, que é
+        // opcional, vale a forma normalizada no corpo.
+        val semOriginal = auditar("Texto autoral (Silva, 2026).$referencias", "protocol-sha256", comCitacoesIndiretas(null))
+        assertEquals(StatusDoParMaestro.PRONTO, semOriginal.statusDoParMaestro, semOriginal.bloqueios.toString())
+        // A forma da citação num título de referência já não a localiza. Este
+        // caso saía PRONTO porque a forma normalizada era procurada no texto
+        // inteiro, como no canônico e como o plano do Codex mandava manter. Por
+        // decisão do operador de 09/10/2026, ela também só vale no corpo, e a
+        // citação que só aparece no título é dada por ausente do texto
+        // (`manifest_citation_absent_from_text`). O título com forma de
+        // citação continua sem consumir entrada do manifesto.
+        val noTitulo = comCitacoesIndiretas("Silva (2026)").let { base ->
+            base.copy(fontes = listOf(base.fontes[0].copy(titulo = "Obra sobre Silva (2026)")))
+        }
+        val titulo = auditar(
+            "Texto autoral sem citacao.\n\n## Referencias\nSILVA, Maria. Obra sobre Silva (2026). Sao Paulo: Editora, 2026.",
+            "protocol-sha256",
+            noTitulo,
+        )
+        assertEquals(listOf("manifest_citation_absent_from_text" to "claim-1"), titulo.bloqueiosPorClaim())
+        assertEquals(StatusDoParMaestro.NAO_PRONTO, titulo.statusDoParMaestro)
+    }
+
+    @Test
+    fun `o original vale no corpo dos dois lados da secao de referencias, sem juntar as partes`() {
+        // O apêndice de mesmo nível depois da seção é corpo: o original que só
+        // está nele localiza a citação, como o que só está antes dela. As duas
+        // partes são conferidas cada uma por si: juntas, o fim de uma
+        // ("Brasil") e o começo da outra ("Vantagens") dobrariam para
+        // `brasilvantagens`, com um `silva` que o texto só tem na bibliografia.
+        val texto = "Texto autoral sobre o Brasil.\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026.\n\n" +
+            "## Vantagens\nA autora descreve a obra como inaugural."
+        val resultado = auditar(
+            texto,
+            "protocol-sha256",
+            comCitacoesIndiretas("SILVA", "Texto autoral sobre o Brasil", "descreve a obra como inaugural"),
+        )
+        assertEquals(listOf("manifest_citation_absent_from_text" to "claim-1"), resultado.bloqueiosPorClaim())
+        assertEquals(StatusDoParMaestro.NAO_PRONTO, resultado.statusDoParMaestro)
+        // Controle: sem nenhuma seção do aparato, o texto inteiro é corpo.
+        val semSecao = auditar("Texto autoral sobre o Brasil.", "protocol-sha256", comCitacoesIndiretas("sobre o Brasil"))
+        assertFalse(semSecao.temBloqueio("manifest_citation_absent_from_text"), semSecao.bloqueios.toString())
+    }
+
+    @Test
+    fun `a secao de referencias e cortada no texto, antes do dobramento que muda o comprimento`() {
+        // Antes do cabeçalho, letras cujo comprimento muda: `İ` vira `i` mais
+        // um ponto combinante na caixa baixa do dobramento, `ß` vira `SS` na
+        // caixa alta da chave canônica, e o acento decomposto (NFD) é uma
+        // unidade que o dobramento descarta. Nem o dobrado nem a chave guardam
+        // as posições do texto: a faixa é medida e cortada no texto, e só
+        // então cada parte é dobrada. A bibliografia fica de fora, e os
+        // originais do corpo, até o último trecho antes do cabeçalho, são
+        // achados pelos dois caminhos da comparação.
+        val decomposto = Normalizer.normalize("Praça São João da Conceição", Normalizer.Form.NFD)
+        val texto = "Campo feito em İzmir e İstanbul, perto da Straße, e na $decomposto.\n\n## Referencias\n" +
+            "SILVA, Maria. Obra. Sao Paulo: Editora, 2026."
+        val resultado = auditar(
+            texto,
+            "protocol-sha256",
+            comCitacoesIndiretas("SILVA", "İzmir e İstanbul", "perto da Straße", decomposto),
+        )
+        assertEquals(listOf("manifest_citation_absent_from_text" to "claim-1"), resultado.bloqueiosPorClaim())
+    }
+
+    @Test
+    fun `original que so existe nas leituras complementares nao localiza a citacao do manifesto`() {
+        // Decisão do operador de 09/10/2026: as fontes consultáveis online e as
+        // leituras complementares saem do corpo, como a seção de referências, e
+        // uma obra só recomendada para leitura deixa de valer como citada.
+        // `SILVA`, que fora da seção de referências só existe numa leitura
+        // complementar, não localiza a citação, e as leituras não são lidas
+        // como referências.
+        val texto = "Texto autoral sem citacao.\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026.\n\n" +
+            "## Leituras complementares\nSILVA, Maria. Outra obra. Rio: Editora, 2025."
+        val resultado = auditar(texto, "protocol-sha256", comCitacoesIndiretas("SILVA"))
+        assertEquals(listOf("manifest_citation_absent_from_text" to "claim-1"), resultado.bloqueiosPorClaim())
+        assertEquals(StatusDoParMaestro.NAO_PRONTO, resultado.statusDoParMaestro)
+        // Sem seção de referências, a leitura complementar também fica fora do
+        // corpo.
+        val semReferencias = auditar(
+            "Texto autoral sem citacao.\n\n## Leituras complementares\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026.",
+            "protocol-sha256",
+            comCitacoesIndiretas("SILVA"),
+        )
+        assertEquals(listOf("manifest_citation_absent_from_text" to "claim-1"), semReferencias.bloqueiosPorClaim())
+        // Controle: com a citação no corpo, o mesmo texto está pronto.
+        val noCorpo = auditar(
+            texto.replace("sem citacao.", "(Silva, 2026)."),
+            "protocol-sha256",
+            comCitacoesIndiretas("(Silva, 2026)"),
+        )
+        assertEquals(StatusDoParMaestro.PRONTO, noCorpo.statusDoParMaestro, noCorpo.bloqueios.toString())
+    }
+
+    @Test
+    fun `o cabecalho das fontes online e reconhecido dobrado, em qualquer nivel`() {
+        // O nome do cabeçalho é dobrado como na regra de ordem do aparato: o
+        // acento, a caixa, o nível, o recuo com espaço Unicode (NBSP) e o
+        // fim de linha CRLF não mudam a seção. Sem seção de referências no
+        // texto, cada cabeçalho é reconhecido por si, e não como subtítulo
+        // dela.
+        val textos = listOf(
+            "## Fontes consultáveis online",
+            "### Fontes consultadas online",
+            "# FONTES ONLINE",
+            "${Char(0xA0)}###### Fontes Online",
+        ).map { "Texto autoral sem citacao.\n\n$it\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026." }
+        val esperado = listOf("manifest_citation_absent_from_text" to "claim-1")
+        for (texto in textos + textos[0].replace("\n", "\r\n")) {
+            val resultado = auditar(texto, "protocol-sha256", comCitacoesIndiretas("SILVA"))
+            assertEquals(esperado, resultado.bloqueiosPorClaim(), texto)
+        }
+    }
+
+    @Test
+    fun `apendice de nivel igual ou menor continua corpo, sem juntar as partes`() {
+        // Uma seção com outro cabeçalho de nível igual ou menor, como um
+        // apêndice, fecha a seção do aparato e é corpo, depois do aparato ou
+        // entre as seções dele: o original que só está nela localiza a
+        // citação. As partes do corpo são conferidas cada uma por si: juntas,
+        // o fim da que vem antes do aparato ("Brasil") e o começo do apêndice
+        // ("Vantagens") dobrariam para `brasilvantagens`, com um `silva` que o
+        // texto só tem no aparato.
+        val referencias = "\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026.\n\n"
+        val leituras = "## Leituras complementares\nSILVA, Maria. Outra obra. Rio: Editora, 2025.\n\n"
+        val manifesto = comCitacoesIndiretas("SILVA", "descreve a obra como inaugural")
+        val esperado = listOf("manifest_citation_absent_from_text" to "claim-1")
+        for (cabecalho in listOf("## Vantagens", "# Vantagens")) {
+            val apendice = "$cabecalho\nA autora descreve a obra como inaugural.\n\n"
+            for (texto in listOf(
+                "Texto autoral sobre o Brasil.$referencias$leituras$apendice",
+                "Texto autoral sobre o Brasil.$referencias$apendice$leituras",
+            )) {
+                val resultado = auditar(texto, "protocol-sha256", manifesto)
+                assertEquals(esperado, resultado.bloqueiosPorClaim(), texto)
+                assertEquals(StatusDoParMaestro.NAO_PRONTO, resultado.statusDoParMaestro, texto)
+            }
+        }
+        // Controle: a linha de prosa com o nome de uma seção do aparato, sem
+        // `#`, não é cabeçalho, e o apêndice continua corpo.
+        val prosa = "Texto autoral sem citacao.$referencias" +
+            "## Apendice\nLeituras complementares\nA obra de SILVA e inaugural."
+        assertEquals(emptyList(), auditar(prosa, "protocol-sha256", comCitacoesIndiretas("SILVA")).bloqueiosPorClaim())
+    }
+
+    @Test
+    fun `citacao nas leituras complementares nao consome a entrada do corpo`() {
+        // A regra de 24/09/2026 usa o mesmo corte do original (decisão do
+        // operador de 09/10/2026): a mesma citação no corpo e numa leitura
+        // complementar pede uma entrada só, e a das leituras só precisa estar
+        // representada.
+        val texto = "Texto autoral (Silva, 2026).\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026." +
+            "\n\n## Leituras complementares\nSILVA, Maria. Outra obra (Silva, 2026). Rio: Editora, 2025."
+        val resultado = auditar(texto, "protocol-sha256", comCitacoesIndiretas("(Silva, 2026)"))
+        assertEquals(emptyList(), resultado.bloqueiosPorClaim())
+        assertEquals(StatusDoParMaestro.PRONTO, resultado.statusDoParMaestro)
+        // Controles: nas leituras, citação sem entrada nenhuma continua
+        // bloqueando, como nas referências.
+        val semEntrada = texto.replace("Outra obra (Silva, 2026)", "Outra obra (Souza, 2020)")
+        val souza = AuditoriaAbnt.citacoesBrutas(semEntrada).single { it.autorExibido == "Souza" }.claimId
+        assertEquals(
+            listOf("body_citation_not_in_manifest" to souza),
+            auditar(semEntrada, "protocol-sha256", comCitacoesIndiretas("(Silva, 2026)")).bloqueiosPorClaim(),
+        )
+        // A seção termina no próximo cabeçalho de nível igual ou menor: a
+        // citação num apêndice depois dela é do corpo e consome entrada
+        // própria. Qual das duas do corpo fica sem entrada depende da ordem dos
+        // `claim_id`, e por isso só o código é conferido.
+        val comApendice = "$texto\n\n## Apendice\nOutra afirmacao (Silva, 2026)."
+        assertEquals(
+            listOf("body_citation_not_in_manifest"),
+            auditar(comApendice, "protocol-sha256", comCitacoesIndiretas("(Silva, 2026)")).bloqueios.map { it.codigo },
+        )
+        val duasEntradas = auditar(
+            comApendice,
+            "protocol-sha256",
+            comCitacoesIndiretas("(Silva, 2026)", "(Silva, 2026)"),
+        )
+        assertEquals(emptyList(), duasEntradas.bloqueiosPorClaim(), duasEntradas.bloqueios.toString())
+    }
+
+    @Test
+    fun `subtitulo dentro das leituras complementares continua no aparato`() {
+        // Decisão do operador de 09/10/2026: cada seção do aparato vai até o
+        // próximo cabeçalho de nível igual ou menor, e os subtítulos ficam
+        // dentro. A entrada sob `### Livros` continua fora do corpo, para o
+        // original e para a regra de 24/09/2026; o apêndice do mesmo nível das
+        // leituras fecha a seção e é corpo.
+        val texto = "Texto autoral sem citacao.\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026.\n\n" +
+            "## Leituras complementares\n### Livros\nSILVA, Maria. Outra obra. Rio: Editora, 2025.\n\n" +
+            "## Apendice\nA autora descreve a obra como inaugural."
+        val manifesto = comCitacoesIndiretas("SILVA", "descreve a obra como inaugural")
+        val resultado = auditar(texto, "protocol-sha256", manifesto)
+        assertEquals(listOf("manifest_citation_absent_from_text" to "claim-1"), resultado.bloqueiosPorClaim())
+        assertEquals(StatusDoParMaestro.NAO_PRONTO, resultado.statusDoParMaestro)
+        // A citação sob o subtítulo só precisa estar representada: com a mesma
+        // citação no corpo, uma entrada basta.
+        val citado = texto.replace("sem citacao.", "(Silva, 2026).").replace("Outra obra.", "Outra obra (Silva, 2026).")
+        val umaEntrada = auditar(citado, "protocol-sha256", comCitacoesIndiretas("(Silva, 2026)"))
+        assertEquals(emptyList(), umaEntrada.bloqueiosPorClaim(), umaEntrada.bloqueios.toString())
+        assertEquals(StatusDoParMaestro.PRONTO, umaEntrada.statusDoParMaestro)
+    }
+
+    @Test
+    fun `subtitulo dentro das referencias continua no aparato, e a lista de referencias e lida como antes`() {
+        // A seção de referências também vai até o próximo cabeçalho de nível
+        // igual ou menor, no corte do corpo e na regra de 24/09/2026 (decisão
+        // do operador de 09/10/2026): `SILVA`, que fora da lista de
+        // referências só existe sob o subtítulo `### Outras obras`, ainda
+        // dentro da seção, não localiza a citação. A lista de referências
+        // continua lida como no canônico, até o primeiro cabeçalho de qualquer
+        // nível: a linha sob o subtítulo não é lida, e por isso não sai
+        // `reference_not_in_manifest` por ela.
+        val texto = "Texto autoral sem citacao.\n\n## Referencias\nSILVA, Maria. Obra. Sao Paulo: Editora, 2026.\n\n" +
+            "### Outras obras\nSILVA, Maria. Outra obra. Rio: Editora, 2025."
+        assertEquals(
+            listOf("SILVA, Maria. Obra. Sao Paulo: Editora, 2026."),
+            AuditoriaAbnt.secaoDeReferencias(texto).map { it.texto },
+        )
+        val resultado = auditar(texto, "protocol-sha256", comCitacoesIndiretas("SILVA"))
+        assertEquals(listOf("manifest_citation_absent_from_text" to "claim-1"), resultado.bloqueiosPorClaim())
+        assertEquals(StatusDoParMaestro.NAO_PRONTO, resultado.statusDoParMaestro)
+        // A citação sob o subtítulo só precisa estar representada: com a mesma
+        // citação no corpo, uma entrada basta.
+        val citado = texto.replace("sem citacao.", "(Silva, 2026).").replace("Outra obra.", "Outra obra (Silva, 2026).")
+        val umaEntrada = auditar(citado, "protocol-sha256", comCitacoesIndiretas("(Silva, 2026)"))
+        assertEquals(emptyList(), umaEntrada.bloqueiosPorClaim(), umaEntrada.bloqueios.toString())
+        assertEquals(StatusDoParMaestro.PRONTO, umaEntrada.statusDoParMaestro)
+    }
+
+    @Test
+    fun `forma normalizada que so existe no aparato nao localiza a citacao do manifesto`() {
+        // Decisão do operador de 09/10/2026, contra o plano do Codex, que
+        // mandava manter a forma normalizada procurada no texto inteiro: ela
+        // também só localiza a citação no corpo. Quando o autor é também a
+        // editora, a referência traz `IBGE, 2023`, que dobra como a forma
+        // `(IBGE, 2023)` da citação e a dava por localizada sem citação
+        // nenhuma no corpo, com ou sem `original_text`.
+        fun ibge(original: String?) = manifestoVerificado().let { base ->
+            base.copy(
+                citacoes = listOf(
+                    base.citacoes[0].copy(
+                        tipo = TipoDeCitacao.CITACAO_INDIRETA,
+                        autorExibido = "IBGE",
+                        chaveDoAutor = "IBGE",
+                        ano = "2023",
+                        localizador = null,
+                        textoOriginal = original,
+                    ),
+                ),
+                fontes = listOf(
+                    base.fontes[0].copy(
+                        autores = listOf(AutorDaFonte("IBGE", "IBGE")),
+                        titulo = "Censo demográfico 2022",
+                        local = "Rio de Janeiro",
+                        editora = "IBGE",
+                        ano = "2023",
+                    ),
+                ),
+            )
+        }
+        val referencias = "\n\n## Referencias\nIBGE. Censo demográfico 2022. Rio de Janeiro: IBGE, 2023."
+        val esperado = listOf("manifest_citation_absent_from_text" to "claim-1")
+        for (original in listOf("(IBGE, 2023)", null)) {
+            val resultado = auditar("Texto autoral sem citacao.$referencias", "protocol-sha256", ibge(original))
+            assertEquals(esperado, resultado.bloqueiosPorClaim(), original)
+            assertEquals(StatusDoParMaestro.NAO_PRONTO, resultado.statusDoParMaestro, original)
+        }
+        // Controle: sem `original_text`, a forma normalizada no corpo continua
+        // a localizar a citação.
+        val noCorpo = auditar(
+            "Segundo o censo (IBGE, 2023), a populacao cresceu.$referencias",
+            "protocol-sha256",
+            ibge(null),
+        )
+        assertEquals(emptyList(), noCorpo.bloqueiosPorClaim(), noCorpo.bloqueios.toString())
+        assertEquals(StatusDoParMaestro.PRONTO, noCorpo.statusDoParMaestro)
     }
 
     @Test
